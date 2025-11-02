@@ -8,7 +8,7 @@ import { useAuth } from "@/lib/auth";
 import { createClient } from "@/lib/connect";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { Award, Medal, Trophy, Users } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import toast from "react-hot-toast";
 
 export const Route = createFileRoute("/leaderboard")({
@@ -24,11 +24,7 @@ function LeaderboardPage() {
   const [totalCount, setTotalCount] = useState(0);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    loadLeaderboard();
-  }, [token, timeframe, scope]);
-
-  async function loadLeaderboard() {
+  const loadLeaderboard = useCallback(async () => {
     if (!token) {
       toast.error("Please log in to view leaderboard");
       setLoading(false);
@@ -54,7 +50,11 @@ function LeaderboardPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [token, timeframe, scope]);
+
+  useEffect(() => {
+    loadLeaderboard();
+  }, [loadLeaderboard]);
 
   const getMedalIcon = (rank: number) => {
     if (rank === 1) {
@@ -217,7 +217,7 @@ function LeaderboardPage() {
               </div>
               <div>
                 <div className="text-xs text-gray-500">Streak</div>
-                  {currentUserEntry.performance?.currentStreak}
+                {currentUserEntry.performance?.currentStreak}
               </div>
             </div>
           </div>

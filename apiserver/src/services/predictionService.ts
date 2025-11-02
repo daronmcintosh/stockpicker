@@ -1,36 +1,48 @@
 import { randomUUID } from "node:crypto";
-import { Timestamp } from "@bufbuild/protobuf";
+import { create } from "@bufbuild/protobuf";
+import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import type { HandlerContext } from "@connectrpc/connect";
 import { type PredictionRow, type StrategyRow, db } from "../db.js";
-import { PredictionService } from "../gen/stockpicker/v1/strategy_connect.js";
 import {
   type CopyPredictionRequest,
-  CopyPredictionResponse,
+  type CopyPredictionResponse,
+  CopyPredictionResponseSchema,
   type CreatePredictionRequest,
-  CreatePredictionResponse,
+  type CreatePredictionResponse,
+  CreatePredictionResponseSchema,
   type DeletePredictionRequest,
-  DeletePredictionResponse,
+  type DeletePredictionResponse,
+  DeletePredictionResponseSchema,
   type GetCurrentPricesRequest,
-  GetCurrentPricesResponse,
+  type GetCurrentPricesResponse,
+  GetCurrentPricesResponseSchema,
   type GetPredictionRequest,
-  GetPredictionResponse,
+  type GetPredictionResponse,
+  GetPredictionResponseSchema,
   type GetPredictionsBySymbolRequest,
-  GetPredictionsBySymbolResponse,
+  type GetPredictionsBySymbolResponse,
+  GetPredictionsBySymbolResponseSchema,
   type GetPublicPredictionsRequest,
-  GetPublicPredictionsResponse,
+  type GetPublicPredictionsResponse,
+  GetPublicPredictionsResponseSchema,
   type ListPredictionsRequest,
-  ListPredictionsResponse,
-  Prediction,
+  type ListPredictionsResponse,
+  ListPredictionsResponseSchema,
+  type Prediction,
   PredictionAction,
   PredictionPrivacy,
+  PredictionSchema,
   PredictionSource,
   PredictionStatus,
   RiskLevel,
   type UpdatePredictionActionRequest,
-  UpdatePredictionActionResponse,
+  type UpdatePredictionActionResponse,
+  UpdatePredictionActionResponseSchema,
   type UpdatePredictionPrivacyRequest,
-  UpdatePredictionPrivacyResponse,
-  User,
+  type UpdatePredictionPrivacyResponse,
+  UpdatePredictionPrivacyResponseSchema,
+  type User,
+  UserSchema,
 } from "../gen/stockpicker/v1/strategy_pb.js";
 import { getCurrentUserId, getUserById } from "./authHelpers.js";
 
@@ -87,8 +99,14 @@ function mapSourceToDb(source: PredictionSource): string {
 }
 
 // Helper to convert DB row to proto Prediction message
-async function dbRowToProtoPrediction(row: PredictionRow): Promise<Prediction> {
-  const prediction = new Prediction({
+export async function dbRowToProtoPrediction(row: PredictionRow): Promise<Prediction> {
+  // Handle timestamp conversion - SQLite unixepoch() returns seconds, Date.now() returns milliseconds
+  const timestampToDate = (timestamp: number): Date => {
+    const ms = timestamp < 1e10 ? timestamp * 1000 : timestamp;
+    return new Date(ms);
+  };
+
+  const prediction = create(PredictionSchema, {
     id: row.id,
     strategyId: row.strategy_id,
     symbol: row.symbol,
@@ -106,47 +124,31 @@ async function dbRowToProtoPrediction(row: PredictionRow): Promise<Prediction> {
     overallScore: toNumber(row.overall_score),
     action: mapActionToEnum(row.action),
     status: mapStatusFromDb(row.status),
-    createdAt: Timestamp.fromDate(new Date(row.created_at)),
+    createdAt: timestampFromDate(new Date(row.created_at)),
     privacy: mapPredictionPrivacyFromDb(row.privacy || "PREDICTION_PRIVACY_PRIVATE"),
     source: mapSourceFromDb(row.source),
     userId: row.user_id,
+    evaluationDate: row.evaluation_date
+      ? timestampFromDate(new Date(row.evaluation_date))
+      : undefined,
+    currentPrice: row.current_price !== null ? toNumber(row.current_price) : undefined,
+    currentReturnPct:
+      row.current_return_pct !== null ? toNumber(row.current_return_pct) : undefined,
+    closedAt: row.closed_at ? timestampFromDate(new Date(row.closed_at)) : undefined,
+    closedReason: row.closed_reason || undefined,
   });
-
-  // Optional fields
-  if (row.evaluation_date) {
-    prediction.evaluationDate = Timestamp.fromDate(new Date(row.evaluation_date));
-  }
-  if (row.current_price !== null) {
-    prediction.currentPrice = toNumber(row.current_price);
-  }
-  if (row.current_return_pct !== null) {
-    prediction.currentReturnPct = toNumber(row.current_return_pct);
-  }
-  if (row.closed_at) {
-    prediction.closedAt = Timestamp.fromDate(new Date(row.closed_at));
-  }
-  if (row.closed_reason) {
-    prediction.closedReason = row.closed_reason;
-  }
 
   // Populate user field
   const userRow = await getUserById(row.user_id);
   if (userRow) {
-    // Handle timestamp conversion - SQLite unixepoch() returns seconds, Date.now() returns milliseconds
-    // If timestamp is < 1e10, it's in seconds, otherwise it's in milliseconds
-    const timestampToDate = (timestamp: number): Date => {
-      const ms = timestamp < 1e10 ? timestamp * 1000 : timestamp;
-      return new Date(ms);
-    };
-
-    prediction.user = new User({
+    prediction.user = create(UserSchema, {
       id: userRow.id,
       email: userRow.email,
       username: userRow.username,
       displayName: userRow.display_name ?? undefined,
       avatarUrl: userRow.avatar_url ?? undefined,
-      createdAt: Timestamp.fromDate(timestampToDate(userRow.created_at)),
-      updatedAt: Timestamp.fromDate(timestampToDate(userRow.updated_at)),
+      createdAt: timestampFromDate(timestampToDate(userRow.created_at)),
+      updatedAt: timestampFromDate(timestampToDate(userRow.updated_at)),
     });
   }
 
@@ -410,7 +412,7 @@ export const predictionServiceImpl = {
 
       console.log("✅ Prediction created successfully:", id);
 
-      return new CreatePredictionResponse({ prediction });
+      return create(CreatePredictionResponseSchema, { prediction });
     } catch (error) {
       console.error("❌ Error creating prediction:", error);
       if (error instanceof Error) {
@@ -459,7 +461,7 @@ export const predictionServiceImpl = {
     }
 
     const predictions = await Promise.all(rows.map((row) => dbRowToProtoPrediction(row)));
-    return new ListPredictionsResponse({ predictions });
+    return create(ListPredictionsResponseSchema, { predictions });
   },
 
   async getPrediction(
@@ -483,7 +485,7 @@ export const predictionServiceImpl = {
     }
 
     const prediction = await dbRowToProtoPrediction(row);
-    return new GetPredictionResponse({ prediction });
+    return create(GetPredictionResponseSchema, { prediction });
   },
 
   async getPredictionsBySymbol(
@@ -513,7 +515,7 @@ export const predictionServiceImpl = {
     });
 
     const predictions = await Promise.all(accessibleRows.map((row) => dbRowToProtoPrediction(row)));
-    return new GetPredictionsBySymbolResponse({ predictions });
+    return create(GetPredictionsBySymbolResponseSchema, { predictions });
   },
 
   async updatePredictionAction(
@@ -545,7 +547,7 @@ export const predictionServiceImpl = {
     }
 
     const prediction = await dbRowToProtoPrediction(row);
-    return new UpdatePredictionActionResponse({ prediction });
+    return create(UpdatePredictionActionResponseSchema, { prediction });
   },
 
   async getPublicPredictions(
@@ -574,7 +576,7 @@ export const predictionServiceImpl = {
 
     console.log(`📋 Fetched ${predictions.length} public predictions (total: ${total})`);
 
-    return new GetPublicPredictionsResponse({ predictions, total });
+    return create(GetPublicPredictionsResponseSchema, { predictions, total });
   },
 
   async updatePredictionPrivacy(
@@ -610,7 +612,7 @@ export const predictionServiceImpl = {
 
     console.log(`🔒 Updated prediction privacy: ${req.id} -> ${privacyStr}`);
 
-    return new UpdatePredictionPrivacyResponse({ prediction });
+    return create(UpdatePredictionPrivacyResponseSchema, { prediction });
   },
 
   // TODO: Uncomment after regenerating proto files to include UpdatePredictionRequest and UpdatePredictionResponse
@@ -749,7 +751,12 @@ export const predictionServiceImpl = {
 
           const response = await fetch(url.toString());
           if (response.ok) {
-            const data = await response.json();
+            interface AlphaVantageQuote {
+              "Global Quote"?: {
+                "05. price"?: string;
+              };
+            }
+            const data = (await response.json()) as AlphaVantageQuote;
             const quote = data?.["Global Quote"];
             if (quote?.["05. price"]) {
               const price = Number.parseFloat(quote["05. price"]);
@@ -765,7 +772,16 @@ export const predictionServiceImpl = {
         const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}`;
         const yahooResponse = await fetch(yahooUrl);
         if (yahooResponse.ok) {
-          const data = await yahooResponse.json();
+          interface YahooFinanceChart {
+            chart?: {
+              result?: {
+                meta?: {
+                  regularMarketPrice?: number;
+                };
+              }[];
+            };
+          }
+          const data = (await yahooResponse.json()) as YahooFinanceChart;
           const price = data?.chart?.result?.[0]?.meta?.regularMarketPrice;
           if (price && typeof price === "number") {
             prices[symbol] = price;
@@ -781,7 +797,7 @@ export const predictionServiceImpl = {
       await new Promise((resolve) => setTimeout(resolve, 200));
     }
 
-    return new GetCurrentPricesResponse({ prices });
+    return create(GetCurrentPricesResponseSchema, { prices });
   },
 
   async deletePrediction(
@@ -806,7 +822,7 @@ export const predictionServiceImpl = {
       // Delete the prediction
       await db.run("DELETE FROM predictions WHERE id = ?", [req.id]);
       console.log(`🗑️ Prediction deleted: ${req.id} (${row.symbol})`);
-      return new DeletePredictionResponse({ success: true });
+      return create(DeletePredictionResponseSchema, { success: true });
     } catch (error) {
       console.error("❌ Error deleting prediction:", error);
       throw error;
@@ -930,7 +946,7 @@ export const predictionServiceImpl = {
 
       console.log(`✅ Prediction copied successfully: ${originalRow.id} -> ${newId}`);
 
-      return new CopyPredictionResponse({
+      return create(CopyPredictionResponseSchema, {
         prediction: copiedPrediction,
       });
     } catch (error) {

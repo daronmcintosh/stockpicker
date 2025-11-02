@@ -1,18 +1,14 @@
-version: v1
+version: v2
 plugins:
-  - plugin: es
+  - local: protoc-gen-es
     out: ../apiserver/src/gen
     opt:
       - target=ts
-  - plugin: connect-es
-    out: ../apiserver/src/gen
-    opt:
-      - target=ts
-  - plugin: es
+      - import_extension=none
+      - ts_nocheck=false
+  - local: protoc-gen-es
     out: ../webapp/src/gen
     opt:
       - target=ts
-  - plugin: connect-es
-    out: ../webapp/src/gen
-    opt:
-      - target=ts
+      - import_extension=none
+      - ts_nocheck=false

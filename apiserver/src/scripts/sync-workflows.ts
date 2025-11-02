@@ -14,10 +14,11 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { n8nClient } from "../services/n8nClient.js";
+import type { N8nWorkflow } from "../services/n8nTypes.js";
 
 interface WorkflowFile {
   name: string;
-  content: unknown;
+  content: N8nWorkflow;
 }
 
 async function waitForN8n(maxRetries = 30, delayMs = 2000): Promise<void> {
@@ -41,11 +42,20 @@ async function waitForN8n(maxRetries = 30, delayMs = 2000): Promise<void> {
 
 async function loadWorkflowFiles(workflowsDir: string): Promise<WorkflowFile[]> {
   try {
-    const files = readdirSync(workflowsDir)
+    const files: WorkflowFile[] = readdirSync(workflowsDir)
       .filter((file) => file.endsWith(".json"))
       .map((file) => {
         const filePath = join(workflowsDir, file);
-        const content = JSON.parse(readFileSync(filePath, "utf-8"));
+        const rawContent = JSON.parse(readFileSync(filePath, "utf-8")) as Record<string, unknown>;
+
+        // Ensure required fields exist
+        const content: N8nWorkflow = {
+          ...rawContent,
+          name: rawContent.name as string,
+          nodes: Array.isArray(rawContent.nodes) ? rawContent.nodes : [],
+          connections: (rawContent.connections as Record<string, unknown>) ?? {},
+        } as N8nWorkflow;
+
         return {
           name: content.name,
           content,
@@ -130,7 +140,6 @@ async function syncWorkflows(workflowsDir: string): Promise<void> {
 
         // Create the new workflow from JSON
         try {
-          console.log(`   Creating new workflow from JSON...`);
           const created = await n8nClient.createWorkflow(workflowFile.content);
 
           // Wait a moment for workflow to be fully created

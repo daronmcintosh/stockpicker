@@ -1,4 +1,4 @@
-import { PredictionService, StrategyService } from "@/gen/stockpicker/v1/strategy_connect";
+import { PredictionService, StrategyService } from "@/gen/stockpicker/v1/strategy_pb";
 import { createClient as createConnectClient } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-web";
 

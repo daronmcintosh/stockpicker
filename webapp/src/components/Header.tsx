@@ -153,21 +153,35 @@ export default function Header() {
         </div>
 
         <nav className="flex-1 p-4 overflow-y-auto">
-          <Link
-            to="/"
-            onClick={() => setIsOpen(false)}
-            className="flex items-center gap-3 px-4 py-3 rounded-lg text-gray-700 hover:bg-gray-100 transition-colors mb-1"
-            activeProps={{
-              className:
-                "flex items-center gap-3 px-4 py-3 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors mb-1 border border-blue-200",
-            }}
-          >
-            <Home size={20} />
-            <span className="font-medium">Home</span>
-          </Link>
+          {!user && (
+            <Link
+              to="/"
+              onClick={() => setIsOpen(false)}
+              className="flex items-center gap-3 px-4 py-3 rounded-lg text-gray-700 hover:bg-gray-100 transition-colors mb-1"
+              activeProps={{
+                className:
+                  "flex items-center gap-3 px-4 py-3 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors mb-1 border border-blue-200",
+              }}
+            >
+              <Home size={20} />
+              <span className="font-medium">Home</span>
+            </Link>
+          )}
 
           {user && (
             <>
+              <Link
+                to="/dashboard"
+                onClick={() => setIsOpen(false)}
+                className="flex items-center gap-3 px-4 py-3 rounded-lg text-gray-700 hover:bg-gray-100 transition-colors mb-1"
+                activeProps={{
+                  className:
+                    "flex items-center gap-3 px-4 py-3 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors mb-1 border border-blue-200",
+                }}
+              >
+                <BarChart3 size={20} />
+                <span className="font-medium">Dashboard</span>
+              </Link>
               <Link
                 to="/strategies"
                 onClick={() => setIsOpen(false)}

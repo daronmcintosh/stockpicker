@@ -327,34 +327,34 @@ function FeedPage() {
   }
 
   return (
-      <div className="container mx-auto px-4 py-8">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">
-            {showFollowing ? "Following Feed" : "Public Feed"}
-          </h1>
-          <p className="mt-2 text-gray-600">
-            {showFollowing ? (
-              <>
-                See what users you're following are sharing.{" "}
-                {filter === "all" &&
-                  `${totalPredictions} ${totalPredictions === 1 ? "prediction" : "predictions"} and ${totalStrategies} ${totalStrategies === 1 ? "strategy" : "strategies"}.`}
-                {filter === "predictions" &&
-                  `${totalPredictions} ${totalPredictions === 1 ? "prediction" : "predictions"}.`}
-                {filter === "strategies" &&
-                  `${totalStrategies} ${totalStrategies === 1 ? "strategy" : "strategies"}.`}
-              </>
-            ) : (
-              <>
-                See what the community is sharing.{" "}
-                {filter === "all" &&
-                  `${totalPredictions} public ${totalPredictions === 1 ? "prediction" : "predictions"} and ${totalStrategies} public ${totalStrategies === 1 ? "strategy" : "strategies"}.`}
-                {filter === "predictions" &&
-                  `${totalPredictions} public ${totalPredictions === 1 ? "prediction" : "predictions"}.`}
-                {filter === "strategies" &&
-                  `${totalStrategies} public ${totalStrategies === 1 ? "strategy" : "strategies"}.`}
-              </>
-            )}
-          </p>
+    <div className="container mx-auto px-4 py-8">
+      <div className="mb-8">
+        <h1 className="text-3xl font-bold text-gray-900">
+          {showFollowing ? "Following Feed" : "Public Feed"}
+        </h1>
+        <p className="mt-2 text-gray-600">
+          {showFollowing ? (
+            <>
+              See what users you're following are sharing.{" "}
+              {filter === "all" &&
+                `${totalPredictions} ${totalPredictions === 1 ? "prediction" : "predictions"} and ${totalStrategies} ${totalStrategies === 1 ? "strategy" : "strategies"}.`}
+              {filter === "predictions" &&
+                `${totalPredictions} ${totalPredictions === 1 ? "prediction" : "predictions"}.`}
+              {filter === "strategies" &&
+                `${totalStrategies} ${totalStrategies === 1 ? "strategy" : "strategies"}.`}
+            </>
+          ) : (
+            <>
+              See what the community is sharing.{" "}
+              {filter === "all" &&
+                `${totalPredictions} public ${totalPredictions === 1 ? "prediction" : "predictions"} and ${totalStrategies} public ${totalStrategies === 1 ? "strategy" : "strategies"}.`}
+              {filter === "predictions" &&
+                `${totalPredictions} public ${totalPredictions === 1 ? "prediction" : "predictions"}.`}
+              {filter === "strategies" &&
+                `${totalStrategies} public ${totalStrategies === 1 ? "strategy" : "strategies"}.`}
+            </>
+          )}
+        </p>
 
         {/* Filter Buttons */}
         <div className="flex items-center gap-2 mt-4 flex-wrap">
@@ -430,7 +430,9 @@ function FeedPage() {
           </p>
           <p className="text-gray-400 text-sm mt-2">
             {showFollowing && "Start following users to see their content here!"}
-            {!showFollowing && filter === "all" && "Be the first to share a strategy or prediction!"}
+            {!showFollowing &&
+              filter === "all" &&
+              "Be the first to share a strategy or prediction!"}
             {!showFollowing && filter === "predictions" && "Be the first to share a prediction!"}
             {!showFollowing && filter === "strategies" && "Be the first to share a strategy!"}
           </p>

@@ -61,7 +61,7 @@ function LoginPage() {
       }
 
       await login(response.token);
-      navigate({ to: "/" });
+      navigate({ to: "/dashboard" });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to verify OTP");
     } finally {

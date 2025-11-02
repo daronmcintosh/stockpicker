@@ -7,7 +7,7 @@ import {
   StrategyStatus,
 } from "@/gen/stockpicker/v1/strategy_pb";
 import { useAuth } from "@/lib/auth";
-import { createClient, predictionClient, strategyClient } from "@/lib/connect";
+import { createClient } from "@/lib/connect";
 import { Link, createFileRoute, useSearch } from "@tanstack/react-router";
 import {
   BarChart3,

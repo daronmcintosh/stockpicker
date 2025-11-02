@@ -6,12 +6,9 @@ import type { ConnectRouter } from "@connectrpc/connect";
 import { connectNodeAdapter } from "@connectrpc/connect-node";
 import { registerServerReflectionFromFile } from "@lambdalisue/connectrpc-grpcreflect";
 import { appConfig } from "./config.js";
-import { PredictionService, StrategyService } from "./gen/stockpicker/v1/strategy_connect.js";
+import { PredictionService, StrategyService } from "./gen/stockpicker/v1/strategy_pb.js";
 import { predictionServiceImpl } from "./services/predictionService.js";
-import {
-  strategyServiceImpl,
-  syncStrategiesWithWorkflows,
-} from "./services/strategyService.js";
+import { strategyServiceImpl, syncStrategiesWithWorkflows } from "./services/strategyService.js";
 
 const PORT = appConfig.server.port;
 const HOST = appConfig.server.host;
@@ -19,6 +16,7 @@ const HOST = appConfig.server.host;
 // Create the Connect routes
 const routes = (router: ConnectRouter) => {
   console.log("🔧 Setting up Connect routes...");
+  // Register Connect RPC services
   router.service(StrategyService, strategyServiceImpl);
   console.log("✅ StrategyService registered");
   router.service(PredictionService, predictionServiceImpl);
@@ -33,7 +31,7 @@ const routes = (router: ConnectRouter) => {
 
       if (existsSync(fdsetPath)) {
         // Type assertion needed due to Connect RPC version differences
-        registerServerReflectionFromFile(router as ConnectRouter, fdsetPath);
+        registerServerReflectionFromFile(router, fdsetPath);
         console.log("✅ gRPC Reflection enabled (dev mode)");
       } else {
         console.warn(

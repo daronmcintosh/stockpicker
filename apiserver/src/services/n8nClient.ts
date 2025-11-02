@@ -1,5 +1,6 @@
 import { appConfig } from "../config.js";
 import { Frequency } from "../gen/stockpicker/v1/strategy_pb.js";
+import type { N8nFullWorkflow, N8nWorkflow, N8nWorkflowResponse } from "./n8nTypes.js";
 
 /**
  * Get the current API URL from config
@@ -23,11 +24,16 @@ function injectApiUrl(workflow: N8nWorkflow): N8nWorkflow {
     if (typeof obj === "string") {
       // Replace n8n expression syntax: {{ $env.API_URL }} or ={{ $env.API_URL }}
       // Also replace any old hardcoded URLs with the new one
-      return obj
-        .replace(/\{\{\s*\$env\.API_URL\s*\}\}/g, apiUrl)
-        .replace(/=\{\{\s*\$env\.API_URL\s*\}\}/g, apiUrl)
-        // Replace common API URL patterns (http://apiserver:3000, http://localhost:3001, etc.)
-        .replace(/https?:\/\/[^\/\s"']+(\/stockpicker\.v1\.(Strategy|Prediction)Service\/)/g, `${apiUrl}$1`);
+      return (
+        obj
+          .replace(/\{\{\s*\$env\.API_URL\s*\}\}/g, apiUrl)
+          .replace(/=\{\{\s*\$env\.API_URL\s*\}\}/g, apiUrl)
+          // Replace common API URL patterns (http://apiserver:3000, http://localhost:3001, etc.)
+          .replace(
+            /https?:\/\/[^\/\s"']+(\/stockpicker\.v1\.(Strategy|Prediction)Service\/)/g,
+            `${apiUrl}$1`
+          )
+      );
     }
     if (Array.isArray(obj)) {
       return obj.map(replaceEnvVars);
@@ -52,7 +58,7 @@ function injectApiUrl(workflow: N8nWorkflow): N8nWorkflow {
 function needsApiUrlUpdate(workflow: N8nFullWorkflow): boolean {
   const currentApiUrl = getCurrentApiUrl();
   const workflowJson = JSON.stringify(workflow);
-  
+
   // Check if workflow contains old API URLs (not using current URL and not using $env.API_URL)
   // We'll look for common patterns that indicate a hardcoded API URL
   const urlPatterns = [
@@ -60,12 +66,12 @@ function needsApiUrlUpdate(workflow: N8nFullWorkflow): boolean {
     /http:\/\/localhost:\d+/,
     /https?:\/\/[^\/\s"']+\/stockpicker\.v1\.(Strategy|Prediction)Service/,
   ];
-  
+
   // If workflow uses $env.API_URL, it doesn't need updating (n8n will resolve it)
   if (workflowJson.includes("$env.API_URL")) {
     return false;
   }
-  
+
   // Check if any old URL patterns exist
   for (const pattern of urlPatterns) {
     if (pattern.test(workflowJson)) {
@@ -75,7 +81,7 @@ function needsApiUrlUpdate(workflow: N8nFullWorkflow): boolean {
       }
     }
   }
-  
+
   return false;
 }
 
@@ -173,27 +179,6 @@ function filterWorkflowForApi(workflow: Record<string, unknown>): Record<string,
   }
 
   return requestBody;
-}
-
-interface N8nWorkflow {
-  id?: string;
-  name: string;
-  active?: boolean; // Read-only in API - cannot be set during creation
-  nodes: unknown[];
-  connections: unknown;
-  settings?: unknown;
-  staticData?: unknown;
-  tags?: unknown[];
-}
-
-interface N8nWorkflowResponse {
-  id: string;
-  name: string;
-  active: boolean;
-}
-
-interface N8nFullWorkflow extends N8nWorkflow {
-  id: string;
 }
 
 class N8nClient {
@@ -746,20 +731,20 @@ return recommendations.map(rec => ({ json: rec }));`,
         workflowId,
         updates: Object.keys(updates),
       });
-      
+
       // n8n doesn't support PATCH, so we need to fetch the full workflow first
       const existingWorkflow = await this.getFullWorkflow(workflowId);
-      
+
       // Merge updates into the existing workflow
       const updatedWorkflow: N8nFullWorkflow = {
         ...existingWorkflow,
         ...updates,
-        id: workflowId, // Ensure ID is set
+        id: workflowId,
       };
-      
+
       // Use PUT to update the entire workflow
       const response = await this.updateFullWorkflow(workflowId, updatedWorkflow);
-      
+
       console.log(`✅ n8n workflow updated:`, {
         workflowId: response.id,
         workflowName: response.name,
@@ -934,29 +919,35 @@ return recommendations.map(rec => ({ json: rec }));`,
     try {
       // Get the full workflow
       const workflow = await this.getFullWorkflow(workflowId);
-      
+
       // Check if it needs updating
       if (!needsApiUrlUpdate(workflow)) {
         console.log(`✅ Workflow API URL is current:`, { workflowId });
         return null;
       }
-      
+
       console.log(`🔄 Updating API URL in workflow:`, {
         workflowId,
         workflowName: workflow.name,
       });
-      
+
       // Inject the current API URL into the workflow
       const updatedWorkflow = injectApiUrl(workflow);
-      
+
+      // Ensure the workflow has the ID set (required for N8nFullWorkflow)
+      const workflowWithId: N8nFullWorkflow = {
+        ...updatedWorkflow,
+        id: workflowId,
+      };
+
       // Update the workflow (PUT replaces entire workflow)
-      const response = await this.updateFullWorkflow(workflowId, updatedWorkflow);
-      
+      const response = await this.updateFullWorkflow(workflowId, workflowWithId);
+
       console.log(`✅ Workflow API URL updated:`, {
         workflowId: response.id,
         workflowName: response.name,
       });
-      
+
       return response;
     } catch (error) {
       console.error(`❌ Error updating workflow API URL:`, {
@@ -1003,7 +994,7 @@ return recommendations.map(rec => ({ json: rec }));`,
       // Filter to only include fields that n8n API accepts for workflow creation
       // n8n API only accepts: name, nodes, connections, settings (optional), staticData (optional), tags (optional)
       // It does NOT accept: id, active, versionId, meta, createdAt, updatedAt, note, etc.
-      const workflowData = workflowWithApiUrl as Record<string, unknown>;
+      const workflowData = workflowWithApiUrl as unknown as Record<string, unknown>;
 
       // Filter workflow to only include API-accepted fields
       const requestBody = filterWorkflowForApi(workflowData);
@@ -1037,7 +1028,7 @@ return recommendations.map(rec => ({ json: rec }));`,
    */
   async updateFullWorkflow(
     workflowId: string,
-    workflow: Partial<N8nWorkflow> & { id: string }
+    workflow: N8nFullWorkflow
   ): Promise<N8nWorkflowResponse> {
     try {
       console.log(`📝 Updating full n8n workflow:`, {
@@ -1045,16 +1036,16 @@ return recommendations.map(rec => ({ json: rec }));`,
         name: workflow.name,
         nodeCount: Array.isArray(workflow.nodes) ? workflow.nodes.length : undefined,
       });
-      
+
       // Filter workflow to only include API-accepted fields (remove id, active, versionId, meta, etc.)
-      const workflowData = workflow as Record<string, unknown>;
+      const workflowData = workflow as unknown as Record<string, unknown>;
       const requestBody = filterWorkflowForApi(workflowData);
-      
+
       console.log(`📝 Filtered workflow fields for update:`, {
         fields: Object.keys(requestBody),
         nodeCount: Array.isArray(requestBody.nodes) ? requestBody.nodes.length : 0,
       });
-      
+
       // Use PUT to replace the entire workflow
       const response = await this.request<N8nWorkflowResponse>(
         "PUT",
@@ -1148,7 +1139,9 @@ return recommendations.map(rec => ({ json: rec }));`,
           try {
             console.log(`🔄 Trying executions endpoint...`);
             await this.request<void>("POST", `/executions/workflow/${workflowId}`);
-            console.log(`✅ n8n workflow execution triggered via executions endpoint:`, { workflowId });
+            console.log(`✅ n8n workflow execution triggered via executions endpoint:`, {
+              workflowId,
+            });
             return;
           } catch (execError) {
             console.error(`❌ Executions endpoint also failed:`, execError);

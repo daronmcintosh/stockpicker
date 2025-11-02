@@ -1,67 +1,93 @@
 import { randomUUID } from "node:crypto";
-import { Timestamp } from "@bufbuild/protobuf";
+import { create } from "@bufbuild/protobuf";
+import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import type { HandlerContext } from "@connectrpc/connect";
 import { Code, ConnectError } from "@connectrpc/connect";
-import { appConfig } from "../config.js";
-import { type StrategyRow, db, statements } from "../db.js";
-import { StrategyService } from "../gen/stockpicker/v1/strategy_connect.js";
+import { type StrategyRow, db } from "../db.js";
 import {
   type CopyStrategyRequest,
-  CopyStrategyResponse,
+  type CopyStrategyResponse,
+  CopyStrategyResponseSchema,
   type CreateStrategyRequest,
-  CreateStrategyResponse,
+  type CreateStrategyResponse,
+  CreateStrategyResponseSchema,
   type DeleteStrategyRequest,
-  DeleteStrategyResponse,
+  type DeleteStrategyResponse,
+  DeleteStrategyResponseSchema,
   type FollowUserRequest,
-  FollowUserResponse,
+  type FollowUserResponse,
+  FollowUserResponseSchema,
   Frequency,
   type GetCurrentUserRequest,
-  GetCurrentUserResponse,
+  type GetCurrentUserResponse,
+  GetCurrentUserResponseSchema,
   type GetLeaderboardRequest,
-  GetLeaderboardResponse,
+  type GetLeaderboardResponse,
+  GetLeaderboardResponseSchema,
   type GetStrategyRequest,
-  GetStrategyResponse,
+  type GetStrategyResponse,
+  GetStrategyResponseSchema,
   type GetUserPerformanceRequest,
-  GetUserPerformanceResponse,
+  type GetUserPerformanceResponse,
+  GetUserPerformanceResponseSchema,
   type GetUserProfileRequest,
-  GetUserProfileResponse,
-  LeaderboardEntry,
+  type GetUserProfileResponse,
+  GetUserProfileResponseSchema,
+  type LeaderboardEntry,
+  LeaderboardEntrySchema,
   LeaderboardScope,
   LeaderboardTimeframe,
   type ListCloseFriendsRequest,
-  ListCloseFriendsResponse,
+  type ListCloseFriendsResponse,
+  ListCloseFriendsResponseSchema,
   type ListFollowersRequest,
-  ListFollowersResponse,
+  type ListFollowersResponse,
+  ListFollowersResponseSchema,
   type ListFollowingRequest,
-  ListFollowingResponse,
+  type ListFollowingResponse,
+  ListFollowingResponseSchema,
   type ListStrategiesRequest,
-  ListStrategiesResponse,
+  type ListStrategiesResponse,
+  ListStrategiesResponseSchema,
   type PauseStrategyRequest,
-  PauseStrategyResponse,
+  type PauseStrategyResponse,
+  PauseStrategyResponseSchema,
+  type UserPerformance as ProtoUserPerformance,
   RiskLevel,
   type SendOTPRequest,
-  SendOTPResponse,
+  type SendOTPResponse,
+  SendOTPResponseSchema,
   type StartStrategyRequest,
-  StartStrategyResponse,
+  type StartStrategyResponse,
+  StartStrategyResponseSchema,
   type StopStrategyRequest,
-  StopStrategyResponse,
-  Strategy,
+  type StopStrategyResponse,
+  StopStrategyResponseSchema,
+  type Strategy,
   StrategyPrivacy,
+  StrategySchema,
   StrategyStatus,
   type TriggerPredictionsRequest,
-  TriggerPredictionsResponse,
+  type TriggerPredictionsResponse,
+  TriggerPredictionsResponseSchema,
   type UnfollowUserRequest,
-  UnfollowUserResponse,
+  type UnfollowUserResponse,
+  UnfollowUserResponseSchema,
   type UpdateStrategyPrivacyRequest,
-  UpdateStrategyPrivacyResponse,
+  type UpdateStrategyPrivacyResponse,
+  UpdateStrategyPrivacyResponseSchema,
   type UpdateStrategyRequest,
-  UpdateStrategyResponse,
+  type UpdateStrategyResponse,
+  UpdateStrategyResponseSchema,
   type UpdateUserRequest,
-  UpdateUserResponse,
-  User,
-  UserPerformance,
+  type UpdateUserResponse,
+  UpdateUserResponseSchema,
+  type User,
+  UserPerformanceSchema,
+  UserSchema,
   type VerifyOTPRequest,
-  VerifyOTPResponse,
+  type VerifyOTPResponse,
+  VerifyOTPResponseSchema,
 } from "../gen/stockpicker/v1/strategy_pb.js";
 import {
   generateToken,
@@ -73,7 +99,8 @@ import {
 } from "./authHelpers.js";
 import { getLeaderboard } from "./leaderboardHelpers.js";
 import { n8nClient } from "./n8nClient.js";
-import { calculatePerformance, calculatePerformanceScore } from "./performanceHelpers.js";
+import { type UserPerformance, calculatePerformance } from "./performanceHelpers.js";
+import { dbRowToProtoPrediction } from "./predictionService.js";
 import {
   followUser as followUserHelper,
   getCloseFriends,
@@ -123,19 +150,11 @@ async function ensureWorkflowExists(row: StrategyRow): Promise<string> {
         workflowId: workflow.id,
         workflowName: workflow.name,
       });
-      
+
       // Check and update API URL if it has changed (e.g., N8N_API_SERVER_URL was updated)
-      try {
-        await n8nClient.updateWorkflowApiUrl(currentWorkflowId);
-      } catch (updateError) {
-        // Non-critical - log warning but don't fail
-        console.warn(`⚠️ Failed to update workflow API URL (workflow will still work):`, {
-          strategyId,
-          workflowId: currentWorkflowId,
-          error: updateError instanceof Error ? updateError.message : String(updateError),
-        });
-      }
-      
+      // This must succeed - if it fails, the operation should fail
+      await n8nClient.updateWorkflowApiUrl(currentWorkflowId);
+
       return workflow.id;
     } catch (error) {
       console.warn(`⚠️ Workflow ${currentWorkflowId} not found in n8n, will create new one:`, {
@@ -164,12 +183,49 @@ async function ensureWorkflowExists(row: StrategyRow): Promise<string> {
     });
 
     // Update the database with the new workflow ID
-    await db.run(
-      "UPDATE strategies SET n8n_workflow_id = ?, updated_at = ? WHERE id = ?",
-      [workflow.id, new Date().toISOString(), strategyId]
-    );
+    // Use transaction to ensure atomicity: if DB update fails, cleanup the workflow
+    try {
+      await db.run("BEGIN TRANSACTION");
 
-    return workflow.id;
+      await db.run("UPDATE strategies SET n8n_workflow_id = ?, updated_at = ? WHERE id = ?", [
+        workflow.id,
+        new Date().toISOString(),
+        strategyId,
+      ]);
+
+      await db.run("COMMIT");
+      console.log(`✅ Workflow ID updated in database:`, {
+        strategyId,
+        workflowId: workflow.id,
+      });
+
+      return workflow.id;
+    } catch (dbError) {
+      // Rollback on database error
+      try {
+        await db.run("ROLLBACK");
+      } catch (rollbackError) {
+        console.error("❌ Failed to rollback:", rollbackError);
+      }
+
+      // Clean up the created workflow if DB update failed
+      try {
+        console.log(`🧹 Cleaning up created workflow after DB update failure:`, {
+          workflowId: workflow.id,
+        });
+        await n8nClient.deleteWorkflow(workflow.id);
+        console.log(`✅ Workflow cleaned up successfully`);
+      } catch (cleanupError) {
+        console.error("⚠️ Failed to cleanup workflow after DB failure:", {
+          workflowId: workflow.id,
+          error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
+        });
+      }
+
+      throw new Error(
+        `Failed to update database with workflow ID: ${dbError instanceof Error ? dbError.message : String(dbError)}`
+      );
+    }
   } catch (error) {
     console.error(`❌ Failed to create workflow for strategy:`, {
       strategyId,
@@ -207,7 +263,7 @@ function frequencyToName(frequency: Frequency): string {
 export async function syncStrategiesWithWorkflows(): Promise<void> {
   try {
     console.log("🔄 Syncing strategies with n8n workflows...");
-    
+
     // Get all strategies from database
     const rows = (await db.all("SELECT * FROM strategies")) as StrategyRow[];
     console.log(`📋 Found ${rows.length} strategy(ies) to sync`);
@@ -220,7 +276,7 @@ export async function syncStrategiesWithWorkflows(): Promise<void> {
       try {
         const hadWorkflow = !!row.n8n_workflow_id;
         const workflowId = await ensureWorkflowExists(row);
-        
+
         if (!hadWorkflow || workflowId !== row.n8n_workflow_id) {
           created++;
           console.log(`✅ Synced strategy "${row.name}":`, {
@@ -390,14 +446,14 @@ function timestampToDate(timestamp: number): Date {
 // Helper to convert DB row to proto Strategy message
 async function dbRowToProtoStrategy(row: StrategyRow): Promise<Strategy> {
   try {
-    const strategy = new Strategy({
+    const strategy = create(StrategySchema, {
       id: row.id,
       name: row.name,
       description: row.description,
       customPrompt: row.custom_prompt,
       monthlyBudget: toNumber(row.monthly_budget),
       currentMonthSpent: toNumber(row.current_month_spent),
-      currentMonthStart: Timestamp.fromDate(new Date(row.current_month_start)),
+      currentMonthStart: timestampFromDate(new Date(row.current_month_start)),
       timeHorizon: row.time_horizon,
       targetReturnPct: toNumber(row.target_return_pct),
       frequency: protoNameToFrequency(row.frequency),
@@ -410,15 +466,15 @@ async function dbRowToProtoStrategy(row: StrategyRow): Promise<Strategy> {
       status: protoNameToStrategyStatus(row.status),
       privacy: mapPrivacyFromDb(row.privacy),
       userId: row.user_id,
-      createdAt: Timestamp.fromDate(new Date(row.created_at)),
-      updatedAt: Timestamp.fromDate(new Date(row.updated_at)),
+      createdAt: timestampFromDate(new Date(row.created_at)),
+      updatedAt: timestampFromDate(new Date(row.updated_at)),
     });
 
     if (row.next_trade_scheduled) {
-      strategy.nextTradeScheduled = Timestamp.fromDate(new Date(row.next_trade_scheduled));
+      strategy.nextTradeScheduled = timestampFromDate(new Date(row.next_trade_scheduled));
     }
     if (row.last_trade_executed) {
-      strategy.lastTradeExecuted = Timestamp.fromDate(new Date(row.last_trade_executed));
+      strategy.lastTradeExecuted = timestampFromDate(new Date(row.last_trade_executed));
     }
 
     // Populate user field
@@ -431,14 +487,14 @@ async function dbRowToProtoStrategy(row: StrategyRow): Promise<Strategy> {
             userId: userRow.id,
             username: userRow.username,
           });
-          strategy.user = new User({
+          strategy.user = create(UserSchema, {
             id: userRow.id,
             email: userRow.email,
             username: userRow.username,
             displayName: userRow.display_name ?? undefined,
             avatarUrl: userRow.avatar_url ?? undefined,
-            createdAt: Timestamp.fromDate(timestampToDate(userRow.created_at)),
-            updatedAt: Timestamp.fromDate(timestampToDate(userRow.updated_at)),
+            createdAt: timestampFromDate(timestampToDate(userRow.created_at)),
+            updatedAt: timestampFromDate(timestampToDate(userRow.updated_at)),
           });
           console.log(`✅ User proto created successfully`);
         } else {
@@ -506,7 +562,7 @@ export const strategyServiceImpl = {
     console.log("Request:", JSON.stringify(req, null, 2));
 
     // Check authorization header
-    const authHeader = context.requestHeader.get("authorization");
+    const _authHeader = context.requestHeader.get("authorization");
 
     const id = randomUUID();
     let workflowId: string | null = null;
@@ -744,7 +800,7 @@ export const strategyServiceImpl = {
         hasUser: !!strategy.user,
       });
 
-      return new CreateStrategyResponse({ strategy });
+      return create(CreateStrategyResponseSchema, { strategy });
     } catch (error) {
       console.error(`\n${"=".repeat(80)}`);
       console.error("❌ ERROR IN CREATE STRATEGY");
@@ -806,7 +862,7 @@ export const strategyServiceImpl = {
 
       const strategies = await Promise.all(rows.map((row) => dbRowToProtoStrategy(row)));
       console.log(`✅ Found ${strategies.length} strategies`);
-      return new ListStrategiesResponse({ strategies });
+      return create(ListStrategiesResponseSchema, { strategies });
     } catch (error) {
       console.error("❌ Error listing strategies:", error);
       throw error;
@@ -834,7 +890,7 @@ export const strategyServiceImpl = {
     }
 
     const strategy = await dbRowToProtoStrategy(row);
-    return new GetStrategyResponse({ strategy });
+    return create(GetStrategyResponseSchema, { strategy });
   },
 
   async updateStrategy(
@@ -901,59 +957,80 @@ export const strategyServiceImpl = {
       workflowId: existingRow.n8n_workflow_id,
     });
 
-    if (updates.length > 0) {
-      updates.push("updated_at = ?");
-      params.push(now);
-      params.push(req.id); // for WHERE clause
+    // Use transaction to ensure atomicity: DB update and workflow update must both succeed
+    try {
+      await db.run("BEGIN TRANSACTION");
 
-      await db.run(`UPDATE strategies SET ${updates.join(", ")} WHERE id = ?`, params);
-      console.log(`✅ Strategy database updated`);
-    }
+      // Step 1: Update database
+      if (updates.length > 0) {
+        updates.push("updated_at = ?");
+        params.push(now);
+        params.push(req.id); // for WHERE clause
 
-    // Update n8n workflow name if strategy name changed
-    if (nameChanged && existingRow.n8n_workflow_id) {
-      console.log(`🔄 Attempting to update n8n workflow name:`, {
-        strategyId: req.id,
-        workflowId: existingRow.n8n_workflow_id,
-        oldName,
-        newName: req.name,
-      });
-      try {
+        await db.run(`UPDATE strategies SET ${updates.join(", ")} WHERE id = ?`, params);
+        console.log(`✅ Strategy database updated`);
+      }
+
+      // Step 2: Update n8n workflow if name changed (must succeed or rollback DB)
+      if (nameChanged && existingRow.n8n_workflow_id) {
+        console.log(`🔄 Updating n8n workflow name:`, {
+          strategyId: req.id,
+          workflowId: existingRow.n8n_workflow_id,
+          oldName,
+          newName: req.name,
+        });
+
         const frequency = protoNameToFrequency(existingRow.frequency);
-        const result = await n8nClient.updateStrategyWorkflow(
-          existingRow.n8n_workflow_id,
-          req.id,
-          req.name!,
-          frequency
-        );
+        if (req.name) {
+          await n8nClient.updateStrategyWorkflow(
+            existingRow.n8n_workflow_id,
+            req.id,
+            req.name,
+            frequency
+          );
+        }
+
         console.log(`✅ n8n workflow name updated successfully:`, {
           strategyId: req.id,
           oldName,
           newName: req.name,
           workflowId: existingRow.n8n_workflow_id,
-          updatedWorkflowName: result.name,
         });
-      } catch (error) {
-        // Non-critical - log warning but don't fail the strategy update
-        console.error(`❌ Failed to update n8n workflow name (strategy was still updated):`, {
-          strategyId: req.id,
-          workflowId: existingRow.n8n_workflow_id,
-          error: error instanceof Error ? error.message : String(error),
-          stack: error instanceof Error ? error.stack : undefined,
-        });
+      } else {
+        if (!nameChanged) {
+          console.log(`ℹ️ Strategy name unchanged, skipping workflow update`);
+        }
+        if (!existingRow.n8n_workflow_id) {
+          console.log(`ℹ️ Strategy has no workflow ID, skipping workflow update`);
+        }
       }
-    } else {
-      if (!nameChanged) {
-        console.log(`ℹ️ Strategy name unchanged, skipping workflow update`);
+
+      // Commit transaction if all operations succeeded
+      await db.run("COMMIT");
+      console.log(`✅ Strategy update transaction committed`);
+    } catch (error) {
+      // Rollback database changes if workflow update failed
+      console.error(`❌ Error during strategy update, rolling back:`, {
+        strategyId: req.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+
+      try {
+        await db.run("ROLLBACK");
+        console.log(`🔄 Transaction rolled back`);
+      } catch (rollbackError) {
+        console.error(`❌ Failed to rollback transaction:`, rollbackError);
       }
-      if (!existingRow.n8n_workflow_id) {
-        console.log(`ℹ️ Strategy has no workflow ID, skipping workflow update`);
-      }
+
+      throw new ConnectError(
+        `Failed to update strategy: ${error instanceof Error ? error.message : String(error)}`,
+        Code.Internal
+      );
     }
 
     const row = (await db.get("SELECT * FROM strategies WHERE id = ?", [req.id])) as StrategyRow;
     const strategy = await dbRowToProtoStrategy(row);
-    return new UpdateStrategyResponse({ strategy });
+    return create(UpdateStrategyResponseSchema, { strategy });
   },
 
   async deleteStrategy(
@@ -981,33 +1058,25 @@ export const strategyServiceImpl = {
         throw new Error(`Strategy must be stopped before deletion. Current status: ${row.status}`);
       }
 
-      // Delete n8n workflow if it exists
+      // Step 1: Delete n8n workflow first (must succeed before deleting strategy)
       if (row.n8n_workflow_id) {
-        try {
-          console.log(`🗑️ Deleting n8n workflow for strategy:`, {
-            strategyId: req.id,
-            workflowId: row.n8n_workflow_id,
-          });
-          await n8nClient.deleteWorkflow(row.n8n_workflow_id);
-          console.log(`✅ n8n workflow deleted successfully:`, {
-            strategyId: req.id,
-            workflowId: row.n8n_workflow_id,
-          });
-        } catch (error) {
-          console.error("⚠️ Failed to delete n8n workflow (strategy will still be deleted):", {
-            strategyId: req.id,
-            workflowId: row.n8n_workflow_id,
-            error: error instanceof Error ? error.message : String(error),
-          });
-          // Continue - delete strategy even if workflow deletion fails
-        }
+        console.log(`🗑️ Deleting n8n workflow for strategy:`, {
+          strategyId: req.id,
+          workflowId: row.n8n_workflow_id,
+        });
+        await n8nClient.deleteWorkflow(row.n8n_workflow_id);
+        console.log(`✅ n8n workflow deleted successfully:`, {
+          strategyId: req.id,
+          workflowId: row.n8n_workflow_id,
+        });
       } else {
         console.log(`ℹ️ No n8n workflow to delete for strategy:`, { strategyId: req.id });
       }
 
+      // Step 2: Delete strategy from database (only if workflow deletion succeeded)
       await db.run("DELETE FROM strategies WHERE id = ?", [req.id]);
       console.log("✅ Strategy deleted:", req.id);
-      return new DeleteStrategyResponse({ success: true });
+      return create(DeleteStrategyResponseSchema, { success: true });
     } catch (error) {
       console.error("❌ Error deleting strategy:", error);
       throw error;
@@ -1037,69 +1106,60 @@ export const strategyServiceImpl = {
       }
 
       // Use direct query instead of prepared statement
-      await db.run(
-        "UPDATE strategies SET status = ?, next_trade_scheduled = ?, updated_at = ? WHERE id = ?",
-        ["STRATEGY_STATUS_ACTIVE", now, now, req.id]
-      );
-
       // Ensure workflow exists (sync) before activating
       const workflowId = await ensureWorkflowExists(row);
-      
-      // Activate n8n workflow
+
+      // Use transaction: DB update and workflow activation must both succeed
       try {
+        await db.run("BEGIN TRANSACTION");
+
+        // Step 1: Update database
+        await db.run(
+          "UPDATE strategies SET status = ?, next_trade_scheduled = ?, updated_at = ? WHERE id = ?",
+          ["STRATEGY_STATUS_ACTIVE", now, now, req.id]
+        );
+        console.log(`✅ Strategy database updated to ACTIVE`);
+
+        // Step 2: Activate n8n workflow (must succeed or rollback)
         console.log(`▶️ Activating n8n workflow for strategy:`, {
           strategyId: req.id,
           workflowId,
         });
         await n8nClient.activateWorkflow(workflowId);
 
-          // Verify workflow is actually active
-          const workflow = await n8nClient.getWorkflow(workflowId);
-          if (!workflow.active) {
-            console.error(
-              "⚠️ Workflow activation reported success but workflow is still inactive:",
-              {
-                strategyId: req.id,
-                workflowId,
-              }
-            );
-            // Revert strategy status to match workflow state
-            await db.run("UPDATE strategies SET status = ?, updated_at = ? WHERE id = ?", [
-              "STRATEGY_STATUS_PAUSED",
-              now,
-              req.id,
-            ]);
-            throw new Error("Workflow activation failed - strategy status reverted to PAUSED");
-          }
-
-          console.log(`✅ n8n workflow activated successfully and verified:`, {
-            strategyId: req.id,
-            workflowId,
-            workflowActive: workflow.active,
-          });
-        } catch (error) {
-          console.error("⚠️ Failed to activate n8n workflow:", {
-            strategyId: req.id,
-            workflowId,
-            error: error instanceof Error ? error.message : String(error),
-          });
-          // Revert strategy status to match workflow state (inactive)
-          try {
-            await db.run("UPDATE strategies SET status = ?, updated_at = ? WHERE id = ?", [
-              "STRATEGY_STATUS_PAUSED",
-              now,
-              req.id,
-            ]);
-            console.log(`⚠️ Strategy status reverted to PAUSED to match workflow state:`, {
-              strategyId: req.id,
-            });
-          } catch (revertError) {
-            console.error("❌ Failed to revert strategy status:", revertError);
-          }
-          throw new Error(
-            `Failed to activate workflow: ${error instanceof Error ? error.message : String(error)}`
-          );
+        // Verify workflow is actually active
+        const workflow = await n8nClient.getWorkflow(workflowId);
+        if (!workflow.active) {
+          throw new Error("Workflow activation reported success but workflow is still inactive");
         }
+
+        console.log(`✅ n8n workflow activated successfully and verified:`, {
+          strategyId: req.id,
+          workflowId,
+          workflowActive: workflow.active,
+        });
+
+        // Commit transaction if all operations succeeded
+        await db.run("COMMIT");
+        console.log(`✅ Strategy start transaction committed`);
+      } catch (error) {
+        // Rollback database changes if workflow activation failed
+        console.error(`❌ Error during strategy start, rolling back:`, {
+          strategyId: req.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+
+        try {
+          await db.run("ROLLBACK");
+          console.log(`🔄 Transaction rolled back`);
+        } catch (rollbackError) {
+          console.error(`❌ Failed to rollback transaction:`, rollbackError);
+        }
+
+        throw new Error(
+          `Failed to start strategy: ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
 
       // Use direct query instead of prepared statement
       const updatedRow = (await db.get("SELECT * FROM strategies WHERE id = ?", [
@@ -1107,7 +1167,7 @@ export const strategyServiceImpl = {
       ])) as StrategyRow;
       const strategy = await dbRowToProtoStrategy(updatedRow);
       console.log("✅ Strategy started:", req.id);
-      return new StartStrategyResponse({ strategy });
+      return create(StartStrategyResponseSchema, { strategy });
     } catch (error) {
       console.error("❌ Error starting strategy:", error);
       throw error;
@@ -1135,14 +1195,19 @@ export const strategyServiceImpl = {
         throw new Error("Access denied: You can only pause your own strategies");
       }
 
-      await db.run(
-        "UPDATE strategies SET status = ?, next_trade_scheduled = ?, updated_at = ? WHERE id = ?",
-        ["STRATEGY_STATUS_PAUSED", null, now, req.id]
-      );
+      // Use transaction: DB update and workflow deactivation must both succeed
+      try {
+        await db.run("BEGIN TRANSACTION");
 
-      // Deactivate n8n workflow if it exists
-      if (row.n8n_workflow_id) {
-        try {
+        // Step 1: Update database
+        await db.run(
+          "UPDATE strategies SET status = ?, next_trade_scheduled = ?, updated_at = ? WHERE id = ?",
+          ["STRATEGY_STATUS_PAUSED", null, now, req.id]
+        );
+        console.log(`✅ Strategy database updated to PAUSED`);
+
+        // Step 2: Deactivate n8n workflow if it exists (must succeed or rollback)
+        if (row.n8n_workflow_id) {
           console.log(`⏸️ Deactivating n8n workflow for strategy:`, {
             strategyId: req.id,
             workflowId: row.n8n_workflow_id,
@@ -1163,10 +1228,7 @@ export const strategyServiceImpl = {
             await n8nClient.deactivateWorkflow(row.n8n_workflow_id);
             const retryWorkflow = await n8nClient.getWorkflow(row.n8n_workflow_id);
             if (retryWorkflow.active) {
-              console.error("❌ Workflow still active after retry:", {
-                strategyId: req.id,
-                workflowId: row.n8n_workflow_id,
-              });
+              throw new Error("Workflow still active after retry");
             }
           }
 
@@ -1175,16 +1237,30 @@ export const strategyServiceImpl = {
             workflowId: row.n8n_workflow_id,
             workflowActive: workflow.active,
           });
-        } catch (error) {
-          console.error("⚠️ Failed to deactivate n8n workflow (strategy is still paused):", {
-            strategyId: req.id,
-            workflowId: row.n8n_workflow_id,
-            error: error instanceof Error ? error.message : String(error),
-          });
-          // Continue - strategy is paused, workflow deactivation can be retried
+        } else {
+          console.log(`ℹ️ No n8n workflow found for strategy:`, { strategyId: req.id });
         }
-      } else {
-        console.log(`ℹ️ No n8n workflow found for strategy:`, { strategyId: req.id });
+
+        // Commit transaction if all operations succeeded
+        await db.run("COMMIT");
+        console.log(`✅ Strategy pause transaction committed`);
+      } catch (error) {
+        // Rollback database changes if workflow deactivation failed
+        console.error(`❌ Error during strategy pause, rolling back:`, {
+          strategyId: req.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+
+        try {
+          await db.run("ROLLBACK");
+          console.log(`🔄 Transaction rolled back`);
+        } catch (rollbackError) {
+          console.error(`❌ Failed to rollback transaction:`, rollbackError);
+        }
+
+        throw new Error(
+          `Failed to pause strategy: ${error instanceof Error ? error.message : String(error)}`
+        );
       }
 
       const updatedRow = (await db.get("SELECT * FROM strategies WHERE id = ?", [
@@ -1192,7 +1268,7 @@ export const strategyServiceImpl = {
       ])) as StrategyRow;
       const strategy = await dbRowToProtoStrategy(updatedRow);
       console.log("✅ Strategy paused:", req.id);
-      return new PauseStrategyResponse({ strategy });
+      return create(PauseStrategyResponseSchema, { strategy });
     } catch (error) {
       console.error("❌ Error pausing strategy:", error);
       throw error;
@@ -1220,14 +1296,19 @@ export const strategyServiceImpl = {
         throw new Error("Access denied: You can only stop your own strategies");
       }
 
-      await db.run(
-        "UPDATE strategies SET status = ?, next_trade_scheduled = ?, updated_at = ? WHERE id = ?",
-        ["STRATEGY_STATUS_STOPPED", null, now, req.id]
-      );
+      // Use transaction: DB update and workflow deactivation must both succeed
+      try {
+        await db.run("BEGIN TRANSACTION");
 
-      // Deactivate n8n workflow if it exists (but don't delete it)
-      if (row.n8n_workflow_id) {
-        try {
+        // Step 1: Update database
+        await db.run(
+          "UPDATE strategies SET status = ?, next_trade_scheduled = ?, updated_at = ? WHERE id = ?",
+          ["STRATEGY_STATUS_STOPPED", null, now, req.id]
+        );
+        console.log(`✅ Strategy database updated to STOPPED`);
+
+        // Step 2: Deactivate n8n workflow if it exists (must succeed or rollback)
+        if (row.n8n_workflow_id) {
           console.log(`⏸️ Deactivating n8n workflow for stopped strategy:`, {
             strategyId: req.id,
             workflowId: row.n8n_workflow_id,
@@ -1246,6 +1327,10 @@ export const strategyServiceImpl = {
             );
             // Retry deactivation once
             await n8nClient.deactivateWorkflow(row.n8n_workflow_id);
+            const retryWorkflow = await n8nClient.getWorkflow(row.n8n_workflow_id);
+            if (retryWorkflow.active) {
+              throw new Error("Workflow still active after retry");
+            }
           }
 
           console.log(`✅ n8n workflow deactivated successfully and verified:`, {
@@ -1253,16 +1338,30 @@ export const strategyServiceImpl = {
             workflowId: row.n8n_workflow_id,
             workflowActive: workflow.active,
           });
-        } catch (error) {
-          console.error("⚠️ Failed to deactivate n8n workflow (strategy is still stopped):", {
-            strategyId: req.id,
-            workflowId: row.n8n_workflow_id,
-            error: error instanceof Error ? error.message : String(error),
-          });
-          // Continue - strategy is stopped, workflow deactivation can be retried
+        } else {
+          console.log(`ℹ️ No n8n workflow found for strategy:`, { strategyId: req.id });
         }
-      } else {
-        console.log(`ℹ️ No n8n workflow found for strategy:`, { strategyId: req.id });
+
+        // Commit transaction if all operations succeeded
+        await db.run("COMMIT");
+        console.log(`✅ Strategy stop transaction committed`);
+      } catch (error) {
+        // Rollback database changes if workflow deactivation failed
+        console.error(`❌ Error during strategy stop, rolling back:`, {
+          strategyId: req.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+
+        try {
+          await db.run("ROLLBACK");
+          console.log(`🔄 Transaction rolled back`);
+        } catch (rollbackError) {
+          console.error(`❌ Failed to rollback transaction:`, rollbackError);
+        }
+
+        throw new Error(
+          `Failed to stop strategy: ${error instanceof Error ? error.message : String(error)}`
+        );
       }
 
       const updatedRow = (await db.get("SELECT * FROM strategies WHERE id = ?", [
@@ -1270,7 +1369,7 @@ export const strategyServiceImpl = {
       ])) as StrategyRow;
       const strategy = await dbRowToProtoStrategy(updatedRow);
       console.log("✅ Strategy stopped:", req.id);
-      return new StopStrategyResponse({ strategy });
+      return create(StopStrategyResponseSchema, { strategy });
     } catch (error) {
       console.error("❌ Error stopping strategy:", error);
       throw error;
@@ -1322,14 +1421,14 @@ export const strategyServiceImpl = {
         workflowId,
       });
 
-      return new TriggerPredictionsResponse({
+      return create(TriggerPredictionsResponseSchema, {
         success: true,
         message: "Prediction generation triggered successfully. Check back in a few moments.",
       });
     } catch (error) {
       console.error("❌ Error triggering predictions:", error);
       const errorMessage = error instanceof Error ? error.message : String(error);
-      return new TriggerPredictionsResponse({
+      return create(TriggerPredictionsResponseSchema, {
         success: false,
         message: `Failed to trigger predictions: ${errorMessage}`,
       });
@@ -1370,7 +1469,7 @@ export const strategyServiceImpl = {
     }
 
     const strategy = await dbRowToProtoStrategy(row);
-    return new UpdateStrategyPrivacyResponse({ strategy });
+    return create(UpdateStrategyPrivacyResponseSchema, { strategy });
   },
 
   // ============================================================================
@@ -1387,7 +1486,7 @@ export const strategyServiceImpl = {
     try {
       if (!req.email) {
         console.error(`[STRATEGY SERVICE] ❌ Missing email in request`);
-        return new SendOTPResponse({
+        return create(SendOTPResponseSchema, {
           success: false,
           message: "Email is required",
         });
@@ -1397,7 +1496,7 @@ export const strategyServiceImpl = {
       await sendOTPHelper(req.email);
       console.log(`[STRATEGY SERVICE] ✅ sendOTPHelper completed successfully`);
 
-      return new SendOTPResponse({
+      return create(SendOTPResponseSchema, {
         success: true,
         message: "OTP sent successfully. Check your email.",
       });
@@ -1407,7 +1506,7 @@ export const strategyServiceImpl = {
         `[STRATEGY SERVICE] Error stack:`,
         error instanceof Error ? error.stack : "N/A"
       );
-      return new SendOTPResponse({
+      return create(SendOTPResponseSchema, {
         success: false,
         message: error instanceof Error ? error.message : "Failed to send OTP. Please try again.",
       });
@@ -1428,18 +1527,18 @@ export const strategyServiceImpl = {
       const token = generateToken(user);
 
       // Convert user to proto
-      const protoUser = new User({
+      const protoUser = create(UserSchema, {
         id: user.id,
         email: user.email,
         username: user.username,
-        displayName: user.display_name || undefined,
-        avatarUrl: user.avatar_url || undefined,
-        createdAt: Timestamp.fromDate(timestampToDate(user.created_at)),
-        updatedAt: Timestamp.fromDate(timestampToDate(user.updated_at)),
+        displayName: user.display_name || "",
+        avatarUrl: user.avatar_url || "",
+        createdAt: timestampFromDate(timestampToDate(user.created_at)),
+        updatedAt: timestampFromDate(timestampToDate(user.updated_at)),
       });
 
       console.log("✅ OTP verified successfully for:", user.email);
-      return new VerifyOTPResponse({
+      return create(VerifyOTPResponseSchema, {
         success: true,
         user: protoUser,
         token,
@@ -1458,7 +1557,7 @@ export const strategyServiceImpl = {
       const userId = getCurrentUserId(context);
 
       if (!userId) {
-        return new GetCurrentUserResponse({
+        return create(GetCurrentUserResponseSchema, {
           user: undefined,
         });
       }
@@ -1466,36 +1565,33 @@ export const strategyServiceImpl = {
       const user = await getUserById(userId);
 
       if (!user) {
-        return new GetCurrentUserResponse({
+        return create(GetCurrentUserResponseSchema, {
           user: undefined,
         });
       }
 
-      const protoUser = new User({
+      const protoUser = create(UserSchema, {
         id: user.id,
         email: user.email,
         username: user.username,
-        displayName: user.display_name || undefined,
-        avatarUrl: user.avatar_url || undefined,
-        createdAt: Timestamp.fromDate(timestampToDate(user.created_at)),
-        updatedAt: Timestamp.fromDate(timestampToDate(user.updated_at)),
+        displayName: user.display_name || "",
+        avatarUrl: user.avatar_url || "",
+        createdAt: timestampFromDate(timestampToDate(user.created_at)),
+        updatedAt: timestampFromDate(timestampToDate(user.updated_at)),
       });
 
-      return new GetCurrentUserResponse({
+      return create(GetCurrentUserResponseSchema, {
         user: protoUser,
       });
     } catch (error) {
       console.error("❌ Error getting current user:", error);
-      return new GetCurrentUserResponse({
+      return create(GetCurrentUserResponseSchema, {
         user: undefined,
       });
     }
   },
 
-  async updateUser(
-    req: UpdateUserRequest,
-    context: HandlerContext
-  ): Promise<UpdateUserResponse> {
+  async updateUser(req: UpdateUserRequest, context: HandlerContext): Promise<UpdateUserResponse> {
     try {
       const userId = getCurrentUserId(context);
       if (!userId) {
@@ -1514,7 +1610,7 @@ export const strategyServiceImpl = {
       // Validate and update username
       if (req.username !== undefined) {
         const newUsername = req.username.trim();
-        
+
         // Validate username format: alphanumeric, underscore, hyphen, 3-30 chars
         if (newUsername.length < 3 || newUsername.length > 30) {
           throw new ConnectError(
@@ -1533,10 +1629,7 @@ export const strategyServiceImpl = {
         // Check if username is already taken (by another user)
         const existingUser = await getUserByUsername(newUsername);
         if (existingUser && existingUser.id !== userId) {
-          throw new ConnectError(
-            "Username is already taken",
-            Code.AlreadyExists
-          );
+          throw new ConnectError("Username is already taken", Code.AlreadyExists);
         }
 
         // If user is changing to their current username, no-op
@@ -1567,21 +1660,21 @@ export const strategyServiceImpl = {
           throw new ConnectError("User not found", Code.NotFound);
         }
 
-        const protoUser = new User({
+        const protoUser = create(UserSchema, {
           id: userRow.id,
           email: userRow.email,
           username: userRow.username,
-          displayName: userRow.display_name || undefined,
-          avatarUrl: userRow.avatar_url || undefined,
-          createdAt: Timestamp.fromDate(timestampToDate(userRow.created_at)),
-          updatedAt: Timestamp.fromDate(timestampToDate(userRow.updated_at)),
+          displayName: userRow.display_name || "",
+          avatarUrl: userRow.avatar_url || "",
+          createdAt: timestampFromDate(timestampToDate(userRow.created_at)),
+          updatedAt: timestampFromDate(timestampToDate(userRow.updated_at)),
         });
 
-        return new UpdateUserResponse({ user: protoUser });
+        return create(UpdateUserResponseSchema, { user: protoUser });
       }
 
       // Update user in database
-      params.push(Date.now()); // updated_at
+      params.push(String(Date.now())); // updated_at
       params.push(userId); // WHERE id = ?
 
       const sql = `UPDATE users SET ${updates.join(", ")}, updated_at = ? WHERE id = ?`;
@@ -1593,17 +1686,17 @@ export const strategyServiceImpl = {
         throw new ConnectError("Failed to fetch updated user", Code.Internal);
       }
 
-      const protoUser = new User({
+      const protoUser = create(UserSchema, {
         id: updatedUser.id,
         email: updatedUser.email,
         username: updatedUser.username,
-        displayName: updatedUser.display_name || undefined,
-        avatarUrl: updatedUser.avatar_url || undefined,
-        createdAt: Timestamp.fromDate(timestampToDate(updatedUser.created_at)),
-        updatedAt: Timestamp.fromDate(timestampToDate(updatedUser.updated_at)),
+        displayName: updatedUser.display_name || "",
+        avatarUrl: updatedUser.avatar_url || "",
+        createdAt: timestampFromDate(timestampToDate(updatedUser.created_at)),
+        updatedAt: timestampFromDate(timestampToDate(updatedUser.updated_at)),
       });
 
-      return new UpdateUserResponse({ user: protoUser });
+      return create(UpdateUserResponseSchema, { user: protoUser });
     } catch (error) {
       console.error("❌ Error updating user:", error);
       if (error instanceof ConnectError) {
@@ -1633,7 +1726,7 @@ export const strategyServiceImpl = {
 
       await followUserHelper(userId, req.userId);
       console.log(`✅ User ${userId} followed user ${req.userId}`);
-      return new FollowUserResponse({ success: true });
+      return create(FollowUserResponseSchema, { success: true });
     } catch (error) {
       console.error("❌ Error following user:", error);
       throw error;
@@ -1656,7 +1749,7 @@ export const strategyServiceImpl = {
 
       await unfollowUserHelper(userId, req.userId);
       console.log(`✅ User ${userId} unfollowed user ${req.userId}`);
-      return new UnfollowUserResponse({ success: true });
+      return create(UnfollowUserResponseSchema, { success: true });
     } catch (error) {
       console.error("❌ Error unfollowing user:", error);
       throw error;
@@ -1678,21 +1771,21 @@ export const strategyServiceImpl = {
 
       const userRows = await getFollowing(targetUserId);
 
-      const users = await Promise.all(
+      const users: User[] = await Promise.all(
         userRows.map(async (row) => {
-          return new User({
+          return create(UserSchema, {
             id: row.id,
             email: row.email,
             username: row.username,
-            displayName: row.display_name ?? undefined,
-            avatarUrl: row.avatar_url ?? undefined,
-            createdAt: Timestamp.fromDate(timestampToDate(row.created_at)),
-            updatedAt: Timestamp.fromDate(timestampToDate(row.updated_at)),
+            displayName: row.display_name ?? "",
+            avatarUrl: row.avatar_url ?? "",
+            createdAt: timestampFromDate(timestampToDate(row.created_at)),
+            updatedAt: timestampFromDate(timestampToDate(row.updated_at)),
           });
         })
       );
 
-      return new ListFollowingResponse({ users });
+      return create(ListFollowingResponseSchema, { users });
     } catch (error) {
       console.error("❌ Error listing following:", error);
       throw error;
@@ -1714,21 +1807,21 @@ export const strategyServiceImpl = {
 
       const userRows = await getFollowers(targetUserId);
 
-      const users = await Promise.all(
+      const users: User[] = await Promise.all(
         userRows.map(async (row) => {
-          return new User({
+          return create(UserSchema, {
             id: row.id,
             email: row.email,
             username: row.username,
-            displayName: row.display_name ?? undefined,
-            avatarUrl: row.avatar_url ?? undefined,
-            createdAt: Timestamp.fromDate(timestampToDate(row.created_at)),
-            updatedAt: Timestamp.fromDate(timestampToDate(row.updated_at)),
+            displayName: row.display_name ?? "",
+            avatarUrl: row.avatar_url ?? "",
+            createdAt: timestampFromDate(timestampToDate(row.created_at)),
+            updatedAt: timestampFromDate(timestampToDate(row.updated_at)),
           });
         })
       );
 
-      return new ListFollowersResponse({ users });
+      return create(ListFollowersResponseSchema, { users });
     } catch (error) {
       console.error("❌ Error listing followers:", error);
       throw error;
@@ -1747,21 +1840,21 @@ export const strategyServiceImpl = {
 
       const userRows = await getCloseFriends(userId);
 
-      const users = await Promise.all(
+      const users: User[] = await Promise.all(
         userRows.map(async (row) => {
-          return new User({
+          return create(UserSchema, {
             id: row.id,
             email: row.email,
             username: row.username,
-            displayName: row.display_name ?? undefined,
-            avatarUrl: row.avatar_url ?? undefined,
-            createdAt: Timestamp.fromDate(timestampToDate(row.created_at)),
-            updatedAt: Timestamp.fromDate(timestampToDate(row.updated_at)),
+            displayName: row.display_name ?? "",
+            avatarUrl: row.avatar_url ?? "",
+            createdAt: timestampFromDate(timestampToDate(row.created_at)),
+            updatedAt: timestampFromDate(timestampToDate(row.updated_at)),
           });
         })
       );
 
-      return new ListCloseFriendsResponse({ users });
+      return create(ListCloseFriendsResponseSchema, { users });
     } catch (error) {
       console.error("❌ Error listing close friends:", error);
       throw error;
@@ -1799,7 +1892,7 @@ export const strategyServiceImpl = {
       const perf = await calculatePerformance(targetUser.id, LeaderboardTimeframe.ALL_TIME);
 
       // Convert performance to proto
-      const protoPerformance = new UserPerformance({
+      const protoPerformance = create(UserPerformanceSchema, {
         userId: perf.userId,
         totalPredictions: perf.totalPredictions,
         closedPredictions: perf.closedPredictions,
@@ -1808,21 +1901,23 @@ export const strategyServiceImpl = {
         avgReturn: perf.avgReturn,
         totalRoi: perf.totalROI,
         currentStreak: perf.currentStreak,
-        // bestPrediction will be handled separately if needed
+        bestPrediction: perf.bestPrediction
+          ? await dbRowToProtoPrediction(perf.bestPrediction)
+          : undefined,
       });
 
       // Convert user to proto
-      const protoUser = new User({
+      const protoUser = create(UserSchema, {
         id: targetUser.id,
         email: targetUser.email,
         username: targetUser.username,
-        displayName: targetUser.display_name ?? undefined,
-        avatarUrl: targetUser.avatar_url ?? undefined,
-        createdAt: Timestamp.fromDate(timestampToDate(targetUser.created_at)),
-        updatedAt: Timestamp.fromDate(timestampToDate(targetUser.updated_at)),
+        displayName: targetUser.display_name ?? "",
+        avatarUrl: targetUser.avatar_url ?? "",
+        createdAt: timestampFromDate(timestampToDate(targetUser.created_at)),
+        updatedAt: timestampFromDate(timestampToDate(targetUser.updated_at)),
       });
 
-      return new GetUserProfileResponse({
+      return create(GetUserProfileResponseSchema, {
         user: protoUser,
         isFollowing,
         isFollowedBy,
@@ -1859,7 +1954,7 @@ export const strategyServiceImpl = {
       const perf = await calculatePerformance(targetUserId, timeframe);
 
       // Convert to proto format
-      const protoPerformance = new UserPerformance({
+      const protoPerformance = create(UserPerformanceSchema, {
         userId: perf.userId,
         totalPredictions: perf.totalPredictions,
         closedPredictions: perf.closedPredictions,
@@ -1868,10 +1963,12 @@ export const strategyServiceImpl = {
         avgReturn: perf.avgReturn,
         totalRoi: perf.totalROI,
         currentStreak: perf.currentStreak,
-        // bestPrediction can be added later if needed
+        bestPrediction: perf.bestPrediction
+          ? await dbRowToProtoPrediction(perf.bestPrediction)
+          : undefined,
       });
 
-      return new GetUserPerformanceResponse({
+      return create(GetUserPerformanceResponseSchema, {
         performance: protoPerformance,
       });
     } catch (error) {
@@ -1913,18 +2010,18 @@ export const strategyServiceImpl = {
       const protoEntries = await Promise.all(
         leaderboardResult.entries.map(async (entry) => {
           // Convert user
-          const protoUser = new User({
+          const protoUser = create(UserSchema, {
             id: entry.user.id,
             email: entry.user.email,
             username: entry.user.username,
-            displayName: entry.user.display_name ?? undefined,
-            avatarUrl: entry.user.avatar_url ?? undefined,
-            createdAt: Timestamp.fromDate(timestampToDate(entry.user.created_at)),
-            updatedAt: Timestamp.fromDate(timestampToDate(entry.user.updated_at)),
+            displayName: entry.user.display_name ?? "",
+            avatarUrl: entry.user.avatar_url ?? "",
+            createdAt: timestampFromDate(timestampToDate(entry.user.created_at)),
+            updatedAt: timestampFromDate(timestampToDate(entry.user.updated_at)),
           });
 
           // Convert performance
-          const protoPerformance = new UserPerformance({
+          const protoPerformance = create(UserPerformanceSchema, {
             userId: entry.performance.userId,
             totalPredictions: entry.performance.totalPredictions,
             closedPredictions: entry.performance.closedPredictions,
@@ -1933,10 +2030,12 @@ export const strategyServiceImpl = {
             avgReturn: entry.performance.avgReturn,
             totalRoi: entry.performance.totalROI,
             currentStreak: entry.performance.currentStreak,
-            // bestPrediction can be added later if needed
+            bestPrediction: entry.performance.bestPrediction
+              ? await dbRowToProtoPrediction(entry.performance.bestPrediction)
+              : undefined,
           });
 
-          return new LeaderboardEntry({
+          return create(LeaderboardEntrySchema, {
             rank: entry.rank,
             user: protoUser,
             performanceScore: entry.performanceScore,
@@ -1949,17 +2048,17 @@ export const strategyServiceImpl = {
       let currentUserEntry: LeaderboardEntry | undefined;
       if (leaderboardResult.currentUserEntry) {
         const entry = leaderboardResult.currentUserEntry;
-        const protoUser = new User({
+        const protoUser = create(UserSchema, {
           id: entry.user.id,
           email: entry.user.email,
           username: entry.user.username,
-          displayName: entry.user.display_name ?? undefined,
-          avatarUrl: entry.user.avatar_url ?? undefined,
-          createdAt: Timestamp.fromDate(timestampToDate(entry.user.created_at)),
-          updatedAt: Timestamp.fromDate(timestampToDate(entry.user.updated_at)),
+          displayName: entry.user.display_name ?? "",
+          avatarUrl: entry.user.avatar_url ?? "",
+          createdAt: timestampFromDate(timestampToDate(entry.user.created_at)),
+          updatedAt: timestampFromDate(timestampToDate(entry.user.updated_at)),
         });
 
-        const protoPerformance = new UserPerformance({
+        const protoPerformance = create(UserPerformanceSchema, {
           userId: entry.performance.userId,
           totalPredictions: entry.performance.totalPredictions,
           closedPredictions: entry.performance.closedPredictions,
@@ -1968,9 +2067,12 @@ export const strategyServiceImpl = {
           avgReturn: entry.performance.avgReturn,
           totalRoi: entry.performance.totalROI,
           currentStreak: entry.performance.currentStreak,
+          bestPrediction: entry.performance.bestPrediction
+            ? await dbRowToProtoPrediction(entry.performance.bestPrediction)
+            : undefined,
         });
 
-        currentUserEntry = new LeaderboardEntry({
+        currentUserEntry = create(LeaderboardEntrySchema, {
           rank: entry.rank,
           user: protoUser,
           performanceScore: entry.performanceScore,
@@ -1978,7 +2080,7 @@ export const strategyServiceImpl = {
         });
       }
 
-      return new GetLeaderboardResponse({
+      return create(GetLeaderboardResponseSchema, {
         entries: protoEntries,
         totalCount: leaderboardResult.totalCount,
         currentUserEntry,
@@ -2094,7 +2196,7 @@ export const strategyServiceImpl = {
       // Convert to proto
       const copiedStrategy = await dbRowToProtoStrategy(newRow);
 
-      return new CopyStrategyResponse({
+      return create(CopyStrategyResponseSchema, {
         strategy: copiedStrategy,
       });
     } catch (error) {

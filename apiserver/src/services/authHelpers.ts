@@ -63,9 +63,7 @@ export async function sendOTP(email: string): Promise<void> {
       expiresAt,
       Date.now()
     );
-    console.log(
-      `[AUTH HELPER] ✅ OTP inserted successfully. Row ID: ${insertResult.lastInsertRowid}`
-    );
+    console.log(`[AUTH HELPER] ✅ OTP inserted successfully. Row ID: ${insertResult.lastID}`);
   } catch (dbError) {
     console.error(`[AUTH HELPER] ❌ Database error:`, dbError);
     throw dbError;
