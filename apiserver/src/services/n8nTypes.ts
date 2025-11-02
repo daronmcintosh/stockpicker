@@ -5,6 +5,14 @@
 /**
  * Type representing an n8n workflow node
  */
+/**
+ * Credential reference structure in n8n nodes
+ */
+export interface N8nCredentialReference {
+  id: string;
+  name: string;
+}
+
 export interface N8nWorkflowNode {
   id: string;
   name: string;
@@ -12,6 +20,10 @@ export interface N8nWorkflowNode {
   typeVersion?: number;
   position?: [number, number];
   parameters?: Record<string, unknown>;
+  credentials?: {
+    httpHeaderAuth?: N8nCredentialReference;
+    [key: string]: N8nCredentialReference | undefined;
+  };
   disabled?: boolean;
   executeOnce?: boolean;
   continueOnFail?: boolean;

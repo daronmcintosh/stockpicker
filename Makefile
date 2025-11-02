@@ -122,12 +122,7 @@ format:
 
 fix:
 	@echo "Auto-fixing safe issues (linting + formatting)..."
-	pnpm run fix
-
-fix-unsafe:
-	@echo "Auto-fixing all issues (safe + unsafe)..."
-	pnpm run fix:unsafe
-
+	pnpm run fix || pnpm run fix:unsafe
 # Building
 build:
 	@echo "Building all workspaces..."

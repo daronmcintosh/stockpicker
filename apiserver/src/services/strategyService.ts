@@ -92,6 +92,7 @@ import {
 import {
   generateToken,
   getCurrentUserId,
+  getRawToken,
   getUserById,
   getUserByUsername,
   sendOTP as sendOTPHelper,
@@ -133,9 +134,10 @@ function getTradesPerMonth(frequency: Frequency): number {
  * Ensure a workflow exists for a strategy. Creates it if missing.
  * This handles cases where workflows were deleted or n8n instance was reset.
  * @param row - The strategy row from the database
+ * @param userToken - JWT token for workflow authentication (optional for system operations)
  * @returns The workflow ID (existing or newly created)
  */
-async function ensureWorkflowExists(row: StrategyRow): Promise<string> {
+async function ensureWorkflowExists(row: StrategyRow, userToken?: string): Promise<string> {
   const strategyId = row.id;
   const strategyName = row.name;
   const currentWorkflowId = row.n8n_workflow_id;
@@ -151,9 +153,54 @@ async function ensureWorkflowExists(row: StrategyRow): Promise<string> {
         workflowName: workflow.name,
       });
 
+      // Ensure credential exists/updates and workflow references it (even if workflow already exists)
+      // Do this BEFORE updating API URL so credentials are preserved
+      if (userToken) {
+        try {
+          const credentialName = `Strategy-${strategyId}-Auth`;
+          const credentialId = await n8nClient.createOrUpdateCredential(credentialName, userToken);
+          console.log(`✅ Credential ensured for strategy:`, {
+            strategyId,
+            credentialName,
+            credentialId,
+          });
+
+          // Update the workflow to reference the credential
+          // Get full workflow, inject credential reference, and update it
+          // This ensures credentials are in place before API URL update
+          try {
+            const fullWorkflow = await n8nClient.getFullWorkflow(currentWorkflowId);
+            await n8nClient.updateFullWorkflow(
+              currentWorkflowId,
+              fullWorkflow,
+              userToken,
+              strategyId
+            );
+            console.log(`✅ Workflow updated to reference credential:`, {
+              strategyId,
+              workflowId: currentWorkflowId,
+              credentialId,
+            });
+          } catch (updateError) {
+            console.warn(`⚠️ Failed to update workflow with credential reference:`, {
+              strategyId,
+              error: updateError instanceof Error ? updateError.message : String(updateError),
+            });
+            // Continue anyway - credential exists, workflow just needs manual update
+          }
+        } catch (credError) {
+          console.warn(`⚠️ Failed to ensure credential for existing workflow:`, {
+            strategyId,
+            error: credError instanceof Error ? credError.message : String(credError),
+          });
+          // Don't fail the operation if credential update fails, but log it
+        }
+      }
+
       // Check and update API URL if it has changed (e.g., N8N_API_SERVER_URL was updated)
+      // Pass userToken and strategyId to preserve credentials during URL update
       // This must succeed - if it fails, the operation should fail
-      await n8nClient.updateWorkflowApiUrl(currentWorkflowId);
+      await n8nClient.updateWorkflowApiUrl(currentWorkflowId, userToken, strategyId);
 
       return workflow.id;
     } catch (error) {
@@ -174,8 +221,20 @@ async function ensureWorkflowExists(row: StrategyRow): Promise<string> {
     previousWorkflowId: currentWorkflowId,
   });
 
+  // Cannot create workflow without user token
+  if (!userToken) {
+    throw new Error(
+      `Cannot create workflow without user token. Strategy: ${strategyId}. Workflow will be created when user performs an action requiring it.`
+    );
+  }
+
   try {
-    const workflow = await n8nClient.createStrategyWorkflow(strategyId, strategyName, frequency);
+    const workflow = await n8nClient.createStrategyWorkflow(
+      strategyId,
+      strategyName,
+      frequency,
+      userToken
+    );
     console.log(`✅ Created new workflow for strategy:`, {
       strategyId,
       workflowId: workflow.id,
@@ -607,7 +666,21 @@ export const strategyServiceImpl = {
           strategyName: req.name,
         });
 
-        const workflow = await n8nClient.createStrategyWorkflow(id, req.name, req.frequency);
+        // Extract user token from Authorization header for n8n workflow authentication
+        const userToken = getRawToken(context);
+        if (!userToken) {
+          throw new ConnectError(
+            "Authentication required: User token must be provided in Authorization header",
+            Code.Unauthenticated
+          );
+        }
+
+        const workflow = await n8nClient.createStrategyWorkflow(
+          id,
+          req.name,
+          req.frequency,
+          userToken
+        );
         workflowId = workflow.id;
 
         console.log(`✅ n8n workflow created successfully:`, {
@@ -877,7 +950,7 @@ export const strategyServiceImpl = {
       console.log(`📖 Getting strategy:`, { strategyId: req.id });
       const userId = getCurrentUserId(context);
       console.log(`📖 User context:`, { userId, hasAuth: !!userId });
-      
+
       const row = (await db.get("SELECT * FROM strategies WHERE id = ?", [req.id])) as
         | StrategyRow
         | undefined;
@@ -886,25 +959,30 @@ export const strategyServiceImpl = {
         throw new ConnectError(`Strategy not found: ${req.id}`, Code.NotFound);
       }
 
-      console.log(`📖 Strategy found:`, { 
-        strategyId: row.id, 
-        name: row.name, 
-        privacy: row.privacy, 
-        ownerId: row.user_id 
+      console.log(`📖 Strategy found:`, {
+        strategyId: row.id,
+        name: row.name,
+        privacy: row.privacy,
+        ownerId: row.user_id,
       });
 
       // Check access: owner or public
       const isOwner = userId && row.user_id === userId;
       const isPublic = row.privacy === "STRATEGY_PRIVACY_PUBLIC";
 
-      console.log(`📖 Access check:`, { isOwner, isPublic, requestedBy: userId, ownerId: row.user_id });
+      console.log(`📖 Access check:`, {
+        isOwner,
+        isPublic,
+        requestedBy: userId,
+        ownerId: row.user_id,
+      });
 
       if (!isOwner && !isPublic) {
-        console.error(`❌ Access denied:`, { 
-          strategyId: req.id, 
-          requestedBy: userId, 
-          ownerId: row.user_id, 
-          privacy: row.privacy 
+        console.error(`❌ Access denied:`, {
+          strategyId: req.id,
+          requestedBy: userId,
+          ownerId: row.user_id,
+          privacy: row.privacy,
         });
         throw new ConnectError("Access denied: This strategy is private", Code.PermissionDenied);
       }
@@ -940,140 +1018,210 @@ export const strategyServiceImpl = {
     req: UpdateStrategyRequest,
     context: HandlerContext
   ): Promise<UpdateStrategyResponse> {
-    const userId = getCurrentUserId(context);
-
-    // Check ownership
-    const existingRow = (await db.get("SELECT * FROM strategies WHERE id = ?", [req.id])) as
-      | StrategyRow
-      | undefined;
-    if (!existingRow) {
-      throw new Error(`Strategy not found: ${req.id}`);
-    }
-    if (userId !== existingRow.user_id) {
-      throw new Error("Access denied: You can only update your own strategies");
-    }
-
-    const now = new Date().toISOString();
-    const updates: string[] = [];
-    const params: (string | number)[] = [];
-
-    if (req.name) {
-      updates.push("name = ?");
-      params.push(req.name);
-    }
-    if (req.description) {
-      updates.push("description = ?");
-      params.push(req.description);
-    }
-    if (req.customPrompt) {
-      updates.push("custom_prompt = ?");
-      params.push(req.customPrompt);
-    }
-    if (req.timeHorizon) {
-      updates.push("time_horizon = ?");
-      params.push(req.timeHorizon);
-    }
-    if (req.targetReturnPct !== undefined) {
-      updates.push("target_return_pct = ?");
-      params.push(req.targetReturnPct);
-    }
-    if (req.riskLevel) {
-      updates.push("risk_level = ?");
-      params.push(riskLevelToProtoName(req.riskLevel));
-    }
-    if (req.maxUniqueStocks !== undefined) {
-      updates.push("max_unique_stocks = ?");
-      params.push(req.maxUniqueStocks);
-    }
-
-    // Track if name changed for workflow update
-    const nameChanged = req.name && req.name !== existingRow.name;
-    const oldName = existingRow.name;
-
-    console.log(`🔍 Strategy update check:`, {
-      strategyId: req.id,
-      nameProvided: !!req.name,
-      currentName: existingRow.name,
-      newName: req.name,
-      nameChanged,
-      hasWorkflow: !!existingRow.n8n_workflow_id,
-      workflowId: existingRow.n8n_workflow_id,
-    });
-
-    // Use transaction to ensure atomicity: DB update and workflow update must both succeed
     try {
-      await db.run("BEGIN TRANSACTION");
+      const userId = getCurrentUserId(context);
 
-      // Step 1: Update database
-      if (updates.length > 0) {
-        updates.push("updated_at = ?");
-        params.push(now);
-        params.push(req.id); // for WHERE clause
-
-        await db.run(`UPDATE strategies SET ${updates.join(", ")} WHERE id = ?`, params);
-        console.log(`✅ Strategy database updated`);
+      // Check ownership
+      const existingRow = (await db.get("SELECT * FROM strategies WHERE id = ?", [req.id])) as
+        | StrategyRow
+        | undefined;
+      if (!existingRow) {
+        throw new ConnectError(`Strategy not found: ${req.id}`, Code.NotFound);
+      }
+      if (userId !== existingRow.user_id) {
+        throw new ConnectError(
+          "Access denied: You can only update your own strategies",
+          Code.PermissionDenied
+        );
       }
 
-      // Step 2: Update n8n workflow if name changed (must succeed or rollback DB)
-      if (nameChanged && existingRow.n8n_workflow_id) {
-        console.log(`🔄 Updating n8n workflow name:`, {
-          strategyId: req.id,
-          workflowId: existingRow.n8n_workflow_id,
-          oldName,
-          newName: req.name,
-        });
+      const now = new Date().toISOString();
+      const updates: string[] = [];
+      const params: (string | number)[] = [];
 
-        const frequency = protoNameToFrequency(existingRow.frequency);
-        if (req.name) {
-          await n8nClient.updateStrategyWorkflow(
-            existingRow.n8n_workflow_id,
-            req.id,
-            req.name,
-            frequency
-          );
-        }
-
-        console.log(`✅ n8n workflow name updated successfully:`, {
-          strategyId: req.id,
-          oldName,
-          newName: req.name,
-          workflowId: existingRow.n8n_workflow_id,
-        });
-      } else {
-        if (!nameChanged) {
-          console.log(`ℹ️ Strategy name unchanged, skipping workflow update`);
-        }
-        if (!existingRow.n8n_workflow_id) {
-          console.log(`ℹ️ Strategy has no workflow ID, skipping workflow update`);
-        }
+      if (req.name) {
+        updates.push("name = ?");
+        params.push(req.name);
+      }
+      if (req.description) {
+        updates.push("description = ?");
+        params.push(req.description);
+      }
+      if (req.customPrompt) {
+        updates.push("custom_prompt = ?");
+        params.push(req.customPrompt);
+      }
+      if (req.timeHorizon) {
+        updates.push("time_horizon = ?");
+        params.push(req.timeHorizon);
+      }
+      if (req.targetReturnPct !== undefined) {
+        updates.push("target_return_pct = ?");
+        params.push(req.targetReturnPct);
+      }
+      if (req.riskLevel) {
+        updates.push("risk_level = ?");
+        params.push(riskLevelToProtoName(req.riskLevel));
+      }
+      if (req.maxUniqueStocks !== undefined) {
+        updates.push("max_unique_stocks = ?");
+        params.push(req.maxUniqueStocks);
       }
 
-      // Commit transaction if all operations succeeded
-      await db.run("COMMIT");
-      console.log(`✅ Strategy update transaction committed`);
-    } catch (error) {
-      // Rollback database changes if workflow update failed
-      console.error(`❌ Error during strategy update, rolling back:`, {
+      // Track if name changed for workflow update
+      const nameChanged = req.name && req.name !== existingRow.name;
+      const oldName = existingRow.name;
+
+      console.log(`🔍 Strategy update check:`, {
         strategyId: req.id,
-        error: error instanceof Error ? error.message : String(error),
+        nameProvided: !!req.name,
+        currentName: existingRow.name,
+        newName: req.name,
+        nameChanged,
+        hasWorkflow: !!existingRow.n8n_workflow_id,
+        workflowId: existingRow.n8n_workflow_id,
       });
 
+      // Use transaction to ensure atomicity: DB update and workflow update must both succeed
       try {
-        await db.run("ROLLBACK");
-        console.log(`🔄 Transaction rolled back`);
-      } catch (rollbackError) {
-        console.error(`❌ Failed to rollback transaction:`, rollbackError);
+        await db.run("BEGIN TRANSACTION");
+
+        // Step 1: Update database
+        if (updates.length > 0) {
+          updates.push("updated_at = ?");
+          params.push(now);
+          params.push(req.id); // for WHERE clause
+
+          await db.run(`UPDATE strategies SET ${updates.join(", ")} WHERE id = ?`, params);
+          console.log(`✅ Strategy database updated`);
+        }
+
+        // Step 2: Update n8n workflow if name changed (must succeed or rollback DB)
+        if (nameChanged && existingRow.n8n_workflow_id) {
+          console.log(`🔄 Updating n8n workflow name:`, {
+            strategyId: req.id,
+            workflowId: existingRow.n8n_workflow_id,
+            oldName,
+            newName: req.name,
+          });
+
+          const frequency = protoNameToFrequency(existingRow.frequency);
+          if (req.name) {
+            // Extract user token from Authorization header for workflow update
+            const userToken = getRawToken(context);
+            if (userToken) {
+              // Rebuild workflow from latest template to propagate code changes
+              try {
+                console.log(`🔄 Rebuilding workflow from latest template when updating strategy:`, {
+                  strategyId: req.id,
+                  workflowId: existingRow.n8n_workflow_id,
+                });
+                const rebuiltWorkflow = await n8nClient.rebuildWorkflowFromTemplate(
+                  existingRow.n8n_workflow_id,
+                  req.id,
+                  req.name,
+                  frequency,
+                  userToken
+                );
+
+                // Update database with new workflow ID if it changed
+                if (rebuiltWorkflow.id !== existingRow.n8n_workflow_id) {
+                  await db.run(
+                    "UPDATE strategies SET n8n_workflow_id = ?, updated_at = ? WHERE id = ?",
+                    [rebuiltWorkflow.id, new Date().toISOString(), req.id]
+                  );
+                  console.log(`✅ Updated workflow ID in database:`, {
+                    strategyId: req.id,
+                    oldWorkflowId: existingRow.n8n_workflow_id,
+                    newWorkflowId: rebuiltWorkflow.id,
+                  });
+                }
+              } catch (rebuildError) {
+                console.warn(`⚠️ Failed to rebuild workflow, falling back to name-only update:`, {
+                  strategyId: req.id,
+                  error:
+                    rebuildError instanceof Error ? rebuildError.message : String(rebuildError),
+                });
+                // Fall back to simple name update
+                await n8nClient.updateStrategyWorkflow(
+                  existingRow.n8n_workflow_id,
+                  req.id,
+                  req.name,
+                  frequency,
+                  userToken
+                );
+              }
+            } else {
+              console.warn(`⚠️ No user token available for workflow update, skipping`);
+            }
+          }
+
+          console.log(`✅ n8n workflow name updated successfully:`, {
+            strategyId: req.id,
+            oldName,
+            newName: req.name,
+            workflowId: existingRow.n8n_workflow_id,
+          });
+        } else {
+          if (!nameChanged) {
+            console.log(`ℹ️ Strategy name unchanged, skipping workflow update`);
+          }
+          if (!existingRow.n8n_workflow_id) {
+            console.log(`ℹ️ Strategy has no workflow ID, skipping workflow update`);
+          }
+        }
+
+        // Commit transaction if all operations succeeded
+        await db.run("COMMIT");
+        console.log(`✅ Strategy update transaction committed`);
+      } catch (error) {
+        // Rollback database changes if workflow update failed
+        console.error(`❌ Error during strategy update, rolling back:`, {
+          strategyId: req.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+
+        try {
+          await db.run("ROLLBACK");
+          console.log(`🔄 Transaction rolled back`);
+        } catch (rollbackError) {
+          console.error(`❌ Failed to rollback transaction:`, rollbackError);
+        }
+
+        // If it's already a ConnectError, re-throw it
+        if (error instanceof ConnectError) {
+          throw error;
+        }
+        throw new ConnectError(
+          `Failed to update strategy: ${error instanceof Error ? error.message : String(error)}`,
+          Code.Internal
+        );
       }
 
+      const row = (await db.get("SELECT * FROM strategies WHERE id = ?", [req.id])) as StrategyRow;
+      const strategy = await dbRowToProtoStrategy(row);
+      return create(UpdateStrategyResponseSchema, { strategy });
+    } catch (error) {
+      // If it's already a ConnectError, re-throw it
+      if (error instanceof ConnectError) {
+        console.error("❌ ConnectError in updateStrategy:", {
+          code: error.code,
+          message: error.message,
+          strategyId: req.id,
+        });
+        throw error;
+      }
+      // Convert other errors to ConnectError
+      console.error("❌ Error in updateStrategy:", {
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+        strategyId: req.id,
+      });
       throw new ConnectError(
-        `Failed to update strategy: ${error instanceof Error ? error.message : String(error)}`,
+        error instanceof Error ? error.message : "Internal error",
         Code.Internal
       );
     }
-
-    const row = (await db.get("SELECT * FROM strategies WHERE id = ?", [req.id])) as StrategyRow;
-    const strategy = await dbRowToProtoStrategy(row);
-    return create(UpdateStrategyResponseSchema, { strategy });
   },
 
   async deleteStrategy(
@@ -1088,17 +1236,23 @@ export const strategyServiceImpl = {
         | StrategyRow
         | undefined;
       if (!row) {
-        throw new Error(`Strategy not found: ${req.id}`);
+        throw new ConnectError(`Strategy not found: ${req.id}`, Code.NotFound);
       }
 
       // Check ownership
       if (userId !== row.user_id) {
-        throw new Error("Access denied: You can only delete your own strategies");
+        throw new ConnectError(
+          "Access denied: You can only delete your own strategies",
+          Code.PermissionDenied
+        );
       }
 
       const status = protoNameToStrategyStatus(row.status);
       if (status !== StrategyStatus.STOPPED) {
-        throw new Error(`Strategy must be stopped before deletion. Current status: ${row.status}`);
+        throw new ConnectError(
+          `Strategy must be stopped before deletion. Current status: ${row.status}`,
+          Code.FailedPrecondition
+        );
       }
 
       // Step 1: Delete n8n workflow first (must succeed before deleting strategy)
@@ -1140,17 +1294,67 @@ export const strategyServiceImpl = {
         | StrategyRow
         | undefined;
       if (!row) {
-        throw new Error(`Strategy not found: ${req.id}`);
+        throw new ConnectError(`Strategy not found: ${req.id}`, Code.NotFound);
       }
 
       // Check ownership
       if (userId !== row.user_id) {
-        throw new Error("Access denied: You can only start your own strategies");
+        throw new ConnectError(
+          "Access denied: You can only start your own strategies",
+          Code.PermissionDenied
+        );
       }
 
-      // Use direct query instead of prepared statement
-      // Ensure workflow exists (sync) before activating
-      const workflowId = await ensureWorkflowExists(row);
+      // Extract user token from Authorization header for n8n workflow authentication
+      const userToken = getRawToken(context);
+      if (!userToken) {
+        throw new ConnectError(
+          "Authentication required: User token must be provided in Authorization header",
+          Code.Unauthenticated
+        );
+      }
+
+      // Ensure workflow exists and credential is created/updated
+      let workflowId = await ensureWorkflowExists(row, userToken);
+
+      // Rebuild workflow from latest template to propagate code changes (enum updates, etc.)
+      if (row.n8n_workflow_id) {
+        try {
+          const frequency = protoNameToFrequency(row.frequency);
+          console.log(`🔄 Rebuilding workflow from latest template when starting strategy:`, {
+            strategyId: req.id,
+            workflowId: row.n8n_workflow_id,
+          });
+          const rebuiltWorkflow = await n8nClient.rebuildWorkflowFromTemplate(
+            row.n8n_workflow_id,
+            req.id,
+            row.name,
+            frequency,
+            userToken
+          );
+          workflowId = rebuiltWorkflow.id;
+
+          // Update database with new workflow ID if it changed
+          if (workflowId !== row.n8n_workflow_id) {
+            await db.run("UPDATE strategies SET n8n_workflow_id = ?, updated_at = ? WHERE id = ?", [
+              workflowId,
+              new Date().toISOString(),
+              req.id,
+            ]);
+            console.log(`✅ Updated workflow ID in database:`, {
+              strategyId: req.id,
+              oldWorkflowId: row.n8n_workflow_id,
+              newWorkflowId: workflowId,
+            });
+          }
+        } catch (rebuildError) {
+          console.warn(`⚠️ Failed to rebuild workflow, continuing with existing workflow:`, {
+            strategyId: req.id,
+            error: rebuildError instanceof Error ? rebuildError.message : String(rebuildError),
+          });
+          // Continue with existing workflow - don't fail strategy start
+        }
+      }
 
       // Use transaction: DB update and workflow activation must both succeed
       try {
@@ -1173,7 +1377,10 @@ export const strategyServiceImpl = {
         // Verify workflow is actually active
         const workflow = await n8nClient.getWorkflow(workflowId);
         if (!workflow.active) {
-          throw new Error("Workflow activation reported success but workflow is still inactive");
+          throw new ConnectError(
+            "Workflow activation reported success but workflow is still inactive",
+            Code.Internal
+          );
         }
 
         console.log(`✅ n8n workflow activated successfully and verified:`, {
@@ -1199,8 +1406,13 @@ export const strategyServiceImpl = {
           console.error(`❌ Failed to rollback transaction:`, rollbackError);
         }
 
-        throw new Error(
-          `Failed to start strategy: ${error instanceof Error ? error.message : String(error)}`
+        // If it's already a ConnectError, re-throw it
+        if (error instanceof ConnectError) {
+          throw error;
+        }
+        throw new ConnectError(
+          `Failed to start strategy: ${error instanceof Error ? error.message : String(error)}`,
+          Code.Internal
         );
       }
 
@@ -1230,12 +1442,15 @@ export const strategyServiceImpl = {
         | StrategyRow
         | undefined;
       if (!row) {
-        throw new Error(`Strategy not found: ${req.id}`);
+        throw new ConnectError(`Strategy not found: ${req.id}`, Code.NotFound);
       }
 
       // Check ownership
       if (userId !== row.user_id) {
-        throw new Error("Access denied: You can only pause your own strategies");
+        throw new ConnectError(
+          "Access denied: You can only pause your own strategies",
+          Code.PermissionDenied
+        );
       }
 
       // Use transaction: DB update and workflow deactivation must both succeed
@@ -1271,7 +1486,7 @@ export const strategyServiceImpl = {
             await n8nClient.deactivateWorkflow(row.n8n_workflow_id);
             const retryWorkflow = await n8nClient.getWorkflow(row.n8n_workflow_id);
             if (retryWorkflow.active) {
-              throw new Error("Workflow still active after retry");
+              throw new ConnectError("Workflow still active after retry", Code.Internal);
             }
           }
 
@@ -1301,8 +1516,13 @@ export const strategyServiceImpl = {
           console.error(`❌ Failed to rollback transaction:`, rollbackError);
         }
 
-        throw new Error(
-          `Failed to pause strategy: ${error instanceof Error ? error.message : String(error)}`
+        // If it's already a ConnectError, re-throw it
+        if (error instanceof ConnectError) {
+          throw error;
+        }
+        throw new ConnectError(
+          `Failed to pause strategy: ${error instanceof Error ? error.message : String(error)}`,
+          Code.Internal
         );
       }
 
@@ -1331,12 +1551,15 @@ export const strategyServiceImpl = {
         | StrategyRow
         | undefined;
       if (!row) {
-        throw new Error(`Strategy not found: ${req.id}`);
+        throw new ConnectError(`Strategy not found: ${req.id}`, Code.NotFound);
       }
 
       // Check ownership
       if (userId !== row.user_id) {
-        throw new Error("Access denied: You can only stop your own strategies");
+        throw new ConnectError(
+          "Access denied: You can only stop your own strategies",
+          Code.PermissionDenied
+        );
       }
 
       // Use transaction: DB update and workflow deactivation must both succeed
@@ -1372,7 +1595,7 @@ export const strategyServiceImpl = {
             await n8nClient.deactivateWorkflow(row.n8n_workflow_id);
             const retryWorkflow = await n8nClient.getWorkflow(row.n8n_workflow_id);
             if (retryWorkflow.active) {
-              throw new Error("Workflow still active after retry");
+              throw new ConnectError("Workflow still active after retry", Code.Internal);
             }
           }
 
@@ -1402,8 +1625,13 @@ export const strategyServiceImpl = {
           console.error(`❌ Failed to rollback transaction:`, rollbackError);
         }
 
-        throw new Error(
-          `Failed to stop strategy: ${error instanceof Error ? error.message : String(error)}`
+        // If it's already a ConnectError, re-throw it
+        if (error instanceof ConnectError) {
+          throw error;
+        }
+        throw new ConnectError(
+          `Failed to stop strategy: ${error instanceof Error ? error.message : String(error)}`,
+          Code.Internal
         );
       }
 
@@ -1448,8 +1676,56 @@ export const strategyServiceImpl = {
         );
       }
 
-      // Ensure workflow exists (sync) before executing
-      const workflowId = await ensureWorkflowExists(row);
+      // Extract user token from Authorization header for n8n workflow authentication
+      const userToken = getRawToken(context);
+      if (!userToken) {
+        throw new ConnectError(
+          "Authentication required: User token must be provided in Authorization header",
+          Code.Unauthenticated
+        );
+      }
+
+      // Ensure workflow exists and credential is created/updated
+      let workflowId = await ensureWorkflowExists(row, userToken);
+
+      // Rebuild workflow from latest template to propagate code changes (enum updates, etc.)
+      if (row.n8n_workflow_id) {
+        try {
+          const frequency = protoNameToFrequency(row.frequency);
+          console.log(`🔄 Rebuilding workflow from latest template when triggering predictions:`, {
+            strategyId: req.id,
+            workflowId: row.n8n_workflow_id,
+          });
+          const rebuiltWorkflow = await n8nClient.rebuildWorkflowFromTemplate(
+            row.n8n_workflow_id,
+            req.id,
+            row.name,
+            frequency,
+            userToken
+          );
+          workflowId = rebuiltWorkflow.id;
+
+          // Update database with new workflow ID if it changed
+          if (workflowId !== row.n8n_workflow_id) {
+            await db.run("UPDATE strategies SET n8n_workflow_id = ?, updated_at = ? WHERE id = ?", [
+              workflowId,
+              new Date().toISOString(),
+              req.id,
+            ]);
+            console.log(`✅ Updated workflow ID in database:`, {
+              strategyId: req.id,
+              oldWorkflowId: row.n8n_workflow_id,
+              newWorkflowId: workflowId,
+            });
+          }
+        } catch (rebuildError) {
+          console.warn(`⚠️ Failed to rebuild workflow, continuing with existing workflow:`, {
+            strategyId: req.id,
+            error: rebuildError instanceof Error ? rebuildError.message : String(rebuildError),
+          });
+          // Continue with existing workflow - don't fail prediction trigger
+        }
+      }
 
       // Execute the n8n workflow manually
       console.log(`▶️ Executing n8n workflow:`, {
@@ -1488,31 +1764,51 @@ export const strategyServiceImpl = {
     const existingRow = (await db.get("SELECT * FROM strategies WHERE id = ?", [req.id])) as
       | StrategyRow
       | undefined;
-    if (!existingRow) {
-      throw new Error(`Strategy not found: ${req.id}`);
+    try {
+      if (!existingRow) {
+        throw new ConnectError(`Strategy not found: ${req.id}`, Code.NotFound);
+      }
+
+      // Check ownership
+      if (userId !== existingRow.user_id) {
+        throw new ConnectError(
+          "Access denied: You can only update privacy for your own strategies",
+          Code.PermissionDenied
+        );
+      }
+
+      const privacyStr = mapPrivacyToDb(req.privacy);
+      await db.run("UPDATE strategies SET privacy = ?, updated_at = ? WHERE id = ?", [
+        privacyStr,
+        new Date().toISOString(),
+        req.id,
+      ]);
+
+      const row = (await db.get("SELECT * FROM strategies WHERE id = ?", [req.id])) as
+        | StrategyRow
+        | undefined;
+      if (!row) {
+        throw new ConnectError(`Strategy not found: ${req.id}`, Code.NotFound);
+      }
+
+      const strategy = await dbRowToProtoStrategy(row);
+      return create(UpdateStrategyPrivacyResponseSchema, { strategy });
+    } catch (error) {
+      // If it's already a ConnectError, re-throw it
+      if (error instanceof ConnectError) {
+        throw error;
+      }
+      // Convert other errors to ConnectError
+      console.error("❌ Error in updateStrategyPrivacy:", {
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+        strategyId: req.id,
+      });
+      throw new ConnectError(
+        error instanceof Error ? error.message : "Internal error",
+        Code.Internal
+      );
     }
-
-    // Check ownership
-    if (userId !== existingRow.user_id) {
-      throw new Error("Access denied: You can only update privacy for your own strategies");
-    }
-
-    const privacyStr = mapPrivacyToDb(req.privacy);
-    await db.run("UPDATE strategies SET privacy = ?, updated_at = ? WHERE id = ?", [
-      privacyStr,
-      new Date().toISOString(),
-      req.id,
-    ]);
-
-    const row = (await db.get("SELECT * FROM strategies WHERE id = ?", [req.id])) as
-      | StrategyRow
-      | undefined;
-    if (!row) {
-      throw new Error(`Strategy not found: ${req.id}`);
-    }
-
-    const strategy = await dbRowToProtoStrategy(row);
-    return create(UpdateStrategyPrivacyResponseSchema, { strategy });
   },
 
   // ============================================================================
@@ -2179,7 +2475,21 @@ export const strategyServiceImpl = {
 
       // Create new n8n workflow
       try {
-        const workflow = await n8nClient.createStrategyWorkflow(newId, newName, frequencyEnum);
+        // Extract user token from Authorization header for n8n workflow authentication
+        const userToken = getRawToken(context);
+        if (!userToken) {
+          throw new ConnectError(
+            "Authentication required: User token must be provided in Authorization header",
+            Code.Unauthenticated
+          );
+        }
+
+        const workflow = await n8nClient.createStrategyWorkflow(
+          newId,
+          newName,
+          frequencyEnum,
+          userToken
+        );
         workflowId = workflow.id;
       } catch (error) {
         console.error("❌ Failed to create n8n workflow for copied strategy:", error);

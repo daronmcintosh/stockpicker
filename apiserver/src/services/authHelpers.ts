@@ -196,17 +196,25 @@ export function verifyToken(token: string): JWTPayload | null {
   }
 }
 
-// Get user from JWT in request context
-export function getCurrentUserId(context: HandlerContext): string | null {
+// Get raw JWT token from request context (without verification)
+export function getRawToken(context: HandlerContext): string | null {
   const authHeader = context.requestHeader.get("authorization");
 
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
     return null;
   }
 
-  const token = authHeader.substring(7); // Remove "Bearer "
-  const payload = verifyToken(token);
+  return authHeader.substring(7); // Remove "Bearer "
+}
 
+// Get user from JWT in request context
+export function getCurrentUserId(context: HandlerContext): string | null {
+  const token = getRawToken(context);
+  if (!token) {
+    return null;
+  }
+
+  const payload = verifyToken(token);
   return payload?.userId ?? null;
 }
 

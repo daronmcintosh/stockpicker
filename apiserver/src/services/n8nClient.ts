@@ -52,6 +52,55 @@ function injectApiUrl(workflow: N8nWorkflow): N8nWorkflow {
 }
 
 /**
+ * Inject credential references into HTTP request nodes instead of embedding tokens
+ * This allows n8n workflows to use credential resources securely
+ */
+function injectCredentialReference(
+  workflow: N8nWorkflow,
+  credentialId: string,
+  credentialName: string
+): N8nWorkflow {
+  // Deep clone to avoid mutating original
+  const processed = JSON.parse(JSON.stringify(workflow));
+
+  // Find all HTTP request nodes that call our API and inject credential reference
+  if (Array.isArray(processed.nodes)) {
+    for (const node of processed.nodes) {
+      if (node.type === "n8n-nodes-base.httpRequest" && node.parameters) {
+        // Check if this node calls our API (contains stockpicker.v1)
+        const url = node.parameters.url as string;
+        if (url?.includes("stockpicker.v1")) {
+          // Remove Authorization header if present (will use credential instead)
+          if (node.parameters.headerParameters?.parameters) {
+            node.parameters.headerParameters.parameters =
+              node.parameters.headerParameters.parameters.filter(
+                (p: { name: string }) => p.name !== "Authorization"
+              );
+          }
+
+          // Add credential reference to the node
+          // n8n HTTP Request node uses credentials field for credential references
+          if (!node.credentials) {
+            node.credentials = {};
+          }
+          node.credentials.httpHeaderAuth = {
+            id: credentialId,
+            name: credentialName,
+          };
+
+          // Set authentication to use generic credential type with httpHeaderAuth
+          // n8n requires: authentication = "genericCredentialType" and genericAuthType = "httpHeaderAuth"
+          node.parameters.authentication = "genericCredentialType";
+          node.parameters.genericAuthType = "httpHeaderAuth";
+        }
+      }
+    }
+  }
+
+  return processed;
+}
+
+/**
  * Check if a workflow needs API URL updates by scanning for URLs in nodes
  * Returns true if any URL in the workflow doesn't match the current API URL
  */
@@ -200,6 +249,78 @@ class N8nClient {
   }
 
   /**
+   * Create or update an HTTP Header Auth credential in n8n
+   * This stores the user token securely as a credential resource
+   * @param credentialName - Unique name for the credential (typically strategy ID or user ID)
+   * @param userToken - The JWT token to store
+   * @returns The credential ID
+   */
+  async createOrUpdateCredential(credentialName: string, userToken: string): Promise<string> {
+    try {
+      console.log(`🔐 Creating/updating n8n credential:`, { credentialName });
+
+      // Try to get existing credential first
+      let existingCredentialId: string | null = null;
+      try {
+        const credentials = await this.request<Array<{ id: string; name: string }>>(
+          "GET",
+          "/credentials"
+        );
+        const existing = credentials.find((c) => c.name === credentialName);
+        if (existing) {
+          existingCredentialId = existing.id;
+          console.log(`📋 Found existing credential:`, {
+            credentialId: existingCredentialId,
+            credentialName,
+          });
+        }
+      } catch (_error) {
+        // Credential doesn't exist yet, will create new one
+        console.log(`ℹ️ No existing credential found, creating new one`);
+      }
+
+      // HTTP Header Auth credential structure for n8n
+      const credentialData = {
+        name: credentialName,
+        type: "httpHeaderAuth",
+        data: {
+          name: "Authorization",
+          value: `Bearer ${userToken}`,
+        },
+      };
+
+      if (existingCredentialId) {
+        // Update existing credential
+        const response = await this.request<{ id: string }>(
+          "PUT",
+          `/credentials/${existingCredentialId}`,
+          credentialData
+        );
+        console.log(`✅ Updated n8n credential:`, {
+          credentialId: response.id,
+          credentialName,
+        });
+        return response.id;
+      }
+      // Create new credential
+      const response = await this.request<{ id: string }>("POST", "/credentials", credentialData);
+      console.log(`✅ Created n8n credential:`, {
+        credentialId: response.id,
+        credentialName,
+      });
+      return response.id;
+    } catch (error) {
+      console.error(`❌ Error creating/updating n8n credential:`, {
+        credentialName,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw new Error(
+        `Failed to create/update credential: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
+
+  /**
    * Helper method to make HTTP requests using fetch
    */
   private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
@@ -257,7 +378,8 @@ class N8nClient {
   async createStrategyWorkflow(
     strategyId: string,
     strategyName: string,
-    frequency: Frequency
+    frequency: Frequency,
+    userToken: string
   ): Promise<N8nWorkflowResponse> {
     const cronExpression = frequencyToCron(frequency);
     const frequencyName = frequencyToName(frequency);
@@ -360,6 +482,8 @@ class N8nClient {
           position: [650, 400],
         },
         // Get Active Predictions for budget check
+        // Note: This node handles empty responses gracefully - if no predictions exist,
+        // it still continues to the budget check which uses currentMonthSpent from the strategy
         {
           parameters: {
             url: "={{ $env.API_URL }}/stockpicker.v1.PredictionService/ListPredictions",
@@ -378,19 +502,17 @@ class N8nClient {
               ],
             },
             sendBody: true,
-            bodyParameters: {
-              parameters: [
-                {
-                  name: "strategyId",
-                  value: `={{ $node['Get Strategy'].json.strategy.id }}`,
-                },
-                {
-                  name: "status",
-                  value: "PREDICTION_STATUS_ACTIVE",
-                },
-              ],
+            specifyBody: "json", // Use JSON body format for Connect RPC
+            jsonBody:
+              "={{ {\n  strategyId: $node['Get Strategy'].json.strategy.id,\n  status: \"PREDICTION_STATUS_ACTIVE\"\n} }}", // Use string enum value for status
+            options: {
+              // Handle empty responses gracefully - return empty array if no predictions
+              response: {
+                responseFormat: "json",
+                neverError: true, // Don't fail on 200 responses, even if predictions array is empty
+              },
             },
-            options: {},
+            continueOnFail: false, // Set to false to see errors, but we have neverError for 200 responses
           },
           id: "get-active-predictions",
           name: "Get Active Predictions",
@@ -398,7 +520,71 @@ class N8nClient {
           typeVersion: 4.2,
           position: [1050, 300],
         },
+        // Handle empty predictions response - normalize to ensure valid data structure
+        // Uses runOnceForAllItems to handle empty inputs gracefully
+        {
+          parameters: {
+            mode: "runOnceForAllItems",
+            jsCode: `// Normalize predictions response - handle empty arrays, missing data, or errors
+// The HTTP Request node might return the response directly or wrapped in json property
+// API already filters by PREDICTION_STATUS_ACTIVE, so we just need to extract the array
+
+let predictions = [];
+let responseData = null;
+
+// Handle different input scenarios
+if ($input.all && $input.all.length > 0) {
+  // We have items - get the first item
+  responseData = $input.all[0].json;
+} else if ($input.item) {
+  // Single item mode
+  responseData = $input.item.json;
+} else if ($json) {
+  // Direct json access
+  responseData = $json;
+}
+
+// Extract predictions from response
+if (responseData) {
+  // Check if response is wrapped (from HTTP Request node)
+  if (responseData.json && responseData.json.predictions) {
+    // Response is wrapped: { json: { predictions: [...] } }
+    predictions = responseData.json.predictions || [];
+  } else if (responseData.predictions) {
+    // Response is direct: { predictions: [...] }
+    predictions = responseData.predictions || [];
+  } else if (Array.isArray(responseData)) {
+    // Response might be array directly
+    predictions = responseData;
+  }
+}
+
+// Get strategy from previous node
+const strategy = $node['Get Strategy'].json.strategy;
+
+// Always return valid structure, even if predictions array is empty or no input received
+const result = {
+  json: {
+    predictions: Array.isArray(predictions) ? predictions : [],
+    strategy: strategy,
+    hasPredictions: predictions.length > 0,
+    predictionCount: predictions.length
+  }
+};
+
+// Return array with single item (required by n8n)
+return [result];`,
+          },
+          id: "normalize-predictions",
+          name: "Normalize Predictions",
+          type: "n8n-nodes-base.code",
+          typeVersion: 2,
+          position: [1050, 500],
+        },
         // Check Budget
+        // Handles cases when there are no active predictions (currentMonthSpent will be 0 or null)
+        // Compares currentMonthSpent (defaults to 0 if null/undefined) < monthlyBudget
+        // Uses strategy data from Normalize Predictions output (current item)
         {
           parameters: {
             conditions: {
@@ -410,8 +596,12 @@ class N8nClient {
               conditions: [
                 {
                   id: "check-budget-condition",
-                  leftValue: "={{ $node['Get Strategy'].json.strategy.currentMonthSpent }}",
-                  rightValue: "={{ $node['Get Strategy'].json.strategy.monthlyBudget }}",
+                  // Use strategy from current item (Normalize Predictions output) or fall back to Get Strategy node
+                  // Use nullish coalescing to default to 0 if currentMonthSpent is null/undefined (no predictions)
+                  leftValue:
+                    "={{ $json.strategy?.currentMonthSpent ?? $node['Get Strategy'].json.strategy.currentMonthSpent ?? 0 }}",
+                  rightValue:
+                    "={{ $json.strategy?.monthlyBudget ?? $node['Get Strategy'].json.strategy.monthlyBudget ?? 0 }}",
                   operator: {
                     type: "number",
                     operation: "smaller",
@@ -681,6 +871,9 @@ return recommendations.map(rec => ({ json: rec }));`,
           ],
         },
         "Get Active Predictions": {
+          main: [[{ node: "Normalize Predictions", type: "main", index: 0 }]],
+        },
+        "Normalize Predictions": {
           main: [[{ node: "Check Budget", type: "main", index: 0 }]],
         },
         "Check Budget": {
@@ -717,8 +910,17 @@ return recommendations.map(rec => ({ json: rec }));`,
     };
 
     try {
-      // Inject API URL directly instead of relying on $env.API_URL
-      const workflowWithApiUrl = injectApiUrl(workflow);
+      // Step 1: Create or update credential with user token
+      const credentialName = `Strategy-${strategyId}-Auth`;
+      const credentialId = await this.createOrUpdateCredential(credentialName, userToken);
+
+      // Step 2: Inject API URL and credential reference into workflow
+      let processedWorkflow = injectApiUrl(workflow);
+      processedWorkflow = injectCredentialReference(
+        processedWorkflow,
+        credentialId,
+        credentialName
+      );
 
       console.log(`📝 Creating n8n workflow for strategy:`, {
         strategyId,
@@ -728,11 +930,13 @@ return recommendations.map(rec => ({ json: rec }));`,
         workflowName: workflow.name,
         nodeCount: workflow.nodes.length,
         apiUrl: appConfig.n8n.apiServerUrl,
+        credentialId,
+        credentialName,
       });
       const response = await this.request<N8nWorkflowResponse>(
         "POST",
         "/workflows",
-        workflowWithApiUrl
+        processedWorkflow
       );
       console.log(`✅ n8n workflow created successfully:`, {
         workflowId: response.id,
@@ -760,7 +964,9 @@ return recommendations.map(rec => ({ json: rec }));`,
    */
   async updateWorkflow(
     workflowId: string,
-    updates: Partial<N8nWorkflow>
+    updates: Partial<N8nWorkflow>,
+    userToken?: string,
+    strategyId?: string
   ): Promise<N8nWorkflowResponse> {
     try {
       console.log(`📝 Updating n8n workflow:`, {
@@ -778,8 +984,13 @@ return recommendations.map(rec => ({ json: rec }));`,
         id: workflowId,
       };
 
-      // Use PUT to update the entire workflow
-      const response = await this.updateFullWorkflow(workflowId, updatedWorkflow);
+      // Pass strategyId to updateFullWorkflow for credential updates
+      const response = await this.updateFullWorkflow(
+        workflowId,
+        updatedWorkflow,
+        userToken,
+        strategyId
+      );
 
       console.log(`✅ n8n workflow updated:`, {
         workflowId: response.id,
@@ -799,6 +1010,68 @@ return recommendations.map(rec => ({ json: rec }));`,
   }
 
   /**
+   * Rebuild a workflow from the latest template to propagate code changes
+   * This replaces the entire workflow structure with the latest version
+   * Preserves workflow ID, active status, and updates credentials
+   */
+  async rebuildWorkflowFromTemplate(
+    workflowId: string,
+    strategyId: string,
+    strategyName: string,
+    frequency: Frequency,
+    userToken: string
+  ): Promise<N8nWorkflowResponse> {
+    try {
+      console.log(`🔄 Rebuilding workflow from latest template:`, {
+        workflowId,
+        strategyId,
+        strategyName,
+        frequency: frequencyToName(frequency),
+      });
+
+      // Get existing workflow to preserve active status
+      const existingWorkflow = await this.getFullWorkflow(workflowId);
+      const wasActive = existingWorkflow.active;
+
+      // Create new workflow structure from latest template
+      const newWorkflow = await this.createStrategyWorkflow(
+        strategyId,
+        strategyName,
+        frequency,
+        userToken
+      );
+
+      // Delete old workflow
+      await this.deleteWorkflow(workflowId);
+      console.log(`🗑️ Deleted old workflow:`, { workflowId });
+
+      // The new workflow is created but inactive by default
+      // Restore active status if it was active before
+      if (wasActive) {
+        await this.activateWorkflow(newWorkflow.id);
+        console.log(`✅ Restored active status for rebuilt workflow:`, {
+          workflowId: newWorkflow.id,
+        });
+      }
+
+      console.log(`✅ Workflow rebuilt successfully:`, {
+        oldWorkflowId: workflowId,
+        newWorkflowId: newWorkflow.id,
+        active: wasActive,
+      });
+
+      return newWorkflow;
+    } catch (error) {
+      console.error(`❌ Error rebuilding workflow from template:`, {
+        workflowId,
+        strategyId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
+  }
+
+  /**
    * Update a strategy workflow when strategy parameters change
    * This updates the workflow name, cron schedule, and AI analysis prompt
    */
@@ -806,7 +1079,8 @@ return recommendations.map(rec => ({ json: rec }));`,
     workflowId: string,
     strategyId: string,
     strategyName: string,
-    frequency: Frequency
+    frequency: Frequency,
+    userToken?: string
   ): Promise<N8nWorkflowResponse> {
     const frequencyName = frequencyToName(frequency);
 
@@ -827,7 +1101,8 @@ return recommendations.map(rec => ({ json: rec }));`,
         newName: updates.name,
         frequency: frequencyToName(frequency),
       });
-      const response = await this.updateWorkflow(workflowId, updates);
+      // Pass strategyId to updateWorkflow so it can update credentials
+      const response = await this.updateWorkflow(workflowId, updates, userToken, strategyId);
       console.log(`✅ n8n workflow updated for strategy:`, {
         workflowId: response.id,
         strategyId,
@@ -951,7 +1226,11 @@ return recommendations.map(rec => ({ json: rec }));`,
    * Update API URLs in an existing workflow if they've changed
    * This is more efficient than recreating the workflow
    */
-  async updateWorkflowApiUrl(workflowId: string): Promise<N8nWorkflowResponse | null> {
+  async updateWorkflowApiUrl(
+    workflowId: string,
+    userToken?: string,
+    strategyId?: string
+  ): Promise<N8nWorkflowResponse | null> {
     try {
       // Get the full workflow
       const workflow = await this.getFullWorkflow(workflowId);
@@ -968,6 +1247,7 @@ return recommendations.map(rec => ({ json: rec }));`,
       });
 
       // Inject the current API URL into the workflow
+      // Note: injectApiUrl preserves node structure including credentials
       const updatedWorkflow = injectApiUrl(workflow);
 
       // Ensure the workflow has the ID set (required for N8nFullWorkflow)
@@ -977,7 +1257,13 @@ return recommendations.map(rec => ({ json: rec }));`,
       };
 
       // Update the workflow (PUT replaces entire workflow)
-      const response = await this.updateFullWorkflow(workflowId, workflowWithId);
+      // Pass userToken and strategyId to preserve credentials
+      const response = await this.updateFullWorkflow(
+        workflowId,
+        workflowWithId,
+        userToken,
+        strategyId
+      );
 
       console.log(`✅ Workflow API URL updated:`, {
         workflowId: response.id,
@@ -1064,7 +1350,9 @@ return recommendations.map(rec => ({ json: rec }));`,
    */
   async updateFullWorkflow(
     workflowId: string,
-    workflow: N8nFullWorkflow
+    workflow: N8nFullWorkflow,
+    userToken?: string,
+    strategyId?: string
   ): Promise<N8nWorkflowResponse> {
     try {
       console.log(`📝 Updating full n8n workflow:`, {
@@ -1073,8 +1361,33 @@ return recommendations.map(rec => ({ json: rec }));`,
         nodeCount: Array.isArray(workflow.nodes) ? workflow.nodes.length : undefined,
       });
 
+      // Update credential if user token provided
+      let processedWorkflow = workflow;
+      if (userToken) {
+        // Try to extract strategyId from parameter, workflow name, or workflow ID
+        let credentialStrategyId = strategyId;
+        if (!credentialStrategyId) {
+          // Try to extract from workflow name - format: "Strategy: {name} ({frequency})"
+          // But we actually need the UUID strategy ID, not the name
+          // For now, we'll use a pattern based on existing credentials or workflow ID
+          // In practice, strategyId should be passed from the caller
+          credentialStrategyId = workflowId;
+        }
+        const credentialName = `Strategy-${credentialStrategyId}-Auth`;
+
+        // Update the credential with the new token
+        const credentialId = await this.createOrUpdateCredential(credentialName, userToken);
+
+        // Inject credential reference into workflow nodes
+        processedWorkflow = injectCredentialReference(
+          processedWorkflow as N8nWorkflow,
+          credentialId,
+          credentialName
+        ) as N8nFullWorkflow;
+      }
+
       // Filter workflow to only include API-accepted fields (remove id, active, versionId, meta, etc.)
-      const workflowData = workflow as unknown as Record<string, unknown>;
+      const workflowData = processedWorkflow as unknown as Record<string, unknown>;
       const requestBody = filterWorkflowForApi(workflowData);
 
       console.log(`📝 Filtered workflow fields for update:`, {

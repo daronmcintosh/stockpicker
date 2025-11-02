@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { create } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import type { HandlerContext } from "@connectrpc/connect";
+import { Code, ConnectError } from "@connectrpc/connect";
 import { type PredictionRow, type StrategyRow, db } from "../db.js";
 import {
   type CopyPredictionRequest,
@@ -300,12 +301,15 @@ export const predictionServiceImpl = {
       ])) as StrategyRow | undefined;
 
       if (!strategyRow) {
-        throw new Error(`Strategy not found: ${req.strategyId}`);
+        throw new ConnectError(`Strategy not found: ${req.strategyId}`, Code.NotFound);
       }
 
       // Check ownership: user must own the strategy to create predictions for it
       if (userId !== strategyRow.user_id) {
-        throw new Error("Access denied: You can only create predictions for your own strategies");
+        throw new ConnectError(
+          "Access denied: You can only create predictions for your own strategies",
+          Code.PermissionDenied
+        );
       }
 
       const id = randomUUID();
@@ -414,12 +418,25 @@ export const predictionServiceImpl = {
 
       return create(CreatePredictionResponseSchema, { prediction });
     } catch (error) {
-      console.error("❌ Error creating prediction:", error);
-      if (error instanceof Error) {
-        console.error("Error message:", error.message);
-        console.error("Error stack:", error.stack);
+      // If it's already a ConnectError, re-throw it
+      if (error instanceof ConnectError) {
+        console.error("❌ ConnectError in createPrediction:", {
+          code: error.code,
+          message: error.message,
+          strategyId: req.strategyId,
+        });
+        throw error;
       }
-      throw error;
+      // Convert other errors to ConnectError
+      console.error("❌ Error creating prediction:", {
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+        strategyId: req.strategyId,
+      });
+      throw new ConnectError(
+        error instanceof Error ? error.message : "Internal error",
+        Code.Internal
+      );
     }
   },
 
@@ -427,65 +444,99 @@ export const predictionServiceImpl = {
     req: ListPredictionsRequest,
     context: HandlerContext
   ): Promise<ListPredictionsResponse> {
-    const userId = getCurrentUserId(context);
+    try {
+      const userId = getCurrentUserId(context);
 
-    // Get strategy to validate ownership
-    const strategyRow = (await db.get("SELECT * FROM strategies WHERE id = ?", [req.strategyId])) as
-      | StrategyRow
-      | undefined;
+      // Get strategy to validate ownership
+      const strategyRow = (await db.get("SELECT * FROM strategies WHERE id = ?", [
+        req.strategyId,
+      ])) as StrategyRow | undefined;
 
-    if (!strategyRow) {
-      throw new Error(`Strategy not found: ${req.strategyId}`);
+      if (!strategyRow) {
+        throw new ConnectError(`Strategy not found: ${req.strategyId}`, Code.NotFound);
+      }
+
+      // Check access: owner OR public strategy
+      const isOwner = userId && strategyRow.user_id === userId;
+      const isPublic = strategyRow.privacy === "STRATEGY_PRIVACY_PUBLIC";
+
+      if (!isOwner && !isPublic) {
+        throw new ConnectError("Access denied: This strategy is private", Code.PermissionDenied);
+      }
+
+      let rows: PredictionRow[];
+      if (req.status) {
+        const statusStr = PredictionStatus[req.status] || "PREDICTION_STATUS_ACTIVE";
+        rows = (await db.all(
+          "SELECT * FROM predictions WHERE strategy_id = ? AND status = ? ORDER BY created_at DESC",
+          [req.strategyId, statusStr]
+        )) as PredictionRow[];
+      } else {
+        rows = (await db.all(
+          "SELECT * FROM predictions WHERE strategy_id = ? ORDER BY created_at DESC",
+          [req.strategyId]
+        )) as PredictionRow[];
+      }
+
+      const predictions = await Promise.all(rows.map((row) => dbRowToProtoPrediction(row)));
+      return create(ListPredictionsResponseSchema, { predictions });
+    } catch (error) {
+      // If it's already a ConnectError, re-throw it
+      if (error instanceof ConnectError) {
+        throw error;
+      }
+      // Convert other errors to ConnectError
+      console.error("❌ Error in listPredictions:", {
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+        strategyId: req.strategyId,
+      });
+      throw new ConnectError(
+        error instanceof Error ? error.message : "Internal error",
+        Code.Internal
+      );
     }
-
-    // Check access: owner OR public strategy
-    const isOwner = userId && strategyRow.user_id === userId;
-    const isPublic = strategyRow.privacy === "STRATEGY_PRIVACY_PUBLIC";
-
-    if (!isOwner && !isPublic) {
-      throw new Error("Access denied: This strategy is private");
-    }
-
-    let rows: PredictionRow[];
-    if (req.status) {
-      const statusStr = PredictionStatus[req.status] || "PREDICTION_STATUS_ACTIVE";
-      rows = (await db.all(
-        "SELECT * FROM predictions WHERE strategy_id = ? AND status = ? ORDER BY created_at DESC",
-        [req.strategyId, statusStr]
-      )) as PredictionRow[];
-    } else {
-      rows = (await db.all(
-        "SELECT * FROM predictions WHERE strategy_id = ? ORDER BY created_at DESC",
-        [req.strategyId]
-      )) as PredictionRow[];
-    }
-
-    const predictions = await Promise.all(rows.map((row) => dbRowToProtoPrediction(row)));
-    return create(ListPredictionsResponseSchema, { predictions });
   },
 
   async getPrediction(
     req: GetPredictionRequest,
     context: HandlerContext
   ): Promise<GetPredictionResponse> {
-    const userId = getCurrentUserId(context);
-    const row = (await db.get("SELECT * FROM predictions WHERE id = ?", [req.id])) as
-      | PredictionRow
-      | undefined;
-    if (!row) {
-      throw new Error(`Prediction not found: ${req.id}`);
+    try {
+      const userId = getCurrentUserId(context);
+      const row = (await db.get("SELECT * FROM predictions WHERE id = ?", [req.id])) as
+        | PredictionRow
+        | undefined;
+      if (!row) {
+        throw new ConnectError(`Prediction not found: ${req.id}`, Code.NotFound);
+      }
+
+      // Check access: owner OR public prediction
+      const isOwner = userId && row.user_id === userId;
+      const isPublic = row.privacy === "PREDICTION_PRIVACY_PUBLIC";
+
+      if (!isOwner && !isPublic) {
+        throw new ConnectError("Access denied: This prediction is private", Code.PermissionDenied);
+      }
+
+      const prediction = await dbRowToProtoPrediction(row);
+      return create(GetPredictionResponseSchema, { prediction });
+    } catch (error) {
+      // If it's already a ConnectError, re-throw it
+      if (error instanceof ConnectError) {
+        throw error;
+      }
+      // Convert other errors to ConnectError
+      console.error("❌ Error in getPrediction:", {
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+        predictionId: req.id,
+      });
+      throw new ConnectError(
+        error instanceof Error ? error.message : "Internal error",
+        Code.Internal
+      );
     }
-
-    // Check access: owner OR public prediction
-    const isOwner = userId && row.user_id === userId;
-    const isPublic = row.privacy === "PREDICTION_PRIVACY_PUBLIC";
-
-    if (!isOwner && !isPublic) {
-      throw new Error("Access denied: This prediction is private");
-    }
-
-    const prediction = await dbRowToProtoPrediction(row);
-    return create(GetPredictionResponseSchema, { prediction });
   },
 
   async getPredictionsBySymbol(
@@ -522,32 +573,52 @@ export const predictionServiceImpl = {
     req: UpdatePredictionActionRequest,
     context: HandlerContext
   ): Promise<UpdatePredictionActionResponse> {
-    const userId = getCurrentUserId(context);
+    try {
+      const userId = getCurrentUserId(context);
 
-    // Check ownership before update
-    const existingRow = (await db.get("SELECT * FROM predictions WHERE id = ?", [req.id])) as
-      | PredictionRow
-      | undefined;
-    if (!existingRow) {
-      throw new Error(`Prediction not found: ${req.id}`);
+      // Check ownership before update
+      const existingRow = (await db.get("SELECT * FROM predictions WHERE id = ?", [req.id])) as
+        | PredictionRow
+        | undefined;
+      if (!existingRow) {
+        throw new ConnectError(`Prediction not found: ${req.id}`, Code.NotFound);
+      }
+
+      if (userId !== existingRow.user_id) {
+        throw new ConnectError(
+          "Access denied: You can only update your own predictions",
+          Code.PermissionDenied
+        );
+      }
+
+      const actionStr = mapEnumToAction(req.action);
+      await db.run("UPDATE predictions SET action = ? WHERE id = ?", [actionStr, req.id]);
+
+      const row = (await db.get("SELECT * FROM predictions WHERE id = ?", [req.id])) as
+        | PredictionRow
+        | undefined;
+      if (!row) {
+        throw new ConnectError(`Prediction not found: ${req.id}`, Code.NotFound);
+      }
+
+      const prediction = await dbRowToProtoPrediction(row);
+      return create(UpdatePredictionActionResponseSchema, { prediction });
+    } catch (error) {
+      // If it's already a ConnectError, re-throw it
+      if (error instanceof ConnectError) {
+        throw error;
+      }
+      // Convert other errors to ConnectError
+      console.error("❌ Error in updatePredictionAction:", {
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+        predictionId: req.id,
+      });
+      throw new ConnectError(
+        error instanceof Error ? error.message : "Internal error",
+        Code.Internal
+      );
     }
-
-    if (userId !== existingRow.user_id) {
-      throw new Error("Access denied: You can only update your own predictions");
-    }
-
-    const actionStr = mapEnumToAction(req.action);
-    await db.run("UPDATE predictions SET action = ? WHERE id = ?", [actionStr, req.id]);
-
-    const row = (await db.get("SELECT * FROM predictions WHERE id = ?", [req.id])) as
-      | PredictionRow
-      | undefined;
-    if (!row) {
-      throw new Error(`Prediction not found: ${req.id}`);
-    }
-
-    const prediction = await dbRowToProtoPrediction(row);
-    return create(UpdatePredictionActionResponseSchema, { prediction });
   },
 
   async getPublicPredictions(
@@ -583,36 +654,56 @@ export const predictionServiceImpl = {
     req: UpdatePredictionPrivacyRequest,
     context: HandlerContext
   ): Promise<UpdatePredictionPrivacyResponse> {
-    const userId = getCurrentUserId(context);
+    try {
+      const userId = getCurrentUserId(context);
 
-    // Check ownership before update
-    const existingRow = (await db.get("SELECT * FROM predictions WHERE id = ?", [req.id])) as
-      | PredictionRow
-      | undefined;
-    if (!existingRow) {
-      throw new Error(`Prediction not found: ${req.id}`);
+      // Check ownership before update
+      const existingRow = (await db.get("SELECT * FROM predictions WHERE id = ?", [req.id])) as
+        | PredictionRow
+        | undefined;
+      if (!existingRow) {
+        throw new ConnectError(`Prediction not found: ${req.id}`, Code.NotFound);
+      }
+
+      if (userId !== existingRow.user_id) {
+        throw new ConnectError(
+          "Access denied: You can only update privacy for your own predictions",
+          Code.PermissionDenied
+        );
+      }
+
+      const privacyStr = mapPredictionPrivacyToDb(req.privacy);
+
+      await db.run("UPDATE predictions SET privacy = ? WHERE id = ?", [privacyStr, req.id]);
+
+      const row = (await db.get("SELECT * FROM predictions WHERE id = ?", [req.id])) as
+        | PredictionRow
+        | undefined;
+      if (!row) {
+        throw new ConnectError(`Prediction not found: ${req.id}`, Code.NotFound);
+      }
+
+      const prediction = await dbRowToProtoPrediction(row);
+
+      console.log(`🔒 Updated prediction privacy: ${req.id} -> ${privacyStr}`);
+
+      return create(UpdatePredictionPrivacyResponseSchema, { prediction });
+    } catch (error) {
+      // If it's already a ConnectError, re-throw it
+      if (error instanceof ConnectError) {
+        throw error;
+      }
+      // Convert other errors to ConnectError
+      console.error("❌ Error in updatePredictionPrivacy:", {
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+        predictionId: req.id,
+      });
+      throw new ConnectError(
+        error instanceof Error ? error.message : "Internal error",
+        Code.Internal
+      );
     }
-
-    if (userId !== existingRow.user_id) {
-      throw new Error("Access denied: You can only update privacy for your own predictions");
-    }
-
-    const privacyStr = mapPredictionPrivacyToDb(req.privacy);
-
-    await db.run("UPDATE predictions SET privacy = ? WHERE id = ?", [privacyStr, req.id]);
-
-    const row = (await db.get("SELECT * FROM predictions WHERE id = ?", [req.id])) as
-      | PredictionRow
-      | undefined;
-    if (!row) {
-      throw new Error(`Prediction not found: ${req.id}`);
-    }
-
-    const prediction = await dbRowToProtoPrediction(row);
-
-    console.log(`🔒 Updated prediction privacy: ${req.id} -> ${privacyStr}`);
-
-    return create(UpdatePredictionPrivacyResponseSchema, { prediction });
   },
 
   // TODO: Uncomment after regenerating proto files to include UpdatePredictionRequest and UpdatePredictionResponse
@@ -812,11 +903,14 @@ export const predictionServiceImpl = {
         | PredictionRow
         | undefined;
       if (!row) {
-        throw new Error(`Prediction not found: ${req.id}`);
+        throw new ConnectError(`Prediction not found: ${req.id}`, Code.NotFound);
       }
 
       if (userId !== row.user_id) {
-        throw new Error("Access denied: You can only delete your own predictions");
+        throw new ConnectError(
+          "Access denied: You can only delete your own predictions",
+          Code.PermissionDenied
+        );
       }
 
       // Delete the prediction
@@ -824,8 +918,25 @@ export const predictionServiceImpl = {
       console.log(`🗑️ Prediction deleted: ${req.id} (${row.symbol})`);
       return create(DeletePredictionResponseSchema, { success: true });
     } catch (error) {
-      console.error("❌ Error deleting prediction:", error);
-      throw error;
+      // If it's already a ConnectError, re-throw it
+      if (error instanceof ConnectError) {
+        console.error("❌ ConnectError in deletePrediction:", {
+          code: error.code,
+          message: error.message,
+          predictionId: req.id,
+        });
+        throw error;
+      }
+      // Convert other errors to ConnectError
+      console.error("❌ Error deleting prediction:", {
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+        predictionId: req.id,
+      });
+      throw new ConnectError(
+        error instanceof Error ? error.message : "Internal error",
+        Code.Internal
+      );
     }
   },
 
@@ -837,15 +948,15 @@ export const predictionServiceImpl = {
       const currentUserId = getCurrentUserId(context);
 
       if (!currentUserId) {
-        throw new Error("Authentication required to copy predictions");
+        throw new ConnectError("Authentication required to copy predictions", Code.Unauthenticated);
       }
 
       if (!req.predictionId) {
-        throw new Error("Prediction ID is required");
+        throw new ConnectError("Prediction ID is required", Code.InvalidArgument);
       }
 
       if (!req.strategyId) {
-        throw new Error("Target strategy ID is required");
+        throw new ConnectError("Target strategy ID is required", Code.InvalidArgument);
       }
 
       // Get the original prediction
@@ -854,7 +965,7 @@ export const predictionServiceImpl = {
       ])) as PredictionRow | undefined;
 
       if (!originalRow) {
-        throw new Error(`Prediction not found: ${req.predictionId}`);
+        throw new ConnectError(`Prediction not found: ${req.predictionId}`, Code.NotFound);
       }
 
       // Check if prediction is public or user owns it
@@ -862,7 +973,10 @@ export const predictionServiceImpl = {
       const isOwner = originalRow.user_id === currentUserId;
 
       if (!isPublic && !isOwner) {
-        throw new Error("Cannot copy private prediction you don't own");
+        throw new ConnectError(
+          "Cannot copy private prediction you don't own",
+          Code.PermissionDenied
+        );
       }
 
       // Get and validate target strategy
@@ -871,12 +985,15 @@ export const predictionServiceImpl = {
       ])) as StrategyRow | undefined;
 
       if (!targetStrategyRow) {
-        throw new Error(`Target strategy not found: ${req.strategyId}`);
+        throw new ConnectError(`Target strategy not found: ${req.strategyId}`, Code.NotFound);
       }
 
       // User must own the target strategy
       if (targetStrategyRow.user_id !== currentUserId) {
-        throw new Error("Access denied: You can only copy predictions to your own strategies");
+        throw new ConnectError(
+          "Access denied: You can only copy predictions to your own strategies",
+          Code.PermissionDenied
+        );
       }
 
       // Create a copy with new ID and target strategy
@@ -938,7 +1055,7 @@ export const predictionServiceImpl = {
         | undefined;
 
       if (!newRow) {
-        throw new Error(`Failed to fetch copied prediction: ${newId}`);
+        throw new ConnectError(`Failed to fetch copied prediction: ${newId}`, Code.Internal);
       }
 
       // Convert to proto
@@ -950,8 +1067,27 @@ export const predictionServiceImpl = {
         prediction: copiedPrediction,
       });
     } catch (error) {
-      console.error("❌ Error copying prediction:", error);
-      throw error;
+      // If it's already a ConnectError, re-throw it
+      if (error instanceof ConnectError) {
+        console.error("❌ ConnectError in copyPrediction:", {
+          code: error.code,
+          message: error.message,
+          predictionId: req.predictionId,
+          strategyId: req.strategyId,
+        });
+        throw error;
+      }
+      // Convert other errors to ConnectError
+      console.error("❌ Error copying prediction:", {
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+        predictionId: req.predictionId,
+        strategyId: req.strategyId,
+      });
+      throw new ConnectError(
+        error instanceof Error ? error.message : "Internal error",
+        Code.Internal
+      );
     }
   },
 };
