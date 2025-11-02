@@ -1,0 +1,307 @@
+syntax = "proto3";
+
+package stockpicker.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// Strategy service for managing trading strategies
+service StrategyService {
+  // Create a new strategy
+  rpc CreateStrategy(CreateStrategyRequest) returns (CreateStrategyResponse);
+
+  // List all strategies
+  rpc ListStrategies(ListStrategiesRequest) returns (ListStrategiesResponse);
+
+  // Get a specific strategy by ID
+  rpc GetStrategy(GetStrategyRequest) returns (GetStrategyResponse);
+
+  // Update a strategy
+  rpc UpdateStrategy(UpdateStrategyRequest) returns (UpdateStrategyResponse);
+
+  // Delete a strategy
+  rpc DeleteStrategy(DeleteStrategyRequest) returns (DeleteStrategyResponse);
+
+  // Start a strategy (activate trading)
+  rpc StartStrategy(StartStrategyRequest) returns (StartStrategyResponse);
+
+  // Pause a strategy (stop trading but keep tracking)
+  rpc PauseStrategy(PauseStrategyRequest) returns (PauseStrategyResponse);
+
+  // Stop a strategy (permanently end)
+  rpc StopStrategy(StopStrategyRequest) returns (StopStrategyResponse);
+}
+
+// Prediction service for managing stock predictions
+service PredictionService {
+  // Create a new prediction
+  rpc CreatePrediction(CreatePredictionRequest) returns (CreatePredictionResponse);
+
+  // List predictions for a strategy
+  rpc ListPredictions(ListPredictionsRequest) returns (ListPredictionsResponse);
+
+  // Get a specific prediction
+  rpc GetPrediction(GetPredictionRequest) returns (GetPredictionResponse);
+
+  // Get predictions by symbol
+  rpc GetPredictionsBySymbol(GetPredictionsBySymbolRequest) returns (GetPredictionsBySymbolResponse);
+
+  // Update prediction action (pending/entered/dismissed)
+  rpc UpdatePredictionAction(UpdatePredictionActionRequest) returns (UpdatePredictionActionResponse);
+}
+
+// Strategy status enum
+enum StrategyStatus {
+  STRATEGY_STATUS_UNSPECIFIED = 0;
+  STRATEGY_STATUS_ACTIVE = 1;
+  STRATEGY_STATUS_PAUSED = 2;
+  STRATEGY_STATUS_STOPPED = 3;
+}
+
+// Risk level enum
+enum RiskLevel {
+  RISK_LEVEL_UNSPECIFIED = 0;
+  RISK_LEVEL_LOW = 1;
+  RISK_LEVEL_MEDIUM = 2;
+  RISK_LEVEL_HIGH = 3;
+}
+
+// Frequency enum
+enum Frequency {
+  FREQUENCY_UNSPECIFIED = 0;
+  FREQUENCY_DAILY = 1;
+  FREQUENCY_TWICE_WEEKLY = 2;
+  FREQUENCY_WEEKLY = 3;
+  FREQUENCY_BIWEEKLY = 4;
+  FREQUENCY_MONTHLY = 5;
+}
+
+// Strategy message
+message Strategy {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+  string custom_prompt = 4;
+
+  // Budget configuration
+  double monthly_budget = 5;
+  double current_month_spent = 6;
+  google.protobuf.Timestamp current_month_start = 7;
+
+  // Trading configuration
+  string time_horizon = 8;
+  double target_return_pct = 9;
+  Frequency frequency = 10;
+  int32 trades_per_month = 11;
+  double per_trade_budget = 12;
+  double per_stock_allocation = 13;
+  RiskLevel risk_level = 14;
+
+  // Portfolio limits
+  int32 unique_stocks_count = 15;
+  int32 max_unique_stocks = 16;
+
+  // Status
+  StrategyStatus status = 17;
+  google.protobuf.Timestamp next_trade_scheduled = 18;
+  google.protobuf.Timestamp last_trade_executed = 19;
+
+  // Timestamps
+  google.protobuf.Timestamp created_at = 20;
+  google.protobuf.Timestamp updated_at = 21;
+}
+
+// Create Strategy
+message CreateStrategyRequest {
+  string name = 1;
+  string description = 2;
+  string custom_prompt = 3;
+  double monthly_budget = 4;
+  string time_horizon = 5;
+  double target_return_pct = 6;
+  Frequency frequency = 7;
+  RiskLevel risk_level = 8;
+  int32 max_unique_stocks = 9;
+}
+
+message CreateStrategyResponse {
+  Strategy strategy = 1;
+}
+
+// List Strategies
+message ListStrategiesRequest {
+  // Optional filtering
+  StrategyStatus status = 1;
+}
+
+message ListStrategiesResponse {
+  repeated Strategy strategies = 1;
+}
+
+// Get Strategy
+message GetStrategyRequest {
+  string id = 1;
+}
+
+message GetStrategyResponse {
+  Strategy strategy = 1;
+}
+
+// Update Strategy
+message UpdateStrategyRequest {
+  string id = 1;
+  optional string name = 2;
+  optional string description = 3;
+  optional string custom_prompt = 4;
+  optional string time_horizon = 5;
+  optional double target_return_pct = 6;
+  optional RiskLevel risk_level = 7;
+  optional int32 max_unique_stocks = 8;
+}
+
+message UpdateStrategyResponse {
+  Strategy strategy = 1;
+}
+
+// Delete Strategy
+message DeleteStrategyRequest {
+  string id = 1;
+}
+
+message DeleteStrategyResponse {
+  bool success = 1;
+}
+
+// Start Strategy
+message StartStrategyRequest {
+  string id = 1;
+}
+
+message StartStrategyResponse {
+  Strategy strategy = 1;
+}
+
+// Pause Strategy
+message PauseStrategyRequest {
+  string id = 1;
+}
+
+message PauseStrategyResponse {
+  Strategy strategy = 1;
+}
+
+// Stop Strategy
+message StopStrategyRequest {
+  string id = 1;
+}
+
+message StopStrategyResponse {
+  Strategy strategy = 1;
+}
+
+// ============================================================================
+// PREDICTION SERVICE MESSAGES
+// ============================================================================
+
+// Prediction action enum
+enum PredictionAction {
+  PREDICTION_ACTION_UNSPECIFIED = 0;
+  PREDICTION_ACTION_PENDING = 1;
+  PREDICTION_ACTION_ENTERED = 2;
+  PREDICTION_ACTION_DISMISSED = 3;
+}
+
+// Prediction status enum
+enum PredictionStatus {
+  PREDICTION_STATUS_UNSPECIFIED = 0;
+  PREDICTION_STATUS_ACTIVE = 1;
+  PREDICTION_STATUS_HIT_TARGET = 2;
+  PREDICTION_STATUS_HIT_STOP = 3;
+  PREDICTION_STATUS_EXPIRED = 4;
+}
+
+// Prediction message
+message Prediction {
+  string id = 1;
+  string strategy_id = 2;
+  string symbol = 3;
+  double entry_price = 4;
+  double allocated_amount = 5;
+  int32 time_horizon_days = 6;
+  google.protobuf.Timestamp evaluation_date = 7;
+  double target_return_pct = 8;
+  double target_price = 9;
+  double stop_loss_pct = 10;
+  double stop_loss_price = 11;
+  double stop_loss_dollar_impact = 12;
+  RiskLevel risk_level = 13;
+  string technical_analysis = 14; // JSON string
+  double sentiment_score = 15;
+  double overall_score = 16;
+  PredictionAction action = 17;
+  PredictionStatus status = 18;
+  optional double current_price = 19;
+  optional double current_return_pct = 20;
+  optional google.protobuf.Timestamp closed_at = 21;
+  optional string closed_reason = 22;
+  google.protobuf.Timestamp created_at = 23;
+}
+
+// List Predictions
+message ListPredictionsRequest {
+  string strategy_id = 1;
+  optional PredictionStatus status = 2;
+}
+
+message ListPredictionsResponse {
+  repeated Prediction predictions = 1;
+}
+
+// Get Prediction
+message GetPredictionRequest {
+  string id = 1;
+}
+
+message GetPredictionResponse {
+  Prediction prediction = 1;
+}
+
+// Get Predictions by Symbol
+message GetPredictionsBySymbolRequest {
+  string symbol = 1;
+  optional string strategy_id = 2;
+}
+
+message GetPredictionsBySymbolResponse {
+  repeated Prediction predictions = 1;
+}
+
+// Create Prediction
+message CreatePredictionRequest {
+  string strategy_id = 1;
+  string symbol = 2;
+  double entry_price = 3;
+  double allocated_amount = 4;
+  double target_price = 5;
+  double stop_loss_price = 6;
+  string technical_analysis = 7; // JSON string
+  double sentiment_score = 8;
+  double overall_score = 9;
+  optional int32 time_horizon_days = 10;
+  optional double target_return_pct = 11;
+  optional double stop_loss_pct = 12;
+  optional RiskLevel risk_level = 13;
+}
+
+message CreatePredictionResponse {
+  Prediction prediction = 1;
+}
+
+// Update Prediction Action
+message UpdatePredictionActionRequest {
+  string id = 1;
+  PredictionAction action = 2;
+}
+
+message UpdatePredictionActionResponse {
+  Prediction prediction = 1;
+}

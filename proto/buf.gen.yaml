@@ -1,0 +1,18 @@
+version: v1
+plugins:
+  - plugin: es
+    out: ../apiserver/src/gen
+    opt:
+      - target=ts
+  - plugin: connect-es
+    out: ../apiserver/src/gen
+    opt:
+      - target=ts
+  - plugin: es
+    out: ../webapp/src/gen
+    opt:
+      - target=ts
+  - plugin: connect-es
+    out: ../webapp/src/gen
+    opt:
+      - target=ts

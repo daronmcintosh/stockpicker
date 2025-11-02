@@ -1,0 +1,22 @@
+{
+  "name": "stockpicker",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm --parallel -r dev",
+    "build": "pnpm -r build",
+    "generate": "pnpm -r generate",
+    "lint": "biome check .",
+    "lint:api": "biome check apiserver/src",
+    "lint:web": "biome check webapp/app",
+    "typecheck": "pnpm --filter stockpicker-apiserver run typecheck",
+    "format": "biome format --write .",
+    "fix": "biome check --write .",
+    "fix:unsafe": "biome check --write --unsafe .",
+    "ci": "biome ci . && pnpm run typecheck",
+    "clean": "pnpm -r clean && rm -rf node_modules"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4"
+  }
+}

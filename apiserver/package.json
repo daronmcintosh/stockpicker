@@ -1,0 +1,32 @@
+{
+  "name": "stockpicker-apiserver",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "start": "node dist/index.js",
+    "generate": "buf generate --template ../proto/buf.gen.yaml ../proto",
+    "lint": "biome check --config-path=.. src",
+    "format": "biome format --config-path=.. --write src",
+    "fix": "biome check --config-path=.. --write src",
+    "clean": "rm -rf node_modules dist src/gen"
+  },
+  "dependencies": {
+    "@bufbuild/protobuf": "^1.10.0",
+    "@connectrpc/connect": "^1.5.0",
+    "@connectrpc/connect-node": "^1.5.0",
+    "dotenv": "^17.2.3",
+    "sqlite": "^5.1.1",
+    "sqlite3": "^5.1.7"
+  },
+  "devDependencies": {
+    "@bufbuild/buf": "^1.39.0",
+    "@bufbuild/protoc-gen-es": "^1.10.0",
+    "@connectrpc/protoc-gen-connect-es": "^1.5.0",
+    "@types/node": "^20.19.24",
+    "tsx": "^4.16.0",
+    "typescript": "^5.5.0"
+  }
+}
