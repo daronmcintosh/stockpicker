@@ -18,6 +18,8 @@ const config = defineConfig({
       },
     }),
   ],
+  // No proxy needed - Connect RPC client connects directly to API server on port 3001
+  // The API server handles CORS properly, so cross-origin requests work fine
 });
 
 export default config;

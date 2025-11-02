@@ -1,21 +1,46 @@
 import { randomUUID } from "node:crypto";
 import { Timestamp } from "@bufbuild/protobuf";
+import type { HandlerContext } from "@connectrpc/connect";
+import { Code, ConnectError } from "@connectrpc/connect";
 import { appConfig } from "../config.js";
 import { type StrategyRow, db, statements } from "../db.js";
 import { StrategyService } from "../gen/stockpicker/v1/strategy_connect.js";
 import {
+  type CopyStrategyRequest,
+  CopyStrategyResponse,
   type CreateStrategyRequest,
   CreateStrategyResponse,
   type DeleteStrategyRequest,
   DeleteStrategyResponse,
+  type FollowUserRequest,
+  FollowUserResponse,
   Frequency,
+  type GetCurrentUserRequest,
+  GetCurrentUserResponse,
+  type GetLeaderboardRequest,
+  GetLeaderboardResponse,
   type GetStrategyRequest,
   GetStrategyResponse,
+  type GetUserPerformanceRequest,
+  GetUserPerformanceResponse,
+  type GetUserProfileRequest,
+  GetUserProfileResponse,
+  LeaderboardEntry,
+  LeaderboardScope,
+  LeaderboardTimeframe,
+  type ListCloseFriendsRequest,
+  ListCloseFriendsResponse,
+  type ListFollowersRequest,
+  ListFollowersResponse,
+  type ListFollowingRequest,
+  ListFollowingResponse,
   type ListStrategiesRequest,
   ListStrategiesResponse,
   type PauseStrategyRequest,
   PauseStrategyResponse,
   RiskLevel,
+  type SendOTPRequest,
+  SendOTPResponse,
   type StartStrategyRequest,
   StartStrategyResponse,
   type StopStrategyRequest,
@@ -25,12 +50,39 @@ import {
   StrategyStatus,
   type TriggerPredictionsRequest,
   TriggerPredictionsResponse,
+  type UnfollowUserRequest,
+  UnfollowUserResponse,
   type UpdateStrategyPrivacyRequest,
   UpdateStrategyPrivacyResponse,
   type UpdateStrategyRequest,
   UpdateStrategyResponse,
+  type UpdateUserRequest,
+  UpdateUserResponse,
+  User,
+  UserPerformance,
+  type VerifyOTPRequest,
+  VerifyOTPResponse,
 } from "../gen/stockpicker/v1/strategy_pb.js";
+import {
+  generateToken,
+  getCurrentUserId,
+  getUserById,
+  getUserByUsername,
+  sendOTP as sendOTPHelper,
+  verifyOTP as verifyOTPHelper,
+} from "./authHelpers.js";
+import { getLeaderboard } from "./leaderboardHelpers.js";
 import { n8nClient } from "./n8nClient.js";
+import { calculatePerformance, calculatePerformanceScore } from "./performanceHelpers.js";
+import {
+  followUser as followUserHelper,
+  getCloseFriends,
+  getFollowers,
+  getFollowing,
+  isCloseFriend as isCloseFriendHelper,
+  isFollowing as isFollowingHelper,
+  unfollowUser as unfollowUserHelper,
+} from "./socialHelpers.js";
 
 // Helper to convert frequency enum to trades per month
 function getTradesPerMonth(frequency: Frequency): number {
@@ -174,39 +226,96 @@ function toInteger(value: unknown): number {
   return 0;
 }
 
+// Helper to convert Unix timestamp to Date
+// Handles both seconds (SQLite unixepoch()) and milliseconds (Date.now())
+function timestampToDate(timestamp: number): Date {
+  // If timestamp is < 1e10, it's in seconds, otherwise it's in milliseconds
+  const ms = timestamp < 1e10 ? timestamp * 1000 : timestamp;
+  return new Date(ms);
+}
+
 // Helper to convert DB row to proto Strategy message
-function dbRowToProtoStrategy(row: StrategyRow): Strategy {
-  const strategy = new Strategy({
-    id: row.id,
-    name: row.name,
-    description: row.description,
-    customPrompt: row.custom_prompt,
-    monthlyBudget: toNumber(row.monthly_budget),
-    currentMonthSpent: toNumber(row.current_month_spent),
-    currentMonthStart: Timestamp.fromDate(new Date(row.current_month_start)),
-    timeHorizon: row.time_horizon,
-    targetReturnPct: toNumber(row.target_return_pct),
-    frequency: protoNameToFrequency(row.frequency),
-    tradesPerMonth: toInteger(row.trades_per_month),
-    perTradeBudget: toNumber(row.per_trade_budget),
-    perStockAllocation: toNumber(row.per_stock_allocation),
-    riskLevel: protoNameToRiskLevel(row.risk_level),
-    uniqueStocksCount: toInteger(row.unique_stocks_count),
-    maxUniqueStocks: toInteger(row.max_unique_stocks),
-    status: protoNameToStrategyStatus(row.status),
-    privacy: mapPrivacyFromDb(row.privacy),
-    createdAt: Timestamp.fromDate(new Date(row.created_at)),
-    updatedAt: Timestamp.fromDate(new Date(row.updated_at)),
-  });
+async function dbRowToProtoStrategy(row: StrategyRow): Promise<Strategy> {
+  try {
+    const strategy = new Strategy({
+      id: row.id,
+      name: row.name,
+      description: row.description,
+      customPrompt: row.custom_prompt,
+      monthlyBudget: toNumber(row.monthly_budget),
+      currentMonthSpent: toNumber(row.current_month_spent),
+      currentMonthStart: Timestamp.fromDate(new Date(row.current_month_start)),
+      timeHorizon: row.time_horizon,
+      targetReturnPct: toNumber(row.target_return_pct),
+      frequency: protoNameToFrequency(row.frequency),
+      tradesPerMonth: toInteger(row.trades_per_month),
+      perTradeBudget: toNumber(row.per_trade_budget),
+      perStockAllocation: toNumber(row.per_stock_allocation),
+      riskLevel: protoNameToRiskLevel(row.risk_level),
+      uniqueStocksCount: toInteger(row.unique_stocks_count),
+      maxUniqueStocks: toInteger(row.max_unique_stocks),
+      status: protoNameToStrategyStatus(row.status),
+      privacy: mapPrivacyFromDb(row.privacy),
+      userId: row.user_id,
+      createdAt: Timestamp.fromDate(new Date(row.created_at)),
+      updatedAt: Timestamp.fromDate(new Date(row.updated_at)),
+    });
 
-  if (row.next_trade_scheduled) {
-    strategy.nextTradeScheduled = Timestamp.fromDate(new Date(row.next_trade_scheduled));
-  }
-  if (row.last_trade_executed) {
-    strategy.lastTradeExecuted = Timestamp.fromDate(new Date(row.last_trade_executed));
-  }
+    if (row.next_trade_scheduled) {
+      strategy.nextTradeScheduled = Timestamp.fromDate(new Date(row.next_trade_scheduled));
+    }
+    if (row.last_trade_executed) {
+      strategy.lastTradeExecuted = Timestamp.fromDate(new Date(row.last_trade_executed));
+    }
 
-  return strategy;
+    // Populate user field
+    if (row.user_id) {
+      try {
+        console.log(`👤 Fetching user for strategy:`, { strategyId: row.id, userId: row.user_id });
+        const userRow = await getUserById(row.user_id);
+        if (userRow) {
+          console.log(`👤 User found, creating User proto:`, {
+            userId: userRow.id,
+            username: userRow.username,
+          });
+          strategy.user = new User({
+            id: userRow.id,
+            email: userRow.email,
+            username: userRow.username,
+            displayName: userRow.display_name ?? undefined,
+            avatarUrl: userRow.avatar_url ?? undefined,
+            createdAt: Timestamp.fromDate(timestampToDate(userRow.created_at)),
+            updatedAt: Timestamp.fromDate(timestampToDate(userRow.updated_at)),
+          });
+          console.log(`✅ User proto created successfully`);
+        } else {
+          console.warn(`⚠️ User ${row.user_id} not found in database for strategy ${row.id}`);
+        }
+      } catch (userError) {
+        console.error(`❌ Failed to fetch user ${row.user_id} for strategy ${row.id}:`, userError);
+        if (userError instanceof Error) {
+          console.error("User fetch error details:", {
+            message: userError.message,
+            stack: userError.stack,
+          });
+        }
+        // Continue without user field - non-critical
+      }
+    } else {
+      console.warn(`⚠️ Strategy ${row.id} has no user_id`);
+    }
+
+    return strategy;
+  } catch (error) {
+    console.error(`❌ Error in dbRowToProtoStrategy for strategy ${row.id}:`, error);
+    if (error instanceof Error) {
+      console.error("Strategy conversion error:", {
+        message: error.message,
+        stack: error.stack,
+      });
+    }
+    throw error;
+  }
 }
 
 // Helper to map database privacy string to StrategyPrivacy enum
@@ -235,16 +344,50 @@ function mapPrivacyToDb(privacy: StrategyPrivacy): string {
 
 // Strategy service implementation
 export const strategyServiceImpl = {
-  async createStrategy(req: CreateStrategyRequest): Promise<CreateStrategyResponse> {
+  async createStrategy(
+    req: CreateStrategyRequest,
+    context: HandlerContext
+  ): Promise<CreateStrategyResponse> {
+    console.log(`\n${"=".repeat(80)}`);
+    console.log("🎯 CREATE STRATEGY CALLED");
+    console.log("Request:", JSON.stringify(req, null, 2));
+
+    // Check authorization header
+    const authHeader = context.requestHeader.get("authorization");
+
     const id = randomUUID();
     let workflowId: string | null = null;
 
+    // Require authentication
+    console.log("🔐 Checking authentication for strategy creation...");
+    const userId = getCurrentUserId(context);
+    console.log("🔐 Authentication result:", { userId, hasAuth: !!userId });
+    if (!userId) {
+      console.error("❌ Authentication failed - no userId found");
+      throw new ConnectError("Authentication required to create strategies", Code.Unauthenticated);
+    }
+
     try {
+      // Validate required fields
+      if (!req.name) {
+        throw new Error("Strategy name is required");
+      }
+      if (!req.monthlyBudget || req.monthlyBudget <= 0) {
+        throw new Error("Monthly budget must be greater than 0");
+      }
+      if (req.frequency === undefined || req.frequency === null) {
+        throw new Error("Frequency is required");
+      }
+      if (req.riskLevel === undefined || req.riskLevel === null) {
+        throw new Error("Risk level is required");
+      }
+
       console.log("📝 Creating strategy:", {
         name: req.name,
         monthlyBudget: req.monthlyBudget,
         frequency: req.frequency,
         riskLevel: req.riskLevel,
+        userId,
       });
 
       // Step 1: Create n8n workflow first (external resource)
@@ -255,11 +398,7 @@ export const strategyServiceImpl = {
           strategyName: req.name,
         });
 
-        const workflow = await n8nClient.createStrategyWorkflow(
-          id,
-          req.name,
-          req.frequency
-        );
+        const workflow = await n8nClient.createStrategyWorkflow(id, req.name, req.frequency);
         workflowId = workflow.id;
 
         console.log(`✅ n8n workflow created successfully:`, {
@@ -306,6 +445,7 @@ export const strategyServiceImpl = {
         n8n_workflow_id: workflowId, // Use the workflow ID we just created
         status: "STRATEGY_STATUS_PAUSED",
         privacy: "STRATEGY_PRIVACY_PRIVATE", // Default to private
+        user_id: userId, // Add user_id
         created_at: now,
         updated_at: now,
       };
@@ -331,6 +471,7 @@ export const strategyServiceImpl = {
         strategyData.n8n_workflow_id,
         strategyData.status,
         strategyData.privacy,
+        strategyData.user_id, // Add user_id to params
         strategyData.created_at,
         strategyData.updated_at,
       ];
@@ -341,8 +482,8 @@ export const strategyServiceImpl = {
           current_month_start, time_horizon, target_return_pct, frequency,
           trades_per_month, per_trade_budget, per_stock_allocation, risk_level,
           unique_stocks_count, max_unique_stocks, n8n_workflow_id, status,
-          privacy, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          privacy, user_id, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `;
 
       // Use transaction to ensure atomicity
@@ -351,6 +492,11 @@ export const strategyServiceImpl = {
         await db.run("BEGIN TRANSACTION");
 
         // Insert strategy
+        console.log(`💾 Inserting strategy into database:`, {
+          strategyId: id,
+          paramCount: params.length,
+          userId: userId,
+        });
         await db.run(sql, params);
         console.log("✅ Strategy inserted into database");
 
@@ -421,38 +567,91 @@ export const strategyServiceImpl = {
       }
 
       // Fetch the created strategy
-      const row = (await db.get("SELECT * FROM strategies WHERE id = ?", [id])) as StrategyRow;
+      console.log(`📖 Fetching created strategy from database:`, { strategyId: id });
+      const row = (await db.get("SELECT * FROM strategies WHERE id = ?", [id])) as
+        | StrategyRow
+        | undefined;
 
-      const strategy = dbRowToProtoStrategy(row);
+      if (!row) {
+        console.error(`❌ Strategy not found after creation:`, { strategyId: id });
+        throw new ConnectError(`Failed to fetch created strategy: ${id}`, Code.Internal);
+      }
+
+      console.log(`📖 Converting strategy row to proto:`, {
+        strategyId: id,
+        userId: row.user_id,
+        hasWorkflow: !!row.n8n_workflow_id,
+      });
+
+      const strategy = await dbRowToProtoStrategy(row);
+
       console.log("✅ Strategy created successfully with workflow:", {
         strategyId: id,
         workflowId: workflowId,
+        hasUser: !!strategy.user,
       });
 
       return new CreateStrategyResponse({ strategy });
     } catch (error) {
-      console.error("❌ Error creating strategy:", error);
+      console.error(`\n${"=".repeat(80)}`);
+      console.error("❌ ERROR IN CREATE STRATEGY");
+      console.error("Error type:", error?.constructor?.name || typeof error);
+      console.error("Error:", error);
       if (error instanceof Error) {
         console.error("Error message:", error.message);
         console.error("Error stack:", error.stack);
       }
-      throw error;
+      if (error instanceof ConnectError) {
+        console.error("ConnectError code:", error.code);
+        console.error("ConnectError details:", error.message);
+      }
+      console.error(`${"=".repeat(80)}\n`);
+
+      // Convert to ConnectError if it's not already
+      if (error instanceof ConnectError) {
+        throw error;
+      }
+
+      throw new ConnectError(
+        error instanceof Error ? error.message : String(error),
+        Code.Internal,
+        undefined,
+        undefined,
+        error instanceof Error ? error : undefined
+      );
     }
   },
 
-  async listStrategies(req: ListStrategiesRequest): Promise<ListStrategiesResponse> {
+  async listStrategies(
+    req: ListStrategiesRequest,
+    context: HandlerContext
+  ): Promise<ListStrategiesResponse> {
     try {
-      console.log("📋 Listing strategies, status filter:", req.status || "all");
+      const userId = getCurrentUserId(context);
+      console.log("📋 Listing strategies, status filter:", req.status || "all", "userId:", userId);
+
       let rows: StrategyRow[];
+
+      // Build WHERE clause for user scoping
+      // Show: user's own strategies + public strategies from others
+      let whereClause = userId
+        ? "(user_id = ? OR privacy = 'STRATEGY_PRIVACY_PUBLIC')"
+        : "privacy = 'STRATEGY_PRIVACY_PUBLIC'"; // No auth = only public
+
       if (req.status) {
-        rows = (await db.all("SELECT * FROM strategies WHERE status = ? ORDER BY created_at DESC", [
-          strategyStatusToProtoName(req.status),
-        ])) as StrategyRow[];
-      } else {
-        rows = (await db.all("SELECT * FROM strategies ORDER BY created_at DESC")) as StrategyRow[];
+        const statusFilter = strategyStatusToProtoName(req.status);
+        whereClause += ` AND status = '${statusFilter}'`;
       }
 
-      const strategies = rows.map((row) => dbRowToProtoStrategy(row));
+      const sql = `SELECT * FROM strategies WHERE ${whereClause} ORDER BY created_at DESC`;
+
+      if (userId) {
+        rows = (await db.all(sql, [userId])) as StrategyRow[];
+      } else {
+        rows = (await db.all(sql)) as StrategyRow[];
+      }
+
+      const strategies = await Promise.all(rows.map((row) => dbRowToProtoStrategy(row)));
       console.log(`✅ Found ${strategies.length} strategies`);
       return new ListStrategiesResponse({ strategies });
     } catch (error) {
@@ -461,18 +660,47 @@ export const strategyServiceImpl = {
     }
   },
 
-  async getStrategy(req: GetStrategyRequest): Promise<GetStrategyResponse> {
+  async getStrategy(
+    req: GetStrategyRequest,
+    context: HandlerContext
+  ): Promise<GetStrategyResponse> {
+    const userId = getCurrentUserId(context);
     const row = (await db.get("SELECT * FROM strategies WHERE id = ?", [req.id])) as
       | StrategyRow
       | undefined;
     if (!row) {
       throw new Error(`Strategy not found: ${req.id}`);
     }
-    const strategy = dbRowToProtoStrategy(row);
+
+    // Check access: owner or public
+    const isOwner = userId && row.user_id === userId;
+    const isPublic = row.privacy === "STRATEGY_PRIVACY_PUBLIC";
+
+    if (!isOwner && !isPublic) {
+      throw new Error("Access denied: This strategy is private");
+    }
+
+    const strategy = await dbRowToProtoStrategy(row);
     return new GetStrategyResponse({ strategy });
   },
 
-  async updateStrategy(req: UpdateStrategyRequest): Promise<UpdateStrategyResponse> {
+  async updateStrategy(
+    req: UpdateStrategyRequest,
+    context: HandlerContext
+  ): Promise<UpdateStrategyResponse> {
+    const userId = getCurrentUserId(context);
+
+    // Check ownership
+    const existingRow = (await db.get("SELECT * FROM strategies WHERE id = ?", [req.id])) as
+      | StrategyRow
+      | undefined;
+    if (!existingRow) {
+      throw new Error(`Strategy not found: ${req.id}`);
+    }
+    if (userId !== existingRow.user_id) {
+      throw new Error("Access denied: You can only update your own strategies");
+    }
+
     const now = new Date().toISOString();
     const updates: string[] = [];
     const params: (string | number)[] = [];
@@ -515,18 +743,28 @@ export const strategyServiceImpl = {
     }
 
     const row = (await db.get("SELECT * FROM strategies WHERE id = ?", [req.id])) as StrategyRow;
-    const strategy = dbRowToProtoStrategy(row);
+    const strategy = await dbRowToProtoStrategy(row);
     return new UpdateStrategyResponse({ strategy });
   },
 
-  async deleteStrategy(req: DeleteStrategyRequest): Promise<DeleteStrategyResponse> {
+  async deleteStrategy(
+    req: DeleteStrategyRequest,
+    context: HandlerContext
+  ): Promise<DeleteStrategyResponse> {
     try {
+      const userId = getCurrentUserId(context);
+
       // Check if strategy exists and is stopped
       const row = (await db.get("SELECT * FROM strategies WHERE id = ?", [req.id])) as
         | StrategyRow
         | undefined;
       if (!row) {
         throw new Error(`Strategy not found: ${req.id}`);
+      }
+
+      // Check ownership
+      if (userId !== row.user_id) {
+        throw new Error("Access denied: You can only delete your own strategies");
       }
 
       const status = protoNameToStrategyStatus(row.status);
@@ -567,9 +805,13 @@ export const strategyServiceImpl = {
     }
   },
 
-  async startStrategy(req: StartStrategyRequest): Promise<StartStrategyResponse> {
+  async startStrategy(
+    req: StartStrategyRequest,
+    context: HandlerContext
+  ): Promise<StartStrategyResponse> {
     try {
-      console.log("▶️ Starting strategy:", req.id);
+      const userId = getCurrentUserId(context);
+      console.log("▶️ Starting strategy:", req.id, "userId:", userId);
       const now = new Date().toISOString();
 
       // Use direct query instead of prepared statement
@@ -578,6 +820,11 @@ export const strategyServiceImpl = {
         | undefined;
       if (!row) {
         throw new Error(`Strategy not found: ${req.id}`);
+      }
+
+      // Check ownership
+      if (userId !== row.user_id) {
+        throw new Error("Access denied: You can only start your own strategies");
       }
 
       // Use direct query instead of prepared statement
@@ -650,7 +897,7 @@ export const strategyServiceImpl = {
       const updatedRow = (await db.get("SELECT * FROM strategies WHERE id = ?", [
         req.id,
       ])) as StrategyRow;
-      const strategy = dbRowToProtoStrategy(updatedRow);
+      const strategy = await dbRowToProtoStrategy(updatedRow);
       console.log("✅ Strategy started:", req.id);
       return new StartStrategyResponse({ strategy });
     } catch (error) {
@@ -659,9 +906,13 @@ export const strategyServiceImpl = {
     }
   },
 
-  async pauseStrategy(req: PauseStrategyRequest): Promise<PauseStrategyResponse> {
+  async pauseStrategy(
+    req: PauseStrategyRequest,
+    context: HandlerContext
+  ): Promise<PauseStrategyResponse> {
     try {
-      console.log("⏸️ Pausing strategy:", req.id);
+      const userId = getCurrentUserId(context);
+      console.log("⏸️ Pausing strategy:", req.id, "userId:", userId);
       const now = new Date().toISOString();
 
       const row = (await db.get("SELECT * FROM strategies WHERE id = ?", [req.id])) as
@@ -669,6 +920,11 @@ export const strategyServiceImpl = {
         | undefined;
       if (!row) {
         throw new Error(`Strategy not found: ${req.id}`);
+      }
+
+      // Check ownership
+      if (userId !== row.user_id) {
+        throw new Error("Access denied: You can only pause your own strategies");
       }
 
       await db.run(
@@ -726,7 +982,7 @@ export const strategyServiceImpl = {
       const updatedRow = (await db.get("SELECT * FROM strategies WHERE id = ?", [
         req.id,
       ])) as StrategyRow;
-      const strategy = dbRowToProtoStrategy(updatedRow);
+      const strategy = await dbRowToProtoStrategy(updatedRow);
       console.log("✅ Strategy paused:", req.id);
       return new PauseStrategyResponse({ strategy });
     } catch (error) {
@@ -735,9 +991,13 @@ export const strategyServiceImpl = {
     }
   },
 
-  async stopStrategy(req: StopStrategyRequest): Promise<StopStrategyResponse> {
+  async stopStrategy(
+    req: StopStrategyRequest,
+    context: HandlerContext
+  ): Promise<StopStrategyResponse> {
     try {
-      console.log("⏹️ Stopping strategy:", req.id);
+      const userId = getCurrentUserId(context);
+      console.log("⏹️ Stopping strategy:", req.id, "userId:", userId);
       const now = new Date().toISOString();
 
       const row = (await db.get("SELECT * FROM strategies WHERE id = ?", [req.id])) as
@@ -745,6 +1005,11 @@ export const strategyServiceImpl = {
         | undefined;
       if (!row) {
         throw new Error(`Strategy not found: ${req.id}`);
+      }
+
+      // Check ownership
+      if (userId !== row.user_id) {
+        throw new Error("Access denied: You can only stop your own strategies");
       }
 
       await db.run(
@@ -795,7 +1060,7 @@ export const strategyServiceImpl = {
       const updatedRow = (await db.get("SELECT * FROM strategies WHERE id = ?", [
         req.id,
       ])) as StrategyRow;
-      const strategy = dbRowToProtoStrategy(updatedRow);
+      const strategy = await dbRowToProtoStrategy(updatedRow);
       console.log("✅ Strategy stopped:", req.id);
       return new StopStrategyResponse({ strategy });
     } catch (error) {
@@ -804,9 +1069,13 @@ export const strategyServiceImpl = {
     }
   },
 
-  async triggerPredictions(req: TriggerPredictionsRequest): Promise<TriggerPredictionsResponse> {
+  async triggerPredictions(
+    req: TriggerPredictionsRequest,
+    context: HandlerContext
+  ): Promise<TriggerPredictionsResponse> {
     try {
-      console.log("🎯 Triggering predictions for strategy:", req.id);
+      const userId = getCurrentUserId(context);
+      console.log("🎯 Triggering predictions for strategy:", req.id, "userId:", userId);
 
       // Get strategy from database
       const row = (await db.get("SELECT * FROM strategies WHERE id = ?", [req.id])) as
@@ -815,6 +1084,11 @@ export const strategyServiceImpl = {
 
       if (!row) {
         throw new Error(`Strategy not found: ${req.id}`);
+      }
+
+      // Check ownership
+      if (userId !== row.user_id) {
+        throw new Error("Access denied: You can only trigger predictions for your own strategies");
       }
 
       // Validate strategy is active
@@ -859,8 +1133,24 @@ export const strategyServiceImpl = {
   },
 
   async updateStrategyPrivacy(
-    req: UpdateStrategyPrivacyRequest
+    req: UpdateStrategyPrivacyRequest,
+    context: HandlerContext
   ): Promise<UpdateStrategyPrivacyResponse> {
+    const userId = getCurrentUserId(context);
+
+    // Check strategy exists and ownership
+    const existingRow = (await db.get("SELECT * FROM strategies WHERE id = ?", [req.id])) as
+      | StrategyRow
+      | undefined;
+    if (!existingRow) {
+      throw new Error(`Strategy not found: ${req.id}`);
+    }
+
+    // Check ownership
+    if (userId !== existingRow.user_id) {
+      throw new Error("Access denied: You can only update privacy for your own strategies");
+    }
+
     const privacyStr = mapPrivacyToDb(req.privacy);
     await db.run("UPDATE strategies SET privacy = ?, updated_at = ? WHERE id = ?", [
       privacyStr,
@@ -875,7 +1165,740 @@ export const strategyServiceImpl = {
       throw new Error(`Strategy not found: ${req.id}`);
     }
 
-    const strategy = dbRowToProtoStrategy(row);
+    const strategy = await dbRowToProtoStrategy(row);
     return new UpdateStrategyPrivacyResponse({ strategy });
+  },
+
+  // ============================================================================
+  // AUTH RPCs
+  // ============================================================================
+
+  async sendOTP(req: SendOTPRequest): Promise<SendOTPResponse> {
+    console.log(`\n${"=".repeat(80)}`);
+    console.log(`[STRATEGY SERVICE] sendOTP called`);
+    console.log(`Request email:`, req.email);
+    console.log(`Request object:`, JSON.stringify(req, null, 2));
+    console.log(`${"=".repeat(80)}\n`);
+
+    try {
+      if (!req.email) {
+        console.error(`[STRATEGY SERVICE] ❌ Missing email in request`);
+        return new SendOTPResponse({
+          success: false,
+          message: "Email is required",
+        });
+      }
+
+      console.log(`[STRATEGY SERVICE] 📧 Calling sendOTPHelper for: ${req.email}`);
+      await sendOTPHelper(req.email);
+      console.log(`[STRATEGY SERVICE] ✅ sendOTPHelper completed successfully`);
+
+      return new SendOTPResponse({
+        success: true,
+        message: "OTP sent successfully. Check your email.",
+      });
+    } catch (error) {
+      console.error(`[STRATEGY SERVICE] ❌ Error in sendOTP:`, error);
+      console.error(
+        `[STRATEGY SERVICE] Error stack:`,
+        error instanceof Error ? error.stack : "N/A"
+      );
+      return new SendOTPResponse({
+        success: false,
+        message: error instanceof Error ? error.message : "Failed to send OTP. Please try again.",
+      });
+    }
+  },
+
+  async verifyOTP(req: VerifyOTPRequest): Promise<VerifyOTPResponse> {
+    try {
+      console.log("🔐 Verifying OTP for:", req.email);
+      const user = await verifyOTPHelper(req.email, req.otpCode);
+
+      if (!user) {
+        console.warn("⚠️ Invalid OTP attempt for:", req.email);
+        throw new Error("Invalid or expired OTP code");
+      }
+
+      // Generate JWT token
+      const token = generateToken(user);
+
+      // Convert user to proto
+      const protoUser = new User({
+        id: user.id,
+        email: user.email,
+        username: user.username,
+        displayName: user.display_name || undefined,
+        avatarUrl: user.avatar_url || undefined,
+        createdAt: Timestamp.fromDate(timestampToDate(user.created_at)),
+        updatedAt: Timestamp.fromDate(timestampToDate(user.updated_at)),
+      });
+
+      console.log("✅ OTP verified successfully for:", user.email);
+      return new VerifyOTPResponse({
+        success: true,
+        user: protoUser,
+        token,
+      });
+    } catch (error) {
+      console.error("❌ Error verifying OTP:", error);
+      throw error; // Re-throw to send proper error to client
+    }
+  },
+
+  async getCurrentUser(
+    _req: GetCurrentUserRequest,
+    context: HandlerContext
+  ): Promise<GetCurrentUserResponse> {
+    try {
+      const userId = getCurrentUserId(context);
+
+      if (!userId) {
+        return new GetCurrentUserResponse({
+          user: undefined,
+        });
+      }
+
+      const user = await getUserById(userId);
+
+      if (!user) {
+        return new GetCurrentUserResponse({
+          user: undefined,
+        });
+      }
+
+      const protoUser = new User({
+        id: user.id,
+        email: user.email,
+        username: user.username,
+        displayName: user.display_name || undefined,
+        avatarUrl: user.avatar_url || undefined,
+        createdAt: Timestamp.fromDate(timestampToDate(user.created_at)),
+        updatedAt: Timestamp.fromDate(timestampToDate(user.updated_at)),
+      });
+
+      return new GetCurrentUserResponse({
+        user: protoUser,
+      });
+    } catch (error) {
+      console.error("❌ Error getting current user:", error);
+      return new GetCurrentUserResponse({
+        user: undefined,
+      });
+    }
+  },
+
+  async updateUser(
+    req: UpdateUserRequest,
+    context: HandlerContext
+  ): Promise<UpdateUserResponse> {
+    try {
+      const userId = getCurrentUserId(context);
+      if (!userId) {
+        throw new ConnectError("Authentication required", Code.Unauthenticated);
+      }
+
+      // Get current user
+      const currentUser = await getUserById(userId);
+      if (!currentUser) {
+        throw new ConnectError("User not found", Code.NotFound);
+      }
+
+      const updates: string[] = [];
+      const params: (string | null)[] = [];
+
+      // Validate and update username
+      if (req.username !== undefined) {
+        const newUsername = req.username.trim();
+        
+        // Validate username format: alphanumeric, underscore, hyphen, 3-30 chars
+        if (newUsername.length < 3 || newUsername.length > 30) {
+          throw new ConnectError(
+            "Username must be between 3 and 30 characters",
+            Code.InvalidArgument
+          );
+        }
+
+        if (!/^[a-zA-Z0-9_-]+$/.test(newUsername)) {
+          throw new ConnectError(
+            "Username can only contain letters, numbers, underscores, and hyphens",
+            Code.InvalidArgument
+          );
+        }
+
+        // Check if username is already taken (by another user)
+        const existingUser = await getUserByUsername(newUsername);
+        if (existingUser && existingUser.id !== userId) {
+          throw new ConnectError(
+            "Username is already taken",
+            Code.AlreadyExists
+          );
+        }
+
+        // If user is changing to their current username, no-op
+        if (newUsername === currentUser.username) {
+          // No change needed
+        } else {
+          updates.push("username = ?");
+          params.push(newUsername);
+        }
+      }
+
+      // Update display_name
+      if (req.displayName !== undefined) {
+        updates.push("display_name = ?");
+        params.push(req.displayName.trim() || null);
+      }
+
+      // Update avatar_url
+      if (req.avatarUrl !== undefined) {
+        updates.push("avatar_url = ?");
+        params.push(req.avatarUrl.trim() || null);
+      }
+
+      // If no updates, return current user
+      if (updates.length === 0) {
+        const userRow = await getUserById(userId);
+        if (!userRow) {
+          throw new ConnectError("User not found", Code.NotFound);
+        }
+
+        const protoUser = new User({
+          id: userRow.id,
+          email: userRow.email,
+          username: userRow.username,
+          displayName: userRow.display_name || undefined,
+          avatarUrl: userRow.avatar_url || undefined,
+          createdAt: Timestamp.fromDate(timestampToDate(userRow.created_at)),
+          updatedAt: Timestamp.fromDate(timestampToDate(userRow.updated_at)),
+        });
+
+        return new UpdateUserResponse({ user: protoUser });
+      }
+
+      // Update user in database
+      params.push(Date.now()); // updated_at
+      params.push(userId); // WHERE id = ?
+
+      const sql = `UPDATE users SET ${updates.join(", ")}, updated_at = ? WHERE id = ?`;
+      await db.run(sql, params);
+
+      // Fetch updated user
+      const updatedUser = await getUserById(userId);
+      if (!updatedUser) {
+        throw new ConnectError("Failed to fetch updated user", Code.Internal);
+      }
+
+      const protoUser = new User({
+        id: updatedUser.id,
+        email: updatedUser.email,
+        username: updatedUser.username,
+        displayName: updatedUser.display_name || undefined,
+        avatarUrl: updatedUser.avatar_url || undefined,
+        createdAt: Timestamp.fromDate(timestampToDate(updatedUser.created_at)),
+        updatedAt: Timestamp.fromDate(timestampToDate(updatedUser.updated_at)),
+      });
+
+      return new UpdateUserResponse({ user: protoUser });
+    } catch (error) {
+      console.error("❌ Error updating user:", error);
+      if (error instanceof ConnectError) {
+        throw error;
+      }
+      throw new ConnectError(
+        error instanceof Error ? error.message : "Failed to update user",
+        Code.Internal
+      );
+    }
+  },
+
+  // ============================================================================
+  // SOCIAL RPCs
+  // ============================================================================
+
+  async followUser(req: FollowUserRequest, context: HandlerContext): Promise<FollowUserResponse> {
+    try {
+      const userId = getCurrentUserId(context);
+      if (!userId) {
+        throw new Error("Authentication required");
+      }
+
+      if (!req.userId) {
+        throw new Error("User ID is required");
+      }
+
+      await followUserHelper(userId, req.userId);
+      console.log(`✅ User ${userId} followed user ${req.userId}`);
+      return new FollowUserResponse({ success: true });
+    } catch (error) {
+      console.error("❌ Error following user:", error);
+      throw error;
+    }
+  },
+
+  async unfollowUser(
+    req: UnfollowUserRequest,
+    context: HandlerContext
+  ): Promise<UnfollowUserResponse> {
+    try {
+      const userId = getCurrentUserId(context);
+      if (!userId) {
+        throw new Error("Authentication required");
+      }
+
+      if (!req.userId) {
+        throw new Error("User ID is required");
+      }
+
+      await unfollowUserHelper(userId, req.userId);
+      console.log(`✅ User ${userId} unfollowed user ${req.userId}`);
+      return new UnfollowUserResponse({ success: true });
+    } catch (error) {
+      console.error("❌ Error unfollowing user:", error);
+      throw error;
+    }
+  },
+
+  async listFollowing(
+    req: ListFollowingRequest,
+    context: HandlerContext
+  ): Promise<ListFollowingResponse> {
+    try {
+      const currentUserId = getCurrentUserId(context);
+      if (!currentUserId) {
+        throw new Error("Authentication required");
+      }
+
+      // Use provided user_id or default to current user
+      const targetUserId = req.userId || currentUserId;
+
+      const userRows = await getFollowing(targetUserId);
+
+      const users = await Promise.all(
+        userRows.map(async (row) => {
+          return new User({
+            id: row.id,
+            email: row.email,
+            username: row.username,
+            displayName: row.display_name ?? undefined,
+            avatarUrl: row.avatar_url ?? undefined,
+            createdAt: Timestamp.fromDate(timestampToDate(row.created_at)),
+            updatedAt: Timestamp.fromDate(timestampToDate(row.updated_at)),
+          });
+        })
+      );
+
+      return new ListFollowingResponse({ users });
+    } catch (error) {
+      console.error("❌ Error listing following:", error);
+      throw error;
+    }
+  },
+
+  async listFollowers(
+    req: ListFollowersRequest,
+    context: HandlerContext
+  ): Promise<ListFollowersResponse> {
+    try {
+      const currentUserId = getCurrentUserId(context);
+      if (!currentUserId) {
+        throw new Error("Authentication required");
+      }
+
+      // Use provided user_id or default to current user
+      const targetUserId = req.userId || currentUserId;
+
+      const userRows = await getFollowers(targetUserId);
+
+      const users = await Promise.all(
+        userRows.map(async (row) => {
+          return new User({
+            id: row.id,
+            email: row.email,
+            username: row.username,
+            displayName: row.display_name ?? undefined,
+            avatarUrl: row.avatar_url ?? undefined,
+            createdAt: Timestamp.fromDate(timestampToDate(row.created_at)),
+            updatedAt: Timestamp.fromDate(timestampToDate(row.updated_at)),
+          });
+        })
+      );
+
+      return new ListFollowersResponse({ users });
+    } catch (error) {
+      console.error("❌ Error listing followers:", error);
+      throw error;
+    }
+  },
+
+  async listCloseFriends(
+    _req: ListCloseFriendsRequest,
+    context: HandlerContext
+  ): Promise<ListCloseFriendsResponse> {
+    try {
+      const userId = getCurrentUserId(context);
+      if (!userId) {
+        throw new Error("Authentication required");
+      }
+
+      const userRows = await getCloseFriends(userId);
+
+      const users = await Promise.all(
+        userRows.map(async (row) => {
+          return new User({
+            id: row.id,
+            email: row.email,
+            username: row.username,
+            displayName: row.display_name ?? undefined,
+            avatarUrl: row.avatar_url ?? undefined,
+            createdAt: Timestamp.fromDate(timestampToDate(row.created_at)),
+            updatedAt: Timestamp.fromDate(timestampToDate(row.updated_at)),
+          });
+        })
+      );
+
+      return new ListCloseFriendsResponse({ users });
+    } catch (error) {
+      console.error("❌ Error listing close friends:", error);
+      throw error;
+    }
+  },
+
+  async getUserProfile(
+    req: GetUserProfileRequest,
+    context: HandlerContext
+  ): Promise<GetUserProfileResponse> {
+    try {
+      const currentUserId = getCurrentUserId(context);
+
+      if (!req.username) {
+        throw new Error("Username is required");
+      }
+
+      const targetUser = await getUserByUsername(req.username);
+      if (!targetUser) {
+        throw new Error(`User not found: ${req.username}`);
+      }
+
+      // Build relationship flags (only if current user is authenticated)
+      let isFollowing = false;
+      let isFollowedBy = false;
+      let isCloseFriend = false;
+
+      if (currentUserId) {
+        isFollowing = await isFollowingHelper(currentUserId, targetUser.id);
+        isFollowedBy = await isFollowingHelper(targetUser.id, currentUserId);
+        isCloseFriend = await isCloseFriendHelper(currentUserId, targetUser.id);
+      }
+
+      // Get user performance (all-time)
+      const perf = await calculatePerformance(targetUser.id, LeaderboardTimeframe.ALL_TIME);
+
+      // Convert performance to proto
+      const protoPerformance = new UserPerformance({
+        userId: perf.userId,
+        totalPredictions: perf.totalPredictions,
+        closedPredictions: perf.closedPredictions,
+        wins: perf.wins,
+        winRate: perf.winRate,
+        avgReturn: perf.avgReturn,
+        totalRoi: perf.totalROI,
+        currentStreak: perf.currentStreak,
+        // bestPrediction will be handled separately if needed
+      });
+
+      // Convert user to proto
+      const protoUser = new User({
+        id: targetUser.id,
+        email: targetUser.email,
+        username: targetUser.username,
+        displayName: targetUser.display_name ?? undefined,
+        avatarUrl: targetUser.avatar_url ?? undefined,
+        createdAt: Timestamp.fromDate(timestampToDate(targetUser.created_at)),
+        updatedAt: Timestamp.fromDate(timestampToDate(targetUser.updated_at)),
+      });
+
+      return new GetUserProfileResponse({
+        user: protoUser,
+        isFollowing,
+        isFollowedBy,
+        isCloseFriend,
+        performance: protoPerformance,
+      });
+    } catch (error) {
+      console.error("❌ Error getting user profile:", error);
+      throw error;
+    }
+  },
+
+  async getUserPerformance(
+    req: GetUserPerformanceRequest,
+    context: HandlerContext
+  ): Promise<GetUserPerformanceResponse> {
+    try {
+      const currentUserId = getCurrentUserId(context);
+
+      // Determine which user's performance to get
+      const targetUserId = req.userId || currentUserId;
+
+      if (!targetUserId) {
+        throw new ConnectError(
+          "Authentication required or user_id must be provided",
+          Code.Unauthenticated
+        );
+      }
+
+      // Get timeframe, default to ALL_TIME
+      const timeframe = req.timeframe || LeaderboardTimeframe.ALL_TIME;
+
+      // Calculate performance
+      const perf = await calculatePerformance(targetUserId, timeframe);
+
+      // Convert to proto format
+      const protoPerformance = new UserPerformance({
+        userId: perf.userId,
+        totalPredictions: perf.totalPredictions,
+        closedPredictions: perf.closedPredictions,
+        wins: perf.wins,
+        winRate: perf.winRate,
+        avgReturn: perf.avgReturn,
+        totalRoi: perf.totalROI,
+        currentStreak: perf.currentStreak,
+        // bestPrediction can be added later if needed
+      });
+
+      return new GetUserPerformanceResponse({
+        performance: protoPerformance,
+      });
+    } catch (error) {
+      console.error("❌ Error getting user performance:", error);
+      if (error instanceof ConnectError) {
+        throw error;
+      }
+      throw new ConnectError(error instanceof Error ? error.message : String(error), Code.Internal);
+    }
+  },
+
+  async getLeaderboard(
+    req: GetLeaderboardRequest,
+    context: HandlerContext
+  ): Promise<GetLeaderboardResponse> {
+    try {
+      const currentUserId = getCurrentUserId(context);
+
+      if (!currentUserId) {
+        throw new ConnectError("Authentication required to view leaderboard", Code.Unauthenticated);
+      }
+
+      // Get request parameters with defaults
+      const timeframe = req.timeframe || LeaderboardTimeframe.ALL_TIME;
+      const scope = req.scope || LeaderboardScope.GLOBAL;
+      const limit = req.limit || 50;
+      const offset = req.offset || 0;
+
+      // Get leaderboard data
+      const leaderboardResult = await getLeaderboard(
+        currentUserId,
+        timeframe,
+        scope,
+        limit,
+        offset
+      );
+
+      // Convert entries to proto format
+      const protoEntries = await Promise.all(
+        leaderboardResult.entries.map(async (entry) => {
+          // Convert user
+          const protoUser = new User({
+            id: entry.user.id,
+            email: entry.user.email,
+            username: entry.user.username,
+            displayName: entry.user.display_name ?? undefined,
+            avatarUrl: entry.user.avatar_url ?? undefined,
+            createdAt: Timestamp.fromDate(timestampToDate(entry.user.created_at)),
+            updatedAt: Timestamp.fromDate(timestampToDate(entry.user.updated_at)),
+          });
+
+          // Convert performance
+          const protoPerformance = new UserPerformance({
+            userId: entry.performance.userId,
+            totalPredictions: entry.performance.totalPredictions,
+            closedPredictions: entry.performance.closedPredictions,
+            wins: entry.performance.wins,
+            winRate: entry.performance.winRate,
+            avgReturn: entry.performance.avgReturn,
+            totalRoi: entry.performance.totalROI,
+            currentStreak: entry.performance.currentStreak,
+            // bestPrediction can be added later if needed
+          });
+
+          return new LeaderboardEntry({
+            rank: entry.rank,
+            user: protoUser,
+            performanceScore: entry.performanceScore,
+            performance: protoPerformance,
+          });
+        })
+      );
+
+      // Convert current user entry if present
+      let currentUserEntry: LeaderboardEntry | undefined;
+      if (leaderboardResult.currentUserEntry) {
+        const entry = leaderboardResult.currentUserEntry;
+        const protoUser = new User({
+          id: entry.user.id,
+          email: entry.user.email,
+          username: entry.user.username,
+          displayName: entry.user.display_name ?? undefined,
+          avatarUrl: entry.user.avatar_url ?? undefined,
+          createdAt: Timestamp.fromDate(timestampToDate(entry.user.created_at)),
+          updatedAt: Timestamp.fromDate(timestampToDate(entry.user.updated_at)),
+        });
+
+        const protoPerformance = new UserPerformance({
+          userId: entry.performance.userId,
+          totalPredictions: entry.performance.totalPredictions,
+          closedPredictions: entry.performance.closedPredictions,
+          wins: entry.performance.wins,
+          winRate: entry.performance.winRate,
+          avgReturn: entry.performance.avgReturn,
+          totalRoi: entry.performance.totalROI,
+          currentStreak: entry.performance.currentStreak,
+        });
+
+        currentUserEntry = new LeaderboardEntry({
+          rank: entry.rank,
+          user: protoUser,
+          performanceScore: entry.performanceScore,
+          performance: protoPerformance,
+        });
+      }
+
+      return new GetLeaderboardResponse({
+        entries: protoEntries,
+        totalCount: leaderboardResult.totalCount,
+        currentUserEntry,
+      });
+    } catch (error) {
+      console.error("❌ Error getting leaderboard:", error);
+      if (error instanceof ConnectError) {
+        throw error;
+      }
+      throw new ConnectError(error instanceof Error ? error.message : String(error), Code.Internal);
+    }
+  },
+
+  async copyStrategy(
+    req: CopyStrategyRequest,
+    context: HandlerContext
+  ): Promise<CopyStrategyResponse> {
+    try {
+      const currentUserId = getCurrentUserId(context);
+
+      if (!currentUserId) {
+        throw new ConnectError("Authentication required to copy strategies", Code.Unauthenticated);
+      }
+
+      if (!req.strategyId) {
+        throw new ConnectError("Strategy ID is required", Code.InvalidArgument);
+      }
+
+      // Get the original strategy
+      const originalRow = (await db.get("SELECT * FROM strategies WHERE id = ?", [
+        req.strategyId,
+      ])) as StrategyRow | undefined;
+
+      if (!originalRow) {
+        throw new ConnectError(`Strategy not found: ${req.strategyId}`, Code.NotFound);
+      }
+
+      // Check if strategy is public or user owns it
+      const isPublic = originalRow.privacy === "STRATEGY_PRIVACY_PUBLIC";
+      const isOwner = originalRow.user_id === currentUserId;
+
+      if (!isPublic && !isOwner) {
+        throw new ConnectError("Cannot copy private strategy you don't own", Code.PermissionDenied);
+      }
+
+      // Create a copy with new ID and name
+      const newId = randomUUID();
+      const newName = `${originalRow.name} (Copy)`;
+      let workflowId: string | null = null;
+
+      // Convert frequency string from database to Frequency enum
+      const frequencyEnum = protoNameToFrequency(originalRow.frequency);
+
+      // Create new n8n workflow
+      try {
+        const workflow = await n8nClient.createStrategyWorkflow(newId, newName, frequencyEnum);
+        workflowId = workflow.id;
+      } catch (error) {
+        console.error("❌ Failed to create n8n workflow for copied strategy:", error);
+        throw new Error(
+          `Failed to create n8n workflow: ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
+
+      // Insert copied strategy
+      const now = new Date().toISOString();
+      const tradesPerMonth = getTradesPerMonth(frequencyEnum);
+      const perTradeBudget = Math.round((originalRow.monthly_budget / tradesPerMonth) * 100) / 100;
+      const perStockAllocation = Math.round((perTradeBudget / 3) * 100) / 100;
+
+      await db.run(
+        `INSERT INTO strategies (
+          id, name, description, custom_prompt, monthly_budget, current_month_spent,
+          current_month_start, time_horizon, frequency, risk_level, status, privacy,
+          n8n_workflow_id, user_id, trades_per_month, per_trade_budget, per_stock_allocation,
+          unique_stocks_count, max_unique_stocks, target_return_pct, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          newId,
+          newName,
+          originalRow.description || "",
+          originalRow.custom_prompt || "",
+          originalRow.monthly_budget,
+          0, // current_month_spent starts at 0
+          now, // current_month_start reset
+          originalRow.time_horizon || "3 months",
+          originalRow.frequency,
+          originalRow.risk_level,
+          "STRATEGY_STATUS_PAUSED", // Copied strategies start as paused
+          "STRATEGY_PRIVACY_PRIVATE", // Copied strategies are private by default
+          workflowId, // n8n_workflow_id
+          currentUserId, // Owned by the user copying it
+          tradesPerMonth,
+          perTradeBudget,
+          perStockAllocation,
+          0, // unique_stocks_count starts at 0
+          originalRow.max_unique_stocks || 20,
+          originalRow.target_return_pct || 10.0,
+          now,
+          now,
+        ]
+      );
+
+      // Fetch the created strategy
+      const newRow = (await db.get("SELECT * FROM strategies WHERE id = ?", [newId])) as
+        | StrategyRow
+        | undefined;
+
+      if (!newRow) {
+        throw new ConnectError(`Failed to fetch copied strategy: ${newId}`, Code.Internal);
+      }
+
+      // Convert to proto
+      const copiedStrategy = await dbRowToProtoStrategy(newRow);
+
+      return new CopyStrategyResponse({
+        strategy: copiedStrategy,
+      });
+    } catch (error) {
+      console.error("❌ Error copying strategy:", error);
+      if (error instanceof ConnectError) {
+        throw error;
+      }
+      throw new ConnectError(error instanceof Error ? error.message : String(error), Code.Internal);
+    }
   },
 };

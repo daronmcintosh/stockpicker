@@ -3,7 +3,7 @@
 /* eslint-disable */
 // @ts-nocheck
 
-import { CreatePredictionRequest, CreatePredictionResponse, CreateStrategyRequest, CreateStrategyResponse, DeletePredictionRequest, DeletePredictionResponse, DeleteStrategyRequest, DeleteStrategyResponse, GetCurrentPricesRequest, GetCurrentPricesResponse, GetPredictionRequest, GetPredictionResponse, GetPredictionsBySymbolRequest, GetPredictionsBySymbolResponse, GetPublicPredictionsRequest, GetPublicPredictionsResponse, GetStrategyRequest, GetStrategyResponse, ListPredictionsRequest, ListPredictionsResponse, ListStrategiesRequest, ListStrategiesResponse, PauseStrategyRequest, PauseStrategyResponse, StartStrategyRequest, StartStrategyResponse, StopStrategyRequest, StopStrategyResponse, TriggerPredictionsRequest, TriggerPredictionsResponse, UpdatePredictionActionRequest, UpdatePredictionActionResponse, UpdatePredictionPrivacyRequest, UpdatePredictionPrivacyResponse, UpdateStrategyPrivacyRequest, UpdateStrategyPrivacyResponse, UpdateStrategyRequest, UpdateStrategyResponse } from "./strategy_pb.js";
+import { CopyPredictionRequest, CopyPredictionResponse, CopyStrategyRequest, CopyStrategyResponse, CreatePredictionRequest, CreatePredictionResponse, CreateStrategyRequest, CreateStrategyResponse, DeletePredictionRequest, DeletePredictionResponse, DeleteStrategyRequest, DeleteStrategyResponse, FollowUserRequest, FollowUserResponse, GetCurrentPricesRequest, GetCurrentPricesResponse, GetCurrentUserRequest, GetCurrentUserResponse, GetLeaderboardRequest, GetLeaderboardResponse, GetPredictionRequest, GetPredictionResponse, GetPredictionsBySymbolRequest, GetPredictionsBySymbolResponse, GetPublicPredictionsRequest, GetPublicPredictionsResponse, GetStrategyRequest, GetStrategyResponse, GetUserPerformanceRequest, GetUserPerformanceResponse, GetUserProfileRequest, GetUserProfileResponse, ListCloseFriendsRequest, ListCloseFriendsResponse, ListFollowersRequest, ListFollowersResponse, ListFollowingRequest, ListFollowingResponse, ListPredictionsRequest, ListPredictionsResponse, ListStrategiesRequest, ListStrategiesResponse, PauseStrategyRequest, PauseStrategyResponse, SendOTPRequest, SendOTPResponse, StartStrategyRequest, StartStrategyResponse, StopStrategyRequest, StopStrategyResponse, TriggerPredictionsRequest, TriggerPredictionsResponse, UnfollowUserRequest, UnfollowUserResponse, UpdatePredictionActionRequest, UpdatePredictionActionResponse, UpdatePredictionPrivacyRequest, UpdatePredictionPrivacyResponse, UpdatePredictionRequest, UpdatePredictionResponse, UpdateStrategyPrivacyRequest, UpdateStrategyPrivacyResponse, UpdateStrategyRequest, UpdateStrategyResponse, UpdateUserRequest, UpdateUserResponse, VerifyOTPRequest, VerifyOTPResponse } from "./strategy_pb.js";
 import { MethodKind } from "@bufbuild/protobuf";
 
 /**
@@ -124,6 +124,131 @@ export const StrategyService = {
       O: UpdateStrategyPrivacyResponse,
       kind: MethodKind.Unary,
     },
+    /**
+     * Auth RPCs
+     *
+     * @generated from rpc stockpicker.v1.StrategyService.SendOTP
+     */
+    sendOTP: {
+      name: "SendOTP",
+      I: SendOTPRequest,
+      O: SendOTPResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * @generated from rpc stockpicker.v1.StrategyService.VerifyOTP
+     */
+    verifyOTP: {
+      name: "VerifyOTP",
+      I: VerifyOTPRequest,
+      O: VerifyOTPResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * @generated from rpc stockpicker.v1.StrategyService.GetCurrentUser
+     */
+    getCurrentUser: {
+      name: "GetCurrentUser",
+      I: GetCurrentUserRequest,
+      O: GetCurrentUserResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * @generated from rpc stockpicker.v1.StrategyService.UpdateUser
+     */
+    updateUser: {
+      name: "UpdateUser",
+      I: UpdateUserRequest,
+      O: UpdateUserResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * Social RPCs
+     *
+     * @generated from rpc stockpicker.v1.StrategyService.FollowUser
+     */
+    followUser: {
+      name: "FollowUser",
+      I: FollowUserRequest,
+      O: FollowUserResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * @generated from rpc stockpicker.v1.StrategyService.UnfollowUser
+     */
+    unfollowUser: {
+      name: "UnfollowUser",
+      I: UnfollowUserRequest,
+      O: UnfollowUserResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * @generated from rpc stockpicker.v1.StrategyService.ListFollowing
+     */
+    listFollowing: {
+      name: "ListFollowing",
+      I: ListFollowingRequest,
+      O: ListFollowingResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * @generated from rpc stockpicker.v1.StrategyService.ListFollowers
+     */
+    listFollowers: {
+      name: "ListFollowers",
+      I: ListFollowersRequest,
+      O: ListFollowersResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * @generated from rpc stockpicker.v1.StrategyService.ListCloseFriends
+     */
+    listCloseFriends: {
+      name: "ListCloseFriends",
+      I: ListCloseFriendsRequest,
+      O: ListCloseFriendsResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * @generated from rpc stockpicker.v1.StrategyService.GetUserProfile
+     */
+    getUserProfile: {
+      name: "GetUserProfile",
+      I: GetUserProfileRequest,
+      O: GetUserProfileResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * Performance & Leaderboard RPCs
+     *
+     * @generated from rpc stockpicker.v1.StrategyService.GetUserPerformance
+     */
+    getUserPerformance: {
+      name: "GetUserPerformance",
+      I: GetUserPerformanceRequest,
+      O: GetUserPerformanceResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * @generated from rpc stockpicker.v1.StrategyService.GetLeaderboard
+     */
+    getLeaderboard: {
+      name: "GetLeaderboard",
+      I: GetLeaderboardRequest,
+      O: GetLeaderboardResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * Sharing RPCs
+     *
+     * @generated from rpc stockpicker.v1.StrategyService.CopyStrategy
+     */
+    copyStrategy: {
+      name: "CopyStrategy",
+      I: CopyStrategyRequest,
+      O: CopyStrategyResponse,
+      kind: MethodKind.Unary,
+    },
   }
 } as const;
 
@@ -213,6 +338,17 @@ export const PredictionService = {
       kind: MethodKind.Unary,
     },
     /**
+     * Update prediction fields
+     *
+     * @generated from rpc stockpicker.v1.PredictionService.UpdatePrediction
+     */
+    updatePrediction: {
+      name: "UpdatePrediction",
+      I: UpdatePredictionRequest,
+      O: UpdatePredictionResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
      * Get current stock prices for symbols
      *
      * @generated from rpc stockpicker.v1.PredictionService.GetCurrentPrices
@@ -232,6 +368,17 @@ export const PredictionService = {
       name: "DeletePrediction",
       I: DeletePredictionRequest,
       O: DeletePredictionResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * Sharing RPCs
+     *
+     * @generated from rpc stockpicker.v1.PredictionService.CopyPrediction
+     */
+    copyPrediction: {
+      name: "CopyPrediction",
+      I: CopyPredictionRequest,
+      O: CopyPredictionResponse,
       kind: MethodKind.Unary,
     },
   }

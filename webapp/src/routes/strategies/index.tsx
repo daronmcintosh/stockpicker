@@ -6,16 +6,19 @@ import {
   StrategyPrivacy,
   StrategyStatus,
 } from "@/gen/stockpicker/v1/strategy_pb";
-import { predictionClient, strategyClient } from "@/lib/connect";
+import { useAuth } from "@/lib/auth";
+import { createClient, predictionClient, strategyClient } from "@/lib/connect";
 import { Link, createFileRoute, useSearch } from "@tanstack/react-router";
 import {
   BarChart3,
+  Copy,
   Edit,
   Globe,
   Lock,
   Pause,
   Play,
   Plus,
+  Share2,
   Sparkles,
   StopCircle,
   Trash2,
@@ -64,6 +67,7 @@ function getRiskLevelLabel(riskLevel: RiskLevel): string {
 
 function StrategiesPage() {
   const { id: strategyIdFromUrl } = useSearch({ from: "/strategies/" });
+  const { token, isLoading: authLoading } = useAuth();
   const [strategies, setStrategies] = useState<Strategy[]>([]);
   const [predictionCounts, setPredictionCounts] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
@@ -87,10 +91,12 @@ function StrategiesPage() {
     maxUniqueStocks: "",
   });
 
-  // Load strategies on mount
+  // Load strategies on mount, but wait for auth to finish loading
   useEffect(() => {
-    loadStrategies();
-  }, []);
+    if (!authLoading) {
+      loadStrategies();
+    }
+  }, [authLoading]);
 
   // Open detail dialog if id is in URL
   useEffect(() => {
@@ -104,14 +110,22 @@ function StrategiesPage() {
 
   async function loadStrategies() {
     try {
-      const response = await strategyClient.listStrategies({});
+      if (!token) {
+        toast.error("Please log in to view strategies");
+        setLoading(false);
+        return;
+      }
+
+      const client = createClient(token);
+      const response = await client.strategy.listStrategies({});
+      console.log(`[STRATEGIES PAGE] Loaded ${response.strategies.length} strategies`);
       setStrategies(response.strategies);
 
       // Load prediction counts for each strategy
       const counts: Record<string, number> = {};
       for (const strategy of response.strategies) {
         try {
-          const predictionsResponse = await predictionClient.listPredictions({
+          const predictionsResponse = await client.prediction.listPredictions({
             strategyId: strategy.id,
           });
           counts[strategy.id] = predictionsResponse.predictions.length;
@@ -129,9 +143,17 @@ function StrategiesPage() {
     }
   }
 
+  // Helper to get authenticated clients
+  function getClients() {
+    if (!token) {
+      throw new Error("Authentication required");
+    }
+    return createClient(token);
+  }
+
   async function startStrategy(id: string) {
     try {
-      await strategyClient.startStrategy({ id });
+      await getClients().strategy.startStrategy({ id });
       toast.success("Strategy started successfully");
       await loadStrategies();
     } catch (error) {
@@ -142,7 +164,7 @@ function StrategiesPage() {
 
   async function pauseStrategy(id: string) {
     try {
-      await strategyClient.pauseStrategy({ id });
+      await getClients().strategy.pauseStrategy({ id });
       toast.success("Strategy paused successfully");
       await loadStrategies();
     } catch (error) {
@@ -153,7 +175,7 @@ function StrategiesPage() {
 
   async function stopStrategy(id: string) {
     try {
-      await strategyClient.stopStrategy({ id });
+      await getClients().strategy.stopStrategy({ id });
       toast.success("Strategy stopped successfully");
       await loadStrategies();
     } catch (error) {
@@ -169,7 +191,7 @@ function StrategiesPage() {
         currentPrivacy === StrategyPrivacy.PUBLIC
           ? StrategyPrivacy.PRIVATE
           : StrategyPrivacy.PUBLIC;
-      await strategyClient.updateStrategyPrivacy({ id, privacy: newPrivacy });
+      await getClients().strategy.updateStrategyPrivacy({ id, privacy: newPrivacy });
       toast.success(
         `Strategy is now ${newPrivacy === StrategyPrivacy.PUBLIC ? "public" : "private"}`
       );
@@ -185,7 +207,7 @@ function StrategiesPage() {
   async function triggerPredictions(id: string) {
     setTriggeringStrategy(id);
     try {
-      const response = await strategyClient.triggerPredictions({ id });
+      const response = await getClients().strategy.triggerPredictions({ id });
       if (response.success) {
         toast.success(response.message);
       } else {
@@ -196,6 +218,28 @@ function StrategiesPage() {
       toast.error("Failed to trigger predictions");
     } finally {
       setTriggeringStrategy(null);
+    }
+  }
+
+  async function copyStrategy(id: string) {
+    try {
+      const response = await getClients().strategy.copyStrategy({ strategyId: id });
+      toast.success("Strategy copied successfully!");
+      await loadStrategies();
+    } catch (error) {
+      console.error("Failed to copy strategy:", error);
+      toast.error(error instanceof Error ? error.message : "Failed to copy strategy");
+    }
+  }
+
+  async function shareStrategy(id: string, name: string) {
+    const url = `${window.location.origin}/strategies?id=${id}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      toast.success("Link copied to clipboard!");
+    } catch (error) {
+      console.error("Failed to copy link:", error);
+      toast.error("Failed to copy link");
     }
   }
 
@@ -237,7 +281,7 @@ function StrategiesPage() {
 
     setUpdatingStrategy(true);
     try {
-      await strategyClient.updateStrategy({
+      await getClients().strategy.updateStrategy({
         id: editingStrategy.id,
         name: editFormData.name !== editingStrategy.name ? editFormData.name : undefined,
         description:
@@ -270,7 +314,7 @@ function StrategiesPage() {
       await loadStrategies();
       // If detail dialog is open, refresh it too
       if (detailDialogOpen && selectedStrategyForDetail?.id === editingStrategy.id) {
-        const updated = await strategyClient.getStrategy({ id: editingStrategy.id });
+        const updated = await getClients().strategy.getStrategy({ id: editingStrategy.id });
         setSelectedStrategyForDetail(updated.strategy || null);
       }
     } catch (error) {
@@ -286,7 +330,7 @@ function StrategiesPage() {
 
     setDeleting(true);
     try {
-      await strategyClient.deleteStrategy({ id: strategyToDelete });
+      await getClients().strategy.deleteStrategy({ id: strategyToDelete });
       toast.success("Strategy deleted successfully");
       setDeleteDialogOpen(false);
       setStrategyToDelete(null);
@@ -299,7 +343,8 @@ function StrategiesPage() {
     }
   }
 
-  if (loading) {
+  // Show loading state while auth is loading or strategies are loading
+  if (authLoading || loading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
         <div className="text-lg">Loading strategies...</div>
@@ -422,7 +467,9 @@ function StrategiesPage() {
                   </div>
                   <div className="min-w-[90px]">
                     <div className="text-xs text-gray-500 mb-0.5">Time Horizon</div>
-                    <div className="text-sm font-semibold text-gray-900">{strategy.timeHorizon}</div>
+                    <div className="text-sm font-semibold text-gray-900">
+                      {strategy.timeHorizon}
+                    </div>
                   </div>
                   <div className="min-w-[90px]">
                     <div className="text-xs text-gray-500 mb-0.5">Target Return</div>
@@ -528,6 +575,32 @@ function StrategiesPage() {
                     <BarChart3 className="w-3.5 h-3.5" />
                     Predictions
                   </Link>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      copyStrategy(strategy.id);
+                    }}
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-medium bg-indigo-500 text-white hover:bg-indigo-600 transition-colors"
+                    title="Copy Strategy"
+                  >
+                    <Copy className="w-3.5 h-3.5" />
+                    Copy
+                  </button>
+                  {strategy.privacy === StrategyPrivacy.PUBLIC && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        shareStrategy(strategy.id, strategy.name);
+                      }}
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-medium bg-gray-500 text-white hover:bg-gray-600 transition-colors"
+                      title="Share Strategy"
+                    >
+                      <Share2 className="w-3.5 h-3.5" />
+                      Share
+                    </button>
+                  )}
                 </div>
               </div>
             </div>

@@ -10,14 +10,33 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as PredictionsRouteImport } from './routes/predictions'
+import { Route as LoginRouteImport } from './routes/login'
+import { Route as LeaderboardRouteImport } from './routes/leaderboard'
+import { Route as FriendsRouteImport } from './routes/friends'
 import { Route as FeedRouteImport } from './routes/feed'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as StrategiesIndexRouteImport } from './routes/strategies/index'
+import { Route as UsersUsernameRouteImport } from './routes/users/$username'
 import { Route as StrategiesNewRouteImport } from './routes/strategies/new'
 
 const PredictionsRoute = PredictionsRouteImport.update({
   id: '/predictions',
   path: '/predictions',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LeaderboardRoute = LeaderboardRouteImport.update({
+  id: '/leaderboard',
+  path: '/leaderboard',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const FriendsRoute = FriendsRouteImport.update({
+  id: '/friends',
+  path: '/friends',
   getParentRoute: () => rootRouteImport,
 } as any)
 const FeedRoute = FeedRouteImport.update({
@@ -35,6 +54,11 @@ const StrategiesIndexRoute = StrategiesIndexRouteImport.update({
   path: '/strategies/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const UsersUsernameRoute = UsersUsernameRouteImport.update({
+  id: '/users/$username',
+  path: '/users/$username',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const StrategiesNewRoute = StrategiesNewRouteImport.update({
   id: '/strategies/new',
   path: '/strategies/new',
@@ -44,44 +68,82 @@ const StrategiesNewRoute = StrategiesNewRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/feed': typeof FeedRoute
+  '/friends': typeof FriendsRoute
+  '/leaderboard': typeof LeaderboardRoute
+  '/login': typeof LoginRoute
   '/predictions': typeof PredictionsRoute
   '/strategies/new': typeof StrategiesNewRoute
+  '/users/$username': typeof UsersUsernameRoute
   '/strategies': typeof StrategiesIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/feed': typeof FeedRoute
+  '/friends': typeof FriendsRoute
+  '/leaderboard': typeof LeaderboardRoute
+  '/login': typeof LoginRoute
   '/predictions': typeof PredictionsRoute
   '/strategies/new': typeof StrategiesNewRoute
+  '/users/$username': typeof UsersUsernameRoute
   '/strategies': typeof StrategiesIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/feed': typeof FeedRoute
+  '/friends': typeof FriendsRoute
+  '/leaderboard': typeof LeaderboardRoute
+  '/login': typeof LoginRoute
   '/predictions': typeof PredictionsRoute
   '/strategies/new': typeof StrategiesNewRoute
+  '/users/$username': typeof UsersUsernameRoute
   '/strategies/': typeof StrategiesIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/feed' | '/predictions' | '/strategies/new' | '/strategies'
+  fullPaths:
+    | '/'
+    | '/feed'
+    | '/friends'
+    | '/leaderboard'
+    | '/login'
+    | '/predictions'
+    | '/strategies/new'
+    | '/users/$username'
+    | '/strategies'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/feed' | '/predictions' | '/strategies/new' | '/strategies'
+  to:
+    | '/'
+    | '/feed'
+    | '/friends'
+    | '/leaderboard'
+    | '/login'
+    | '/predictions'
+    | '/strategies/new'
+    | '/users/$username'
+    | '/strategies'
   id:
     | '__root__'
     | '/'
     | '/feed'
+    | '/friends'
+    | '/leaderboard'
+    | '/login'
     | '/predictions'
     | '/strategies/new'
+    | '/users/$username'
     | '/strategies/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   FeedRoute: typeof FeedRoute
+  FriendsRoute: typeof FriendsRoute
+  LeaderboardRoute: typeof LeaderboardRoute
+  LoginRoute: typeof LoginRoute
   PredictionsRoute: typeof PredictionsRoute
   StrategiesNewRoute: typeof StrategiesNewRoute
+  UsersUsernameRoute: typeof UsersUsernameRoute
   StrategiesIndexRoute: typeof StrategiesIndexRoute
 }
 
@@ -92,6 +154,27 @@ declare module '@tanstack/react-router' {
       path: '/predictions'
       fullPath: '/predictions'
       preLoaderRoute: typeof PredictionsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/leaderboard': {
+      id: '/leaderboard'
+      path: '/leaderboard'
+      fullPath: '/leaderboard'
+      preLoaderRoute: typeof LeaderboardRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/friends': {
+      id: '/friends'
+      path: '/friends'
+      fullPath: '/friends'
+      preLoaderRoute: typeof FriendsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/feed': {
@@ -115,6 +198,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof StrategiesIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/users/$username': {
+      id: '/users/$username'
+      path: '/users/$username'
+      fullPath: '/users/$username'
+      preLoaderRoute: typeof UsersUsernameRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/strategies/new': {
       id: '/strategies/new'
       path: '/strategies/new'
@@ -128,8 +218,12 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   FeedRoute: FeedRoute,
+  FriendsRoute: FriendsRoute,
+  LeaderboardRoute: LeaderboardRoute,
+  LoginRoute: LoginRoute,
   PredictionsRoute: PredictionsRoute,
   StrategiesNewRoute: StrategiesNewRoute,
+  UsersUsernameRoute: UsersUsernameRoute,
   StrategiesIndexRoute: StrategiesIndexRoute,
 }
 export const routeTree = rootRouteImport

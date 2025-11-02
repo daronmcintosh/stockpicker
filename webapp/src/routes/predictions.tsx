@@ -3,23 +3,27 @@ import type { Prediction } from "@/gen/stockpicker/v1/strategy_pb";
 import {
   PredictionAction,
   PredictionPrivacy,
+  PredictionSource,
   PredictionStatus,
   RiskLevel,
   StrategyPrivacy,
   StrategyStatus,
 } from "@/gen/stockpicker/v1/strategy_pb";
-import { predictionClient, strategyClient } from "@/lib/connect";
+import { useAuth } from "@/lib/auth";
+import { createClient } from "@/lib/connect";
 import { fetchStockPrices } from "@/lib/stockPrice";
 import { Link, createFileRoute, useNavigate, useSearch } from "@tanstack/react-router";
 import {
   Bot,
   CheckCircle2,
+  Copy,
   Edit,
   Eye,
   Globe,
   Lock,
   Pencil,
   Plus,
+  Share2,
   Sparkles,
   Trash2,
   TrendingDown,
@@ -29,14 +33,11 @@ import {
 import { useCallback, useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
 
-// Helper to determine prediction source (will use PredictionSource enum once proto is regenerated)
+// Helper to determine prediction source
 function getPredictionSource(prediction: Prediction): "AI" | "Manual" {
-  // For now, check if source field exists (will be available after proto regeneration)
-  // Default assumption: if technicalAnalysis exists and isn't just "Manual prediction", it might be manual
-  // Once source field is available: return prediction.source === PredictionSource.MANUAL ? "Manual" : "AI"
-  const source = (prediction as any).source;
-  if (source === 2) return "Manual"; // PREDICTION_SOURCE_MANUAL = 2
-  if (source === 1) return "AI"; // PREDICTION_SOURCE_AI = 1
+  const source = prediction.source;
+  if (source === PredictionSource.MANUAL) return "Manual";
+  if (source === PredictionSource.AI) return "AI";
   // Fallback: try to detect from technical analysis content
   if (
     prediction.technicalAnalysis &&
@@ -78,6 +79,7 @@ export const Route = createFileRoute("/predictions")({
 });
 
 function PredictionsPage() {
+  const { token, isLoading: authLoading } = useAuth();
   const navigate = useNavigate({ from: "/predictions" });
   const {
     strategy: strategyFromUrl,
@@ -100,6 +102,8 @@ function PredictionsPage() {
     actionFromUrl || "all"
   );
   const [triggeringStrategy, setTriggeringStrategy] = useState<string | null>(null);
+  const [generateDialogOpen, setGenerateDialogOpen] = useState(false);
+  const [dialogStrategy, setDialogStrategy] = useState("");
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [currentPrices, setCurrentPrices] = useState<Record<string, number>>({});
@@ -152,10 +156,19 @@ function PredictionsPage() {
 
   // Load strategies and predictions on mount and when filters change
   const loadData = useCallback(async () => {
+    if (!token) {
+      if (!authLoading) {
+        toast.error("Please log in to view predictions");
+      }
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     try {
+      const client = createClient(token);
       // Load strategies
-      const strategiesResponse = await strategyClient.listStrategies({});
+      const strategiesResponse = await client.strategy.listStrategies({});
       const strategiesList = strategiesResponse.strategies.map((s) => ({
         id: s.id,
         name: s.name,
@@ -163,20 +176,7 @@ function PredictionsPage() {
       }));
       setStrategies(strategiesList);
 
-      // Auto-select first strategy if only one exists and none is currently selected
-      let strategyToUse = selectedStrategy;
-      if (strategiesList.length === 1 && selectedStrategy === "all" && !strategyFromUrl) {
-        strategyToUse = strategiesList[0].id;
-        setSelectedStrategy(strategiesList[0].id);
-        navigate({
-          search: {
-            strategy: strategiesList[0].id,
-            status: statusFilter === "all" ? undefined : statusFilter,
-            action: actionFilter === "all" ? undefined : actionFilter,
-          },
-          replace: true,
-        });
-      }
+      const strategyToUse = selectedStrategy;
 
       // Load predictions
       if (strategyToUse === "all") {
@@ -184,7 +184,7 @@ function PredictionsPage() {
         const allPredictions: Prediction[] = [];
         for (const strategy of strategiesList) {
           try {
-            const response = await predictionClient.listPredictions({
+            const response = await client.prediction.listPredictions({
               strategyId: strategy.id,
               status: statusFilter !== "all" ? statusFilter : undefined,
             });
@@ -206,7 +206,8 @@ function PredictionsPage() {
         }
         setPredictions(filteredPredictions);
       } else {
-        const response = await predictionClient.listPredictions({
+        // Fetch predictions for a specific strategy
+        const response = await client.prediction.listPredictions({
           strategyId: strategyToUse,
           status: statusFilter !== "all" ? statusFilter : undefined,
         });
@@ -222,11 +223,13 @@ function PredictionsPage() {
     } finally {
       setLoading(false);
     }
-  }, [selectedStrategy, statusFilter, actionFilter, strategyFromUrl, navigate]);
+  }, [selectedStrategy, statusFilter, actionFilter, token, authLoading]);
 
   useEffect(() => {
-    loadData();
-  }, [loadData]);
+    if (!authLoading) {
+      loadData();
+    }
+  }, [loadData, authLoading]);
 
   // Fetch current stock price when symbol changes
   useEffect(() => {
@@ -251,9 +254,8 @@ function PredictionsPage() {
       }, 500); // Wait 500ms after user stops typing
 
       return () => clearTimeout(timeoutId);
-    } else {
-      setCurrentStockPrice(null);
     }
+    setCurrentStockPrice(null);
   }, [formData.symbol]);
 
   // Fetch current prices when predictions change
@@ -298,22 +300,29 @@ function PredictionsPage() {
       }, 500); // Wait 500ms after user stops typing
 
       return () => clearTimeout(timeoutId);
-    } else {
-      setEditCurrentStockPrice(null);
     }
+    setEditCurrentStockPrice(null);
   }, [editFormData.symbol, editDialogOpen]);
 
-  async function handleTriggerPredictions() {
-    if (selectedStrategy === "all") {
+  async function handleTriggerPredictions(strategyId?: string) {
+    const strategyToTrigger = strategyId || dialogStrategy;
+    if (!strategyToTrigger || strategyToTrigger === "all") {
       toast.error("Please select a specific strategy to generate predictions");
       return;
     }
 
-    setTriggeringStrategy(selectedStrategy);
+    if (!token) {
+      toast.error("Please log in to trigger predictions");
+      return;
+    }
+
+    setTriggeringStrategy(strategyToTrigger);
     try {
-      const response = await strategyClient.triggerPredictions({ id: selectedStrategy });
+      const client = createClient(token);
+      const response = await client.strategy.triggerPredictions({ id: strategyToTrigger });
       if (response.success) {
         toast.success(response.message);
+        setGenerateDialogOpen(false); // Close dialog on success
         // Reload predictions after a short delay to allow n8n workflow to complete
         setTimeout(() => {
           loadData();
@@ -330,7 +339,8 @@ function PredictionsPage() {
   }
 
   async function handleCreatePrediction() {
-    if (selectedStrategy === "all") {
+    const strategyToUse = dialogStrategy || selectedStrategy;
+    if (strategyToUse === "all" || !strategyToUse) {
       toast.error("Please select a specific strategy");
       return;
     }
@@ -347,10 +357,16 @@ function PredictionsPage() {
       return;
     }
 
+    if (!token) {
+      toast.error("Please log in to create predictions");
+      return;
+    }
+
     setCreating(true);
     try {
-      await predictionClient.createPrediction({
-        strategyId: selectedStrategy,
+      const client = createClient(token);
+      await client.prediction.createPrediction({
+        strategyId: strategyToUse,
         symbol: formData.symbol.toUpperCase(),
         entryPrice: Number.parseFloat(formData.entryPrice),
         targetPrice: Number.parseFloat(formData.targetPrice),
@@ -359,8 +375,8 @@ function PredictionsPage() {
         sentimentScore: Number.parseFloat(formData.sentimentScore),
         overallScore: Number.parseFloat(formData.overallScore),
         technicalAnalysis: formData.technicalAnalysis || "Manual prediction",
-        source: 2, // PREDICTION_SOURCE_MANUAL = 2 (will use enum once proto is regenerated)
-      } as any); // Temporary cast until proto is regenerated
+        source: PredictionSource.MANUAL,
+      });
 
       toast.success("Prediction created successfully!");
       setCreateDialogOpen(false);
@@ -449,7 +465,7 @@ function PredictionsPage() {
     }
   }
 
-  if (loading) {
+  if (authLoading || loading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
         <div className="text-lg">Loading predictions...</div>
@@ -465,27 +481,29 @@ function PredictionsPage() {
           <button
             type="button"
             onClick={() => {
-              if (selectedStrategy === "all") {
-                toast.error("Please select a specific strategy first");
-              } else {
-                setCreateDialogOpen(true);
-              }
+              const strategyToUse = selectedStrategy === "all" ? "" : selectedStrategy;
+              setDialogStrategy(strategyToUse);
+              setCreateDialogOpen(true);
             }}
-            disabled={selectedStrategy === "all"}
-            className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            title={
-              selectedStrategy === "all" ? "Select a strategy first" : "Create a new prediction"
-            }
+            className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+            title="Create a new prediction"
           >
             <Plus className="w-5 h-5" />
             Create Prediction
           </button>
           <button
             type="button"
-            onClick={handleTriggerPredictions}
-            disabled={triggeringStrategy !== null || selectedStrategy === "all"}
+            onClick={() => {
+              if (selectedStrategy !== "all") {
+                handleTriggerPredictions(selectedStrategy);
+              } else {
+                setDialogStrategy("");
+                setGenerateDialogOpen(true);
+              }
+            }}
+            disabled={triggeringStrategy !== null}
             className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            title={selectedStrategy === "all" ? "Select a strategy first" : "Generate predictions"}
+            title="Generate predictions"
           >
             {triggeringStrategy ? (
               <>
@@ -609,6 +627,7 @@ function PredictionsPage() {
                 currentPrice={currentPrices[prediction.symbol]}
                 isLoadingPrice={loadingPrices}
                 onEdit={openEditDialog}
+                strategies={strategies}
               />
             );
           })}
@@ -632,6 +651,32 @@ function PredictionsPage() {
         size="lg"
       >
         <div className="space-y-6">
+          {/* Strategy Selector - only show if coming from "All Strategies" */}
+          {selectedStrategy === "all" && (
+            <section className="space-y-4">
+              <h3 className="text-sm font-semibold text-gray-900 border-b pb-2">Strategy</h3>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Select Strategy *
+                </label>
+                <select
+                  value={dialogStrategy}
+                  onChange={(e) => setDialogStrategy(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                >
+                  <option value="" disabled>
+                    -- Select a strategy --
+                  </option>
+                  {strategies.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </section>
+          )}
+
           {/* Section 1: Stock & Entry */}
           <section className="space-y-4">
             <h3 className="text-sm font-semibold text-gray-900 border-b pb-2">Stock & Entry</h3>
@@ -906,6 +951,45 @@ function PredictionsPage() {
           </DialogButton>
           <DialogButton onClick={handleCreatePrediction} disabled={creating}>
             {creating ? "Creating..." : "Create Prediction"}
+          </DialogButton>
+        </DialogFooter>
+      </Dialog>
+
+      {/* Generate Predictions Dialog */}
+      <Dialog
+        open={generateDialogOpen}
+        onOpenChange={setGenerateDialogOpen}
+        title="Generate Predictions"
+        description="Select a strategy to generate AI-powered predictions for."
+      >
+        <div className="space-y-4 pt-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Strategy *</label>
+            <select
+              value={dialogStrategy}
+              onChange={(e) => setDialogStrategy(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            >
+              <option value="" disabled>
+                -- Select a strategy --
+              </option>
+              {strategies.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+        <DialogFooter>
+          <DialogButton variant="outline" onClick={() => setGenerateDialogOpen(false)}>
+            Cancel
+          </DialogButton>
+          <DialogButton
+            onClick={() => handleTriggerPredictions()}
+            disabled={!dialogStrategy || triggeringStrategy !== null}
+          >
+            {triggeringStrategy ? "Generating..." : "Generate"}
           </DialogButton>
         </DialogFooter>
       </Dialog>
@@ -1232,6 +1316,7 @@ function PredictionCard({
   currentPrice,
   isLoadingPrice,
   onEdit,
+  strategies,
 }: {
   prediction: Prediction;
   onPrivacyChange?: () => void;
@@ -1241,12 +1326,17 @@ function PredictionCard({
   currentPrice?: number;
   isLoadingPrice?: boolean;
   onEdit?: (prediction: Prediction) => void;
+  strategies?: Array<{ id: string; name: string }>;
 }) {
+  const { token } = useAuth();
   const [isUpdatingPrivacy, setIsUpdatingPrivacy] = useState(false);
   const [isUpdatingAction, setIsUpdatingAction] = useState(false);
   const [detailDialogOpen, setDetailDialogOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [copyDialogOpen, setCopyDialogOpen] = useState(false);
+  const [copyTargetStrategy, setCopyTargetStrategy] = useState("");
+  const [isCopying, setIsCopying] = useState(false);
   // Convert all numeric fields to ensure no BigInt values
   const entryPrice = toNumber(prediction.entryPrice);
   const targetPrice = toNumber(prediction.targetPrice);
@@ -1298,7 +1388,7 @@ function PredictionCard({
     }
   };
 
-  const getActionColor = (action: PredictionAction) => {
+  const _getActionColor = (action: PredictionAction) => {
     switch (action) {
       case PredictionAction.PENDING:
         return "bg-yellow-100 text-yellow-800";
@@ -1327,12 +1417,19 @@ function PredictionCard({
   const handlePrivacyToggle = async () => {
     setIsUpdatingPrivacy(true);
     try {
+      if (!token) {
+        toast.error("Please log in to update privacy");
+        setIsUpdatingPrivacy(false);
+        return;
+      }
+
+      const client = createClient(token);
       const newPrivacy =
         prediction.privacy === PredictionPrivacy.PUBLIC
           ? PredictionPrivacy.PRIVATE
           : PredictionPrivacy.PUBLIC;
 
-      await predictionClient.updatePredictionPrivacy({
+      await client.prediction.updatePredictionPrivacy({
         id: prediction.id,
         privacy: newPrivacy,
       });
@@ -1357,7 +1454,14 @@ function PredictionCard({
 
     setIsUpdatingAction(true);
     try {
-      await predictionClient.updatePredictionAction({
+      if (!token) {
+        toast.error("Please log in to update action");
+        setIsUpdatingAction(false);
+        return;
+      }
+
+      const client = createClient(token);
+      await client.prediction.updatePredictionAction({
         id: prediction.id,
         action: newAction,
       });
@@ -1378,7 +1482,14 @@ function PredictionCard({
   const handleDelete = async () => {
     setIsDeleting(true);
     try {
-      await predictionClient.deletePrediction({ id: prediction.id });
+      if (!token) {
+        toast.error("Please log in to delete predictions");
+        setIsDeleting(false);
+        return;
+      }
+
+      const client = createClient(token);
+      await client.prediction.deletePrediction({ id: prediction.id });
       toast.success("Prediction deleted successfully");
       setDeleteDialogOpen(false);
       if (onPrivacyChange) {
@@ -1389,6 +1500,50 @@ function PredictionCard({
       toast.error("Failed to delete prediction");
     } finally {
       setIsDeleting(false);
+    }
+  };
+
+  const handleCopyPrediction = async () => {
+    if (!copyTargetStrategy) {
+      toast.error("Please select a target strategy");
+      return;
+    }
+
+    setIsCopying(true);
+    try {
+      if (!token) {
+        toast.error("Please log in to copy predictions");
+        setIsCopying(false);
+        return;
+      }
+
+      const client = createClient(token);
+      await client.prediction.copyPrediction({
+        predictionId: prediction.id,
+        strategyId: copyTargetStrategy,
+      });
+      toast.success("Prediction copied successfully!");
+      setCopyDialogOpen(false);
+      setCopyTargetStrategy("");
+      if (onPrivacyChange) {
+        onPrivacyChange();
+      }
+    } catch (error) {
+      console.error("Failed to copy prediction:", error);
+      toast.error(error instanceof Error ? error.message : "Failed to copy prediction");
+    } finally {
+      setIsCopying(false);
+    }
+  };
+
+  const handleSharePrediction = async () => {
+    const url = `${window.location.origin}/predictions?strategy=${prediction.strategyId}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      toast.success("Link copied to clipboard!");
+    } catch (error) {
+      console.error("Failed to copy link:", error);
+      toast.error("Failed to copy link");
     }
   };
 
@@ -1584,6 +1739,35 @@ function PredictionCard({
           )}
         </button>
 
+        {/* Copy & Share Buttons - Only for public predictions */}
+        {prediction.privacy === PredictionPrivacy.PUBLIC && (
+          <>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setCopyDialogOpen(true);
+              }}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg transition-colors border bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100 text-xs font-medium"
+              title="Copy prediction to another strategy"
+            >
+              <Copy className="w-3.5 h-3.5" />
+              Copy
+            </button>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleSharePrediction();
+              }}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg transition-colors border bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100 text-xs font-medium"
+              title="Share prediction link"
+            >
+              <Share2 className="w-3.5 h-3.5" />
+              Share
+            </button>
+          </>
+        )}
         {/* Delete Button */}
         <button
           type="button"
@@ -1742,10 +1926,12 @@ function PredictionCard({
                 <div className="text-right">
                   <div className="text-xs text-gray-600">Potential Gain</div>
                   <div className="text-sm font-semibold text-green-700">
-                    +${((targetPrice - entryPrice) * (allocatedAmount / entryPrice)).toLocaleString(
+                    +$
+                    {((targetPrice - entryPrice) * (allocatedAmount / entryPrice)).toLocaleString(
                       "en-US",
                       { minimumFractionDigits: 2, maximumFractionDigits: 2 }
-                    )} ({targetReturn.toFixed(2)}%)
+                    )}{" "}
+                    ({targetReturn.toFixed(2)}%)
                   </div>
                 </div>
               </div>
@@ -1803,10 +1989,12 @@ function PredictionCard({
                 <div className="text-right">
                   <div className="text-xs text-gray-600">Potential Loss</div>
                   <div className="text-sm font-semibold text-red-700">
-                    -${stopLossDollarImpact.toLocaleString("en-US", {
+                    -$
+                    {stopLossDollarImpact.toLocaleString("en-US", {
                       minimumFractionDigits: 2,
                       maximumFractionDigits: 2,
-                    })} ({stopLossPct.toFixed(2)}%)
+                    })}{" "}
+                    ({stopLossPct.toFixed(2)}%)
                   </div>
                 </div>
               </div>
@@ -1847,7 +2035,9 @@ function PredictionCard({
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-600">Overall:</span>
-                  <span className="font-semibold text-gray-900">{overallScore.toFixed(1)} / 10</span>
+                  <span className="font-semibold text-gray-900">
+                    {overallScore.toFixed(1)} / 10
+                  </span>
                 </div>
               </div>
             </div>
@@ -1900,6 +2090,46 @@ function PredictionCard({
           >
             <Trash2 className="w-4 h-4 mr-2" />
             Delete
+          </DialogButton>
+        </DialogFooter>
+      </Dialog>
+
+      {/* Copy Prediction Dialog */}
+      <Dialog
+        open={copyDialogOpen}
+        onOpenChange={setCopyDialogOpen}
+        title="Copy Prediction"
+        description={`Copy ${prediction.symbol} prediction to another strategy`}
+      >
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Select Target Strategy *
+            </label>
+            <select
+              value={copyTargetStrategy}
+              onChange={(e) => setCopyTargetStrategy(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            >
+              <option value="" disabled>
+                -- Select a strategy --
+              </option>
+              {strategies
+                ?.filter((s) => s.id !== prediction.strategyId)
+                .map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+            </select>
+          </div>
+        </div>
+        <DialogFooter>
+          <DialogButton variant="outline" onClick={() => setCopyDialogOpen(false)}>
+            Cancel
+          </DialogButton>
+          <DialogButton onClick={handleCopyPrediction} disabled={isCopying || !copyTargetStrategy}>
+            {isCopying ? "Copying..." : "Copy Prediction"}
           </DialogButton>
         </DialogFooter>
       </Dialog>

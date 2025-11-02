@@ -4,12 +4,14 @@ import {
   Frequency,
   PredictionAction,
   PredictionPrivacy,
+  PredictionSource,
   PredictionStatus,
   RiskLevel,
   StrategyPrivacy,
   StrategyStatus,
 } from "@/gen/stockpicker/v1/strategy_pb";
-import { predictionClient, strategyClient } from "@/lib/connect";
+import { useAuth } from "@/lib/auth";
+import { createClient } from "@/lib/connect";
 import { fetchStockPrices } from "@/lib/stockPrice";
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
 import {
@@ -29,7 +31,7 @@ import {
   TrendingUp,
   XCircle,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import toast from "react-hot-toast";
 
 export const Route = createFileRoute("/")({ component: App });
@@ -83,9 +85,9 @@ function toNumber(value: unknown): number {
 
 // Helper to determine prediction source
 function getPredictionSource(prediction: Prediction): "AI" | "Manual" {
-  const source = (prediction as any).source;
-  if (source === 2) return "Manual"; // PREDICTION_SOURCE_MANUAL = 2
-  if (source === 1) return "AI"; // PREDICTION_SOURCE_AI = 1
+  const source = prediction.source;
+  if (source === PredictionSource.MANUAL) return "Manual";
+  if (source === PredictionSource.AI) return "AI";
   // Fallback: try to detect from technical analysis content
   if (
     prediction.technicalAnalysis &&
@@ -141,6 +143,7 @@ function getActionLabel(action: PredictionAction) {
 }
 
 function App() {
+  const { token } = useAuth();
   const navigate = useNavigate();
   const [activeStrategiesCount, setActiveStrategiesCount] = useState(0);
   const [totalStrategiesCount, setTotalStrategiesCount] = useState(0);
@@ -159,11 +162,11 @@ function App() {
   const [selectedPrediction, setSelectedPrediction] = useState<Prediction | null>(null);
   const [predictionCounts, setPredictionCounts] = useState<Record<string, number>>({});
   const [currentPrices, setCurrentPrices] = useState<Record<string, number>>({});
-  const [isUpdatingPrivacy, setIsUpdatingPrivacy] = useState(false);
+  const [_isUpdatingPrivacy, setIsUpdatingPrivacy] = useState(false);
   const [isUpdatingAction, setIsUpdatingAction] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [loadingPrices, setLoadingPrices] = useState(false);
+  const [loadingPrices, _setLoadingPrices] = useState(false);
   const [predictionStats, setPredictionStats] = useState({
     hitTarget: 0,
     hitStop: 0,
@@ -172,9 +175,7 @@ function App() {
     total: 0,
   });
 
-  useEffect(() => {
-    loadDashboardData();
-  }, []);
+  // loadDashboardData is called in useEffect below when token changes
 
   useEffect(() => {
     if (recentPredictions.length > 0) {
@@ -189,10 +190,17 @@ function App() {
     }
   }, [recentPredictions]);
 
-  async function loadDashboardData() {
+  const loadDashboardData = useCallback(async () => {
+    if (!token) {
+      // If not authenticated, show empty dashboard or redirect to login
+      setLoading(false);
+      return;
+    }
+
     try {
+      const client = createClient(token);
       // Load strategies
-      const strategiesResponse = await strategyClient.listStrategies({});
+      const strategiesResponse = await client.strategy.listStrategies({});
       const strategies = strategiesResponse.strategies;
       setAllStrategies(strategies);
       setTotalStrategiesCount(strategies.length);
@@ -223,7 +231,7 @@ function App() {
 
       for (const strategy of strategies) {
         try {
-          const predictionsResponse = await predictionClient.listPredictions({
+          const predictionsResponse = await client.prediction.listPredictions({
             strategyId: strategy.id,
           });
           const preds = predictionsResponse.predictions;
@@ -268,15 +276,26 @@ function App() {
       setPredictionStats(stats);
     } catch (error) {
       console.error("Failed to load dashboard data:", error);
+      toast.error("Failed to load dashboard data");
     } finally {
       setLoading(false);
     }
-  }
+  }, [token]);
+
+  useEffect(() => {
+    loadDashboardData();
+  }, [loadDashboardData]);
 
   async function handleTriggerPredictions(strategyId: string, strategyName: string) {
+    if (!token) {
+      toast.error("Please log in to trigger predictions");
+      return;
+    }
+
     setTriggeringStrategy(strategyId);
     try {
-      const response = await strategyClient.triggerPredictions({ id: strategyId });
+      const client = createClient(token);
+      const response = await client.strategy.triggerPredictions({ id: strategyId });
       if (response.success) {
         toast.success(`Predictions triggered for ${strategyName}!`);
       } else {
@@ -300,7 +319,7 @@ function App() {
     setPredictionDialogOpen(true);
   }
 
-  const handlePrivacyToggle = async () => {
+  const _handlePrivacyToggle = async () => {
     if (!selectedPrediction) return;
     setIsUpdatingPrivacy(true);
     try {
@@ -309,7 +328,14 @@ function App() {
           ? PredictionPrivacy.PRIVATE
           : PredictionPrivacy.PUBLIC;
 
-      await predictionClient.updatePredictionPrivacy({
+      if (!token) {
+        toast.error("Please log in to update privacy");
+        setIsUpdatingPrivacy(false);
+        return;
+      }
+
+      const client = createClient(token);
+      await client.prediction.updatePredictionPrivacy({
         id: selectedPrediction.id,
         privacy: newPrivacy,
       });
@@ -339,7 +365,14 @@ function App() {
 
     setIsUpdatingAction(true);
     try {
-      await predictionClient.updatePredictionAction({
+      if (!token) {
+        toast.error("Please log in to update action");
+        setIsUpdatingAction(false);
+        return;
+      }
+
+      const client = createClient(token);
+      await client.prediction.updatePredictionAction({
         id: selectedPrediction.id,
         action: newAction,
       });
@@ -366,7 +399,14 @@ function App() {
     if (!selectedPrediction) return;
     setIsDeleting(true);
     try {
-      await predictionClient.deletePrediction({ id: selectedPrediction.id });
+      if (!token) {
+        toast.error("Please log in to delete predictions");
+        setIsDeleting(false);
+        return;
+      }
+
+      const client = createClient(token);
+      await client.prediction.deletePrediction({ id: selectedPrediction.id });
       toast.success("Prediction deleted successfully");
       setDeleteDialogOpen(false);
       setPredictionDialogOpen(false);
@@ -550,8 +590,8 @@ function App() {
                       <div className="flex items-center gap-3 flex-1 min-w-0">
                         <div className="font-bold text-lg text-gray-900">{prediction.symbol}</div>
                         {(() => {
-                          const source = (prediction as any).source;
-                          const isManual = source === 2;
+                          const source = prediction.source;
+                          const isManual = source === PredictionSource.MANUAL;
                           return (
                             <span
                               className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs ${
@@ -908,7 +948,9 @@ function App() {
                 return (
                   <span
                     className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-semibold ${
-                      source === "AI" ? "bg-purple-100 text-purple-800" : "bg-blue-100 text-blue-800"
+                      source === "AI"
+                        ? "bg-purple-100 text-purple-800"
+                        : "bg-blue-100 text-blue-800"
                     }`}
                   >
                     {source === "AI" ? (
@@ -974,7 +1016,9 @@ function App() {
                       </span>
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-gray-500 mb-1">Privacy</label>
+                      <label className="block text-xs font-medium text-gray-500 mb-1">
+                        Privacy
+                      </label>
                       <span
                         className={`inline-block px-3 py-1 rounded-full text-xs font-semibold ${
                           selectedPrediction.privacy === PredictionPrivacy.PUBLIC
@@ -982,12 +1026,16 @@ function App() {
                             : "bg-gray-100 text-gray-800"
                         }`}
                       >
-                        {selectedPrediction.privacy === PredictionPrivacy.PUBLIC ? "Public" : "Private"}
+                        {selectedPrediction.privacy === PredictionPrivacy.PUBLIC
+                          ? "Public"
+                          : "Private"}
                       </span>
                     </div>
                     {strategy && selectedPrediction.strategyId && (
                       <div>
-                        <label className="block text-xs font-medium text-gray-500 mb-1">Strategy</label>
+                        <label className="block text-xs font-medium text-gray-500 mb-1">
+                          Strategy
+                        </label>
                         {strategyPrivacy === StrategyPrivacy.PUBLIC || isStrategyOwned ? (
                           <Link
                             to="/strategies"
@@ -1013,7 +1061,9 @@ function App() {
                     <button
                       type="button"
                       onClick={() => handleActionChange(PredictionAction.PENDING)}
-                      disabled={isUpdatingAction || selectedPrediction.action === PredictionAction.PENDING}
+                      disabled={
+                        isUpdatingAction || selectedPrediction.action === PredictionAction.PENDING
+                      }
                       className={`flex items-center gap-1 px-2.5 py-1 rounded text-xs font-medium transition-all ${
                         selectedPrediction.action === PredictionAction.PENDING
                           ? "bg-yellow-500 text-white shadow-lg font-bold border-2 border-yellow-600 ring-2 ring-yellow-400 ring-offset-1 scale-105"
@@ -1074,10 +1124,15 @@ function App() {
                       <div className="text-right">
                         <div className="text-xs text-gray-600">Potential Gain</div>
                         <div className="text-sm font-semibold text-green-700">
-                          +${((targetPrice - entryPrice) * (allocatedAmount / entryPrice)).toLocaleString(
-                            "en-US",
-                            { minimumFractionDigits: 2, maximumFractionDigits: 2 }
-                          )} ({targetReturn.toFixed(2)}%)
+                          +$
+                          {(
+                            (targetPrice - entryPrice) *
+                            (allocatedAmount / entryPrice)
+                          ).toLocaleString("en-US", {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                          })}{" "}
+                          ({targetReturn.toFixed(2)}%)
                         </div>
                       </div>
                     </div>
@@ -1135,10 +1190,12 @@ function App() {
                       <div className="text-right">
                         <div className="text-xs text-gray-600">Potential Loss</div>
                         <div className="text-sm font-semibold text-red-700">
-                          -${stopLossDollarImpact.toLocaleString("en-US", {
+                          -$
+                          {stopLossDollarImpact.toLocaleString("en-US", {
                             minimumFractionDigits: 2,
                             maximumFractionDigits: 2,
-                          })} ({stopLossPct.toFixed(2)}%)
+                          })}{" "}
+                          ({stopLossPct.toFixed(2)}%)
                         </div>
                       </div>
                     </div>
@@ -1179,7 +1236,9 @@ function App() {
                       </div>
                       <div className="flex justify-between">
                         <span className="text-gray-600">Overall:</span>
-                        <span className="font-semibold text-gray-900">{overallScore.toFixed(1)} / 10</span>
+                        <span className="font-semibold text-gray-900">
+                          {overallScore.toFixed(1)} / 10
+                        </span>
                       </div>
                     </div>
                   </div>

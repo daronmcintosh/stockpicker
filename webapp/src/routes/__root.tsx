@@ -5,6 +5,7 @@ import { Toaster } from "react-hot-toast";
 
 import { ErrorFallback } from "../components/ErrorFallback";
 import Header from "../components/Header";
+import { AuthProvider } from "../lib/auth";
 
 import appCss from "../styles.css?url";
 
@@ -41,20 +42,22 @@ function RootDocument({ children }: { children: React.ReactNode }) {
         <HeadContent />
       </head>
       <body>
-        <Header />
-        {children}
-        <Toaster position="bottom-center" />
-        <TanStackDevtools
-          config={{
-            position: "bottom-right",
-          }}
-          plugins={[
-            {
-              name: "Tanstack Router",
-              render: <TanStackRouterDevtoolsPanel />,
-            },
-          ]}
-        />
+        <AuthProvider>
+          <Header />
+          {children}
+          <Toaster position="bottom-center" />
+          <TanStackDevtools
+            config={{
+              position: "bottom-right",
+            }}
+            plugins={[
+              {
+                name: "Tanstack Router",
+                render: <TanStackRouterDevtoolsPanel />,
+              },
+            ]}
+          />
+        </AuthProvider>
         <Scripts />
       </body>
     </html>

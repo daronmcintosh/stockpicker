@@ -17,6 +17,9 @@ yarn-error.log*
 dist/
 build/
 
+# Generated protobuf files (keep .fdset as it's needed for reflection)
+# proto/*.fdset - keeping this file for gRPC reflection support
+
 # IDE
 .vscode/
 .idea/
@@ -30,3 +33,10 @@ Thumbs.db
 # n8n
 .n8n/
 
+# Terraform (sensitive files only)
+terraform/terraform.tfvars
+terraform/*.tfstate
+terraform/*.tfstate.*
+
+# playwright
+.playwright-mcp

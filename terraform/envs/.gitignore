@@ -1,0 +1,6 @@
+# Environment-specific tfvars (may contain sensitive data)
+**/terraform.tfvars
+**/.terraform/
+**/*.tfstate
+**/*.tfstate.*
+

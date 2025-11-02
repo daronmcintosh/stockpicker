@@ -47,6 +47,12 @@ export function Dialog({
       <div
         className={`relative z-50 w-full ${sizeClasses[size]} mx-4 bg-white rounded-lg shadow-lg max-h-[90vh] overflow-hidden flex flex-col sm:mx-4 max-sm:h-full max-sm:max-w-full max-sm:rounded-none`}
         onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.stopPropagation();
+          }
+        }}
+        tabIndex={-1}
       >
         <div className="flex items-center justify-between p-6 border-b flex-shrink-0">
           <div className="flex-1">

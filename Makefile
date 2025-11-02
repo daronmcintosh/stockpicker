@@ -48,6 +48,8 @@ install:
 generate:
 	@echo "Generating TypeScript from Protocol Buffers..."
 	pnpm run generate
+	@echo "Generating FileDescriptorSet for gRPC reflection..."
+	cd proto && buf build -o stockpicker.fdset
 
 # Development
 dev:

@@ -7,17 +7,18 @@ import { Frequency } from "../gen/stockpicker/v1/strategy_pb.js";
  */
 function injectApiUrl(workflow: N8nWorkflow): N8nWorkflow {
   const apiUrl = appConfig.n8n.apiServerUrl || "http://apiserver:3000";
-  
+
   // Deep clone to avoid mutating original
   const processed = JSON.parse(JSON.stringify(workflow));
-  
+
   // Recursively replace $env.API_URL expressions with actual URL
   function replaceEnvVars(obj: unknown): unknown {
     if (typeof obj === "string") {
       // Replace n8n expression syntax: {{ $env.API_URL }} or ={{ $env.API_URL }}
       // Replace with just the URL value (no expression, since we're hardcoding it)
-      return obj.replace(/\{\{\s*\$env\.API_URL\s*\}\}/g, apiUrl)
-                .replace(/=\{\{\s*\$env\.API_URL\s*\}\}/g, apiUrl);
+      return obj
+        .replace(/\{\{\s*\$env\.API_URL\s*\}\}/g, apiUrl)
+        .replace(/=\{\{\s*\$env\.API_URL\s*\}\}/g, apiUrl);
     }
     if (Array.isArray(obj)) {
       return obj.map(replaceEnvVars);
@@ -31,7 +32,7 @@ function injectApiUrl(workflow: N8nWorkflow): N8nWorkflow {
     }
     return obj;
   }
-  
+
   return replaceEnvVars(processed) as N8nWorkflow;
 }
 
@@ -611,7 +612,7 @@ return recommendations.map(rec => ({ json: rec }));`,
     try {
       // Inject API URL directly instead of relying on $env.API_URL
       const workflowWithApiUrl = injectApiUrl(workflow);
-      
+
       console.log(`📝 Creating n8n workflow for strategy:`, {
         strategyId,
         strategyName,
@@ -621,7 +622,11 @@ return recommendations.map(rec => ({ json: rec }));`,
         nodeCount: workflow.nodes.length,
         apiUrl: appConfig.n8n.apiServerUrl,
       });
-      const response = await this.request<N8nWorkflowResponse>("POST", "/workflows", workflowWithApiUrl);
+      const response = await this.request<N8nWorkflowResponse>(
+        "POST",
+        "/workflows",
+        workflowWithApiUrl
+      );
       console.log(`✅ n8n workflow created successfully:`, {
         workflowId: response.id,
         workflowName: response.name,
@@ -857,13 +862,53 @@ return recommendations.map(rec => ({ json: rec }));`,
     try {
       // Inject API URL directly instead of relying on $env.API_URL
       const workflowWithApiUrl = injectApiUrl(workflow);
-      
+
+      // Filter to only include fields that n8n API accepts for workflow creation
+      // n8n API only accepts: name, nodes, connections, settings (optional), staticData (optional), tags (optional)
+      // It does NOT accept: id, active, versionId, meta, createdAt, updatedAt, note, etc.
+      const workflowData = workflowWithApiUrl as Record<string, unknown>;
+
+      // Filter nodes to remove unsupported fields (like "note" which is UI-only)
+      // Nodes can have: id, name, type, typeVersion, position, parameters, disabled, executeOnce, continueOnFail, retryOnFail
+      // They should NOT have: note, webhookId, etc.
+      const filteredNodes = Array.isArray(workflowData.nodes)
+        ? workflowData.nodes.map((node: unknown) => {
+            if (typeof node === "object" && node !== null) {
+              const nodeObj = node as Record<string, unknown>;
+              // Remove "note" field from nodes (UI-only, not accepted by API)
+              const { note, webhookId, ...filteredNode } = nodeObj;
+              return filteredNode;
+            }
+            return node;
+          })
+        : workflowData.nodes;
+
+      // Whitelist approach: only include accepted fields
+      const requestBody: Record<string, unknown> = {
+        name: workflowData.name,
+        nodes: filteredNodes,
+        connections: workflowData.connections,
+      };
+
+      // Include optional fields only if they exist and are not empty
+      if (workflowData.settings) {
+        requestBody.settings = workflowData.settings;
+      }
+      if (workflowData.staticData) {
+        requestBody.staticData = workflowData.staticData;
+      }
+      // Tags must be an array with at least one element (empty arrays might cause issues)
+      if (workflowData.tags && Array.isArray(workflowData.tags) && workflowData.tags.length > 0) {
+        requestBody.tags = workflowData.tags;
+      }
+
       console.log(`📝 Creating n8n workflow from JSON:`, {
         name: workflow.name,
-        nodeCount: Array.isArray(workflow.nodes) ? workflow.nodes.length : 0,
+        nodeCount: Array.isArray(workflowData.nodes) ? workflowData.nodes.length : 0,
         apiUrl: appConfig.n8n.apiServerUrl,
+        fields: Object.keys(requestBody),
       });
-      const response = await this.request<N8nWorkflowResponse>("POST", "/workflows", workflowWithApiUrl);
+      const response = await this.request<N8nWorkflowResponse>("POST", "/workflows", requestBody);
       console.log(`✅ n8n workflow created successfully:`, {
         workflowId: response.id,
         workflowName: response.name,

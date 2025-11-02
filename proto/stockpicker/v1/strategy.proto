@@ -32,9 +32,30 @@ service StrategyService {
 
   // Manually trigger prediction generation for a strategy
   rpc TriggerPredictions(TriggerPredictionsRequest) returns (TriggerPredictionsResponse);
-  
+
   // Update strategy privacy (public/private)
   rpc UpdateStrategyPrivacy(UpdateStrategyPrivacyRequest) returns (UpdateStrategyPrivacyResponse);
+
+  // Auth RPCs
+  rpc SendOTP(SendOTPRequest) returns (SendOTPResponse);
+  rpc VerifyOTP(VerifyOTPRequest) returns (VerifyOTPResponse);
+  rpc GetCurrentUser(GetCurrentUserRequest) returns (GetCurrentUserResponse);
+  rpc UpdateUser(UpdateUserRequest) returns (UpdateUserResponse);
+
+  // Social RPCs
+  rpc FollowUser(FollowUserRequest) returns (FollowUserResponse);
+  rpc UnfollowUser(UnfollowUserRequest) returns (UnfollowUserResponse);
+  rpc ListFollowing(ListFollowingRequest) returns (ListFollowingResponse);
+  rpc ListFollowers(ListFollowersRequest) returns (ListFollowersResponse);
+  rpc ListCloseFriends(ListCloseFriendsRequest) returns (ListCloseFriendsResponse);
+  rpc GetUserProfile(GetUserProfileRequest) returns (GetUserProfileResponse);
+
+  // Performance & Leaderboard RPCs
+  rpc GetUserPerformance(GetUserPerformanceRequest) returns (GetUserPerformanceResponse);
+  rpc GetLeaderboard(GetLeaderboardRequest) returns (GetLeaderboardResponse);
+
+  // Sharing RPCs
+  rpc CopyStrategy(CopyStrategyRequest) returns (CopyStrategyResponse);
 }
 
 // Prediction service for managing stock predictions
@@ -68,6 +89,9 @@ service PredictionService {
 
   // Delete a prediction
   rpc DeletePrediction(DeletePredictionRequest) returns (DeletePredictionResponse);
+
+  // Sharing RPCs
+  rpc CopyPrediction(CopyPredictionRequest) returns (CopyPredictionResponse);
 }
 
 
@@ -130,9 +154,13 @@ message Strategy {
   // Timestamps
   google.protobuf.Timestamp created_at = 20;
   google.protobuf.Timestamp updated_at = 21;
-  
+
   // Privacy
   StrategyPrivacy privacy = 22;
+
+  // User (gamification)
+  string user_id = 23;
+  optional User user = 24; // Populated in list/get responses
 }
 
 // Create Strategy
@@ -302,6 +330,8 @@ message Prediction {
   google.protobuf.Timestamp created_at = 23;
   PredictionPrivacy privacy = 24;
   PredictionSource source = 25; // AI-generated or manually created
+  string user_id = 26; // User who owns this prediction
+  optional User user = 27; // Populated in list/get responses
 }
 
 // List Predictions
@@ -431,4 +461,184 @@ message DeletePredictionRequest {
 
 message DeletePredictionResponse {
   bool success = 1;
+}
+
+// ============================================================================
+// GAMIFICATION: USER, AUTH, SOCIAL, PERFORMANCE, LEADERBOARD
+// ============================================================================
+
+// User message
+message User {
+  string id = 1;
+  string email = 2;
+  string username = 3;
+  string display_name = 4;
+  optional string avatar_url = 5;
+  google.protobuf.Timestamp created_at = 6;
+  google.protobuf.Timestamp updated_at = 7;
+}
+
+// --- AUTH MESSAGES ---
+
+message SendOTPRequest {
+  string email = 1;
+}
+
+message SendOTPResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message VerifyOTPRequest {
+  string email = 1;
+  string otp_code = 2;
+}
+
+message VerifyOTPResponse {
+  bool success = 1;
+  optional User user = 2;
+  optional string token = 3; // JWT token
+}
+
+message GetCurrentUserRequest {}
+
+message GetCurrentUserResponse {
+  optional User user = 1;
+}
+
+message UpdateUserRequest {
+  optional string username = 1;
+  optional string display_name = 2;
+  optional string avatar_url = 3;
+}
+
+message UpdateUserResponse {
+  User user = 1;
+}
+
+// --- SOCIAL MESSAGES ---
+
+message FollowUserRequest {
+  string user_id = 1; // User to follow
+}
+
+message FollowUserResponse {
+  bool success = 1;
+}
+
+message UnfollowUserRequest {
+  string user_id = 1; // User to unfollow
+}
+
+message UnfollowUserResponse {
+  bool success = 1;
+}
+
+message ListFollowingRequest {
+  optional string user_id = 1; // If empty, current user
+}
+
+message ListFollowingResponse {
+  repeated User users = 1;
+}
+
+message ListFollowersRequest {
+  optional string user_id = 1; // If empty, current user
+}
+
+message ListFollowersResponse {
+  repeated User users = 1;
+}
+
+message ListCloseFriendsRequest {}
+
+message ListCloseFriendsResponse {
+  repeated User users = 1;
+}
+
+message GetUserProfileRequest {
+  string username = 1;
+}
+
+message GetUserProfileResponse {
+  User user = 1;
+  bool is_following = 2; // Current user follows this user
+  bool is_followed_by = 3; // This user follows current user
+  bool is_close_friend = 4; // Mutual follow
+  UserPerformance performance = 5;
+}
+
+// --- PERFORMANCE & LEADERBOARD MESSAGES ---
+
+message UserPerformance {
+  string user_id = 1;
+  int32 total_predictions = 2;
+  int32 closed_predictions = 3;
+  int32 wins = 4;
+  double win_rate = 5; // Percentage (0-100)
+  double avg_return = 6; // Average return percentage
+  double total_roi = 7; // Sum of all returns
+  int32 current_streak = 8; // Consecutive wins
+  optional Prediction best_prediction = 9;
+}
+
+enum LeaderboardTimeframe {
+  LEADERBOARD_TIMEFRAME_UNSPECIFIED = 0;
+  LEADERBOARD_TIMEFRAME_ALL_TIME = 1;
+  LEADERBOARD_TIMEFRAME_MONTHLY = 2;
+}
+
+enum LeaderboardScope {
+  LEADERBOARD_SCOPE_UNSPECIFIED = 0;
+  LEADERBOARD_SCOPE_GLOBAL = 1;
+  LEADERBOARD_SCOPE_FOLLOWING = 2;
+  LEADERBOARD_SCOPE_CLOSE_FRIENDS = 3;
+}
+
+message LeaderboardEntry {
+  int32 rank = 1;
+  User user = 2;
+  double performance_score = 3;
+  UserPerformance performance = 4;
+}
+
+message GetLeaderboardRequest {
+  LeaderboardTimeframe timeframe = 1;
+  LeaderboardScope scope = 2;
+  optional int32 limit = 3; // Default 50
+  optional int32 offset = 4; // Default 0
+}
+
+message GetLeaderboardResponse {
+  repeated LeaderboardEntry entries = 1;
+  int32 total_count = 2;
+  optional LeaderboardEntry current_user_entry = 3; // User's position
+}
+
+message GetUserPerformanceRequest {
+  optional string user_id = 1; // If empty, current user
+  LeaderboardTimeframe timeframe = 2;
+}
+
+message GetUserPerformanceResponse {
+  UserPerformance performance = 1;
+}
+
+// --- SHARING MESSAGES ---
+
+message CopyStrategyRequest {
+  string strategy_id = 1; // Strategy to copy
+}
+
+message CopyStrategyResponse {
+  Strategy strategy = 1; // New copied strategy
+}
+
+message CopyPredictionRequest {
+  string prediction_id = 1; // Prediction to copy
+  string strategy_id = 2; // Target strategy to copy the prediction to
+}
+
+message CopyPredictionResponse {
+  Prediction prediction = 1; // New copied prediction
 }

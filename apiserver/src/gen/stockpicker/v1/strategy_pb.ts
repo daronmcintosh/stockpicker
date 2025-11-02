@@ -279,6 +279,64 @@ proto3.util.setEnumType(StrategyPrivacy, "stockpicker.v1.StrategyPrivacy", [
 ]);
 
 /**
+ * @generated from enum stockpicker.v1.LeaderboardTimeframe
+ */
+export enum LeaderboardTimeframe {
+  /**
+   * @generated from enum value: LEADERBOARD_TIMEFRAME_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: LEADERBOARD_TIMEFRAME_ALL_TIME = 1;
+   */
+  ALL_TIME = 1,
+
+  /**
+   * @generated from enum value: LEADERBOARD_TIMEFRAME_MONTHLY = 2;
+   */
+  MONTHLY = 2,
+}
+// Retrieve enum metadata with: proto3.getEnumType(LeaderboardTimeframe)
+proto3.util.setEnumType(LeaderboardTimeframe, "stockpicker.v1.LeaderboardTimeframe", [
+  { no: 0, name: "LEADERBOARD_TIMEFRAME_UNSPECIFIED" },
+  { no: 1, name: "LEADERBOARD_TIMEFRAME_ALL_TIME" },
+  { no: 2, name: "LEADERBOARD_TIMEFRAME_MONTHLY" },
+]);
+
+/**
+ * @generated from enum stockpicker.v1.LeaderboardScope
+ */
+export enum LeaderboardScope {
+  /**
+   * @generated from enum value: LEADERBOARD_SCOPE_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: LEADERBOARD_SCOPE_GLOBAL = 1;
+   */
+  GLOBAL = 1,
+
+  /**
+   * @generated from enum value: LEADERBOARD_SCOPE_FOLLOWING = 2;
+   */
+  FOLLOWING = 2,
+
+  /**
+   * @generated from enum value: LEADERBOARD_SCOPE_CLOSE_FRIENDS = 3;
+   */
+  CLOSE_FRIENDS = 3,
+}
+// Retrieve enum metadata with: proto3.getEnumType(LeaderboardScope)
+proto3.util.setEnumType(LeaderboardScope, "stockpicker.v1.LeaderboardScope", [
+  { no: 0, name: "LEADERBOARD_SCOPE_UNSPECIFIED" },
+  { no: 1, name: "LEADERBOARD_SCOPE_GLOBAL" },
+  { no: 2, name: "LEADERBOARD_SCOPE_FOLLOWING" },
+  { no: 3, name: "LEADERBOARD_SCOPE_CLOSE_FRIENDS" },
+]);
+
+/**
  * Strategy message
  *
  * @generated from message stockpicker.v1.Strategy
@@ -406,6 +464,20 @@ export class Strategy extends Message<Strategy> {
    */
   privacy = StrategyPrivacy.UNSPECIFIED;
 
+  /**
+   * User (gamification)
+   *
+   * @generated from field: string user_id = 23;
+   */
+  userId = "";
+
+  /**
+   * Populated in list/get responses
+   *
+   * @generated from field: optional stockpicker.v1.User user = 24;
+   */
+  user?: User;
+
   constructor(data?: PartialMessage<Strategy>) {
     super();
     proto3.util.initPartial(data, this);
@@ -436,6 +508,8 @@ export class Strategy extends Message<Strategy> {
     { no: 20, name: "created_at", kind: "message", T: Timestamp },
     { no: 21, name: "updated_at", kind: "message", T: Timestamp },
     { no: 22, name: "privacy", kind: "enum", T: proto3.getEnumType(StrategyPrivacy) },
+    { no: 23, name: "user_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 24, name: "user", kind: "message", T: User, opt: true },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): Strategy {
@@ -1376,6 +1450,20 @@ export class Prediction extends Message<Prediction> {
    */
   source = PredictionSource.UNSPECIFIED;
 
+  /**
+   * User who owns this prediction
+   *
+   * @generated from field: string user_id = 26;
+   */
+  userId = "";
+
+  /**
+   * Populated in list/get responses
+   *
+   * @generated from field: optional stockpicker.v1.User user = 27;
+   */
+  user?: User;
+
   constructor(data?: PartialMessage<Prediction>) {
     super();
     proto3.util.initPartial(data, this);
@@ -1409,6 +1497,8 @@ export class Prediction extends Message<Prediction> {
     { no: 23, name: "created_at", kind: "message", T: Timestamp },
     { no: 24, name: "privacy", kind: "enum", T: proto3.getEnumType(PredictionPrivacy) },
     { no: 25, name: "source", kind: "enum", T: proto3.getEnumType(PredictionSource) },
+    { no: 26, name: "user_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 27, name: "user", kind: "message", T: User, opt: true },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): Prediction {
@@ -2085,6 +2175,142 @@ export class UpdatePredictionPrivacyResponse extends Message<UpdatePredictionPri
 }
 
 /**
+ * Update Prediction
+ *
+ * @generated from message stockpicker.v1.UpdatePredictionRequest
+ */
+export class UpdatePredictionRequest extends Message<UpdatePredictionRequest> {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id = "";
+
+  /**
+   * @generated from field: optional string symbol = 2;
+   */
+  symbol?: string;
+
+  /**
+   * @generated from field: optional double entry_price = 3;
+   */
+  entryPrice?: number;
+
+  /**
+   * @generated from field: optional double allocated_amount = 4;
+   */
+  allocatedAmount?: number;
+
+  /**
+   * @generated from field: optional double target_price = 5;
+   */
+  targetPrice?: number;
+
+  /**
+   * @generated from field: optional double stop_loss_price = 6;
+   */
+  stopLossPrice?: number;
+
+  /**
+   * @generated from field: optional double sentiment_score = 7;
+   */
+  sentimentScore?: number;
+
+  /**
+   * @generated from field: optional double overall_score = 8;
+   */
+  overallScore?: number;
+
+  /**
+   * @generated from field: optional string technical_analysis = 9;
+   */
+  technicalAnalysis?: string;
+
+  /**
+   * @generated from field: optional int32 time_horizon_days = 10;
+   */
+  timeHorizonDays?: number;
+
+  /**
+   * @generated from field: optional stockpicker.v1.RiskLevel risk_level = 11;
+   */
+  riskLevel?: RiskLevel;
+
+  constructor(data?: PartialMessage<UpdatePredictionRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "stockpicker.v1.UpdatePredictionRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "symbol", kind: "scalar", T: 9 /* ScalarType.STRING */, opt: true },
+    { no: 3, name: "entry_price", kind: "scalar", T: 1 /* ScalarType.DOUBLE */, opt: true },
+    { no: 4, name: "allocated_amount", kind: "scalar", T: 1 /* ScalarType.DOUBLE */, opt: true },
+    { no: 5, name: "target_price", kind: "scalar", T: 1 /* ScalarType.DOUBLE */, opt: true },
+    { no: 6, name: "stop_loss_price", kind: "scalar", T: 1 /* ScalarType.DOUBLE */, opt: true },
+    { no: 7, name: "sentiment_score", kind: "scalar", T: 1 /* ScalarType.DOUBLE */, opt: true },
+    { no: 8, name: "overall_score", kind: "scalar", T: 1 /* ScalarType.DOUBLE */, opt: true },
+    { no: 9, name: "technical_analysis", kind: "scalar", T: 9 /* ScalarType.STRING */, opt: true },
+    { no: 10, name: "time_horizon_days", kind: "scalar", T: 5 /* ScalarType.INT32 */, opt: true },
+    { no: 11, name: "risk_level", kind: "enum", T: proto3.getEnumType(RiskLevel), opt: true },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): UpdatePredictionRequest {
+    return new UpdatePredictionRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): UpdatePredictionRequest {
+    return new UpdatePredictionRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): UpdatePredictionRequest {
+    return new UpdatePredictionRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: UpdatePredictionRequest | PlainMessage<UpdatePredictionRequest> | undefined, b: UpdatePredictionRequest | PlainMessage<UpdatePredictionRequest> | undefined): boolean {
+    return proto3.util.equals(UpdatePredictionRequest, a, b);
+  }
+}
+
+/**
+ * @generated from message stockpicker.v1.UpdatePredictionResponse
+ */
+export class UpdatePredictionResponse extends Message<UpdatePredictionResponse> {
+  /**
+   * @generated from field: stockpicker.v1.Prediction prediction = 1;
+   */
+  prediction?: Prediction;
+
+  constructor(data?: PartialMessage<UpdatePredictionResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "stockpicker.v1.UpdatePredictionResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "prediction", kind: "message", T: Prediction },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): UpdatePredictionResponse {
+    return new UpdatePredictionResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): UpdatePredictionResponse {
+    return new UpdatePredictionResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): UpdatePredictionResponse {
+    return new UpdatePredictionResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: UpdatePredictionResponse | PlainMessage<UpdatePredictionResponse> | undefined, b: UpdatePredictionResponse | PlainMessage<UpdatePredictionResponse> | undefined): boolean {
+    return proto3.util.equals(UpdatePredictionResponse, a, b);
+  }
+}
+
+/**
  * Update Strategy Privacy
  *
  * @generated from message stockpicker.v1.UpdateStrategyPrivacyRequest
@@ -2321,6 +2547,1389 @@ export class DeletePredictionResponse extends Message<DeletePredictionResponse> 
 
   static equals(a: DeletePredictionResponse | PlainMessage<DeletePredictionResponse> | undefined, b: DeletePredictionResponse | PlainMessage<DeletePredictionResponse> | undefined): boolean {
     return proto3.util.equals(DeletePredictionResponse, a, b);
+  }
+}
+
+/**
+ * User message
+ *
+ * @generated from message stockpicker.v1.User
+ */
+export class User extends Message<User> {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id = "";
+
+  /**
+   * @generated from field: string email = 2;
+   */
+  email = "";
+
+  /**
+   * @generated from field: string username = 3;
+   */
+  username = "";
+
+  /**
+   * @generated from field: string display_name = 4;
+   */
+  displayName = "";
+
+  /**
+   * @generated from field: optional string avatar_url = 5;
+   */
+  avatarUrl?: string;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp created_at = 6;
+   */
+  createdAt?: Timestamp;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp updated_at = 7;
+   */
+  updatedAt?: Timestamp;
+
+  constructor(data?: PartialMessage<User>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "stockpicker.v1.User";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "email", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 3, name: "username", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 4, name: "display_name", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 5, name: "avatar_url", kind: "scalar", T: 9 /* ScalarType.STRING */, opt: true },
+    { no: 6, name: "created_at", kind: "message", T: Timestamp },
+    { no: 7, name: "updated_at", kind: "message", T: Timestamp },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): User {
+    return new User().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): User {
+    return new User().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): User {
+    return new User().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: User | PlainMessage<User> | undefined, b: User | PlainMessage<User> | undefined): boolean {
+    return proto3.util.equals(User, a, b);
+  }
+}
+
+/**
+ * @generated from message stockpicker.v1.SendOTPRequest
+ */
+export class SendOTPRequest extends Message<SendOTPRequest> {
+  /**
+   * @generated from field: string email = 1;
+   */
+  email = "";
+
+  constructor(data?: PartialMessage<SendOTPRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "stockpicker.v1.SendOTPRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "email", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): SendOTPRequest {
+    return new SendOTPRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): SendOTPRequest {
+    return new SendOTPRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): SendOTPRequest {
+    return new SendOTPRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: SendOTPRequest | PlainMessage<SendOTPRequest> | undefined, b: SendOTPRequest | PlainMessage<SendOTPRequest> | undefined): boolean {
+    return proto3.util.equals(SendOTPRequest, a, b);
+  }
+}
+
+/**
+ * @generated from message stockpicker.v1.SendOTPResponse
+ */
+export class SendOTPResponse extends Message<SendOTPResponse> {
+  /**
+   * @generated from field: bool success = 1;
+   */
+  success = false;
+
+  /**
+   * @generated from field: string message = 2;
+   */
+  message = "";
+
+  constructor(data?: PartialMessage<SendOTPResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "stockpicker.v1.SendOTPResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "success", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
+    { no: 2, name: "message", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): SendOTPResponse {
+    return new SendOTPResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): SendOTPResponse {
+    return new SendOTPResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): SendOTPResponse {
+    return new SendOTPResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: SendOTPResponse | PlainMessage<SendOTPResponse> | undefined, b: SendOTPResponse | PlainMessage<SendOTPResponse> | undefined): boolean {
+    return proto3.util.equals(SendOTPResponse, a, b);
+  }
+}
+
+/**
+ * @generated from message stockpicker.v1.VerifyOTPRequest
+ */
+export class VerifyOTPRequest extends Message<VerifyOTPRequest> {
+  /**
+   * @generated from field: string email = 1;
+   */
+  email = "";
+
+  /**
+   * @generated from field: string otp_code = 2;
+   */
+  otpCode = "";
+
+  constructor(data?: PartialMessage<VerifyOTPRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "stockpicker.v1.VerifyOTPRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "email", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "otp_code", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): VerifyOTPRequest {
+    return new VerifyOTPRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): VerifyOTPRequest {
+    return new VerifyOTPRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): VerifyOTPRequest {
+    return new VerifyOTPRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: VerifyOTPRequest | PlainMessage<VerifyOTPRequest> | undefined, b: VerifyOTPRequest | PlainMessage<VerifyOTPRequest> | undefined): boolean {
+    return proto3.util.equals(VerifyOTPRequest, a, b);
+  }
+}
+
+/**
+ * @generated from message stockpicker.v1.VerifyOTPResponse
+ */
+export class VerifyOTPResponse extends Message<VerifyOTPResponse> {
+  /**
+   * @generated from field: bool success = 1;
+   */
+  success = false;
+
+  /**
+   * @generated from field: optional stockpicker.v1.User user = 2;
+   */
+  user?: User;
+
+  /**
+   * JWT token
+   *
+   * @generated from field: optional string token = 3;
+   */
+  token?: string;
+
+  constructor(data?: PartialMessage<VerifyOTPResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "stockpicker.v1.VerifyOTPResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "success", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
+    { no: 2, name: "user", kind: "message", T: User, opt: true },
+    { no: 3, name: "token", kind: "scalar", T: 9 /* ScalarType.STRING */, opt: true },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): VerifyOTPResponse {
+    return new VerifyOTPResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): VerifyOTPResponse {
+    return new VerifyOTPResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): VerifyOTPResponse {
+    return new VerifyOTPResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: VerifyOTPResponse | PlainMessage<VerifyOTPResponse> | undefined, b: VerifyOTPResponse | PlainMessage<VerifyOTPResponse> | undefined): boolean {
+    return proto3.util.equals(VerifyOTPResponse, a, b);
+  }
+}
+
+/**
+ * @generated from message stockpicker.v1.GetCurrentUserRequest
+ */
+export class GetCurrentUserRequest extends Message<GetCurrentUserRequest> {
+  constructor(data?: PartialMessage<GetCurrentUserRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "stockpicker.v1.GetCurrentUserRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): GetCurrentUserRequest {
+    return new GetCurrentUserRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): GetCurrentUserRequest {
+    return new GetCurrentUserRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): GetCurrentUserRequest {
+    return new GetCurrentUserRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: GetCurrentUserRequest | PlainMessage<GetCurrentUserRequest> | undefined, b: GetCurrentUserRequest | PlainMessage<GetCurrentUserRequest> | undefined): boolean {
+    return proto3.util.equals(GetCurrentUserRequest, a, b);
+  }
+}
+
+/**
+ * @generated from message stockpicker.v1.GetCurrentUserResponse
+ */
+export class GetCurrentUserResponse extends Message<GetCurrentUserResponse> {
+  /**
+   * @generated from field: optional stockpicker.v1.User user = 1;
+   */
+  user?: User;
+
+  constructor(data?: PartialMessage<GetCurrentUserResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "stockpicker.v1.GetCurrentUserResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "user", kind: "message", T: User, opt: true },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): GetCurrentUserResponse {
+    return new GetCurrentUserResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): GetCurrentUserResponse {
+    return new GetCurrentUserResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): GetCurrentUserResponse {
+    return new GetCurrentUserResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: GetCurrentUserResponse | PlainMessage<GetCurrentUserResponse> | undefined, b: GetCurrentUserResponse | PlainMessage<GetCurrentUserResponse> | undefined): boolean {
+    return proto3.util.equals(GetCurrentUserResponse, a, b);
+  }
+}
+
+/**
+ * @generated from message stockpicker.v1.UpdateUserRequest
+ */
+export class UpdateUserRequest extends Message<UpdateUserRequest> {
+  /**
+   * @generated from field: optional string username = 1;
+   */
+  username?: string;
+
+  /**
+   * @generated from field: optional string display_name = 2;
+   */
+  displayName?: string;
+
+  /**
+   * @generated from field: optional string avatar_url = 3;
+   */
+  avatarUrl?: string;
+
+  constructor(data?: PartialMessage<UpdateUserRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "stockpicker.v1.UpdateUserRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "username", kind: "scalar", T: 9 /* ScalarType.STRING */, opt: true },
+    { no: 2, name: "display_name", kind: "scalar", T: 9 /* ScalarType.STRING */, opt: true },
+    { no: 3, name: "avatar_url", kind: "scalar", T: 9 /* ScalarType.STRING */, opt: true },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): UpdateUserRequest {
+    return new UpdateUserRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): UpdateUserRequest {
+    return new UpdateUserRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): UpdateUserRequest {
+    return new UpdateUserRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: UpdateUserRequest | PlainMessage<UpdateUserRequest> | undefined, b: UpdateUserRequest | PlainMessage<UpdateUserRequest> | undefined): boolean {
+    return proto3.util.equals(UpdateUserRequest, a, b);
+  }
+}
+
+/**
+ * @generated from message stockpicker.v1.UpdateUserResponse
+ */
+export class UpdateUserResponse extends Message<UpdateUserResponse> {
+  /**
+   * @generated from field: stockpicker.v1.User user = 1;
+   */
+  user?: User;
+
+  constructor(data?: PartialMessage<UpdateUserResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "stockpicker.v1.UpdateUserResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "user", kind: "message", T: User },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): UpdateUserResponse {
+    return new UpdateUserResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): UpdateUserResponse {
+    return new UpdateUserResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): UpdateUserResponse {
+    return new UpdateUserResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: UpdateUserResponse | PlainMessage<UpdateUserResponse> | undefined, b: UpdateUserResponse | PlainMessage<UpdateUserResponse> | undefined): boolean {
+    return proto3.util.equals(UpdateUserResponse, a, b);
+  }
+}
+
+/**
+ * @generated from message stockpicker.v1.FollowUserRequest
+ */
+export class FollowUserRequest extends Message<FollowUserRequest> {
+  /**
+   * User to follow
+   *
+   * @generated from field: string user_id = 1;
+   */
+  userId = "";
+
+  constructor(data?: PartialMessage<FollowUserRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "stockpicker.v1.FollowUserRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "user_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): FollowUserRequest {
+    return new FollowUserRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): FollowUserRequest {
+    return new FollowUserRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): FollowUserRequest {
+    return new FollowUserRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: FollowUserRequest | PlainMessage<FollowUserRequest> | undefined, b: FollowUserRequest | PlainMessage<FollowUserRequest> | undefined): boolean {
+    return proto3.util.equals(FollowUserRequest, a, b);
+  }
+}
+
+/**
+ * @generated from message stockpicker.v1.FollowUserResponse
+ */
+export class FollowUserResponse extends Message<FollowUserResponse> {
+  /**
+   * @generated from field: bool success = 1;
+   */
+  success = false;
+
+  constructor(data?: PartialMessage<FollowUserResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "stockpicker.v1.FollowUserResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "success", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): FollowUserResponse {
+    return new FollowUserResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): FollowUserResponse {
+    return new FollowUserResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): FollowUserResponse {
+    return new FollowUserResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: FollowUserResponse | PlainMessage<FollowUserResponse> | undefined, b: FollowUserResponse | PlainMessage<FollowUserResponse> | undefined): boolean {
+    return proto3.util.equals(FollowUserResponse, a, b);
+  }
+}
+
+/**
+ * @generated from message stockpicker.v1.UnfollowUserRequest
+ */
+export class UnfollowUserRequest extends Message<UnfollowUserRequest> {
+  /**
+   * User to unfollow
+   *
+   * @generated from field: string user_id = 1;
+   */
+  userId = "";
+
+  constructor(data?: PartialMessage<UnfollowUserRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "stockpicker.v1.UnfollowUserRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "user_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): UnfollowUserRequest {
+    return new UnfollowUserRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): UnfollowUserRequest {
+    return new UnfollowUserRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): UnfollowUserRequest {
+    return new UnfollowUserRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: UnfollowUserRequest | PlainMessage<UnfollowUserRequest> | undefined, b: UnfollowUserRequest | PlainMessage<UnfollowUserRequest> | undefined): boolean {
+    return proto3.util.equals(UnfollowUserRequest, a, b);
+  }
+}
+
+/**
+ * @generated from message stockpicker.v1.UnfollowUserResponse
+ */
+export class UnfollowUserResponse extends Message<UnfollowUserResponse> {
+  /**
+   * @generated from field: bool success = 1;
+   */
+  success = false;
+
+  constructor(data?: PartialMessage<UnfollowUserResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "stockpicker.v1.UnfollowUserResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "success", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): UnfollowUserResponse {
+    return new UnfollowUserResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): UnfollowUserResponse {
+    return new UnfollowUserResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): UnfollowUserResponse {
+    return new UnfollowUserResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: UnfollowUserResponse | PlainMessage<UnfollowUserResponse> | undefined, b: UnfollowUserResponse | PlainMessage<UnfollowUserResponse> | undefined): boolean {
+    return proto3.util.equals(UnfollowUserResponse, a, b);
+  }
+}
+
+/**
+ * @generated from message stockpicker.v1.ListFollowingRequest
+ */
+export class ListFollowingRequest extends Message<ListFollowingRequest> {
+  /**
+   * If empty, current user
+   *
+   * @generated from field: optional string user_id = 1;
+   */
+  userId?: string;
+
+  constructor(data?: PartialMessage<ListFollowingRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "stockpicker.v1.ListFollowingRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "user_id", kind: "scalar", T: 9 /* ScalarType.STRING */, opt: true },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ListFollowingRequest {
+    return new ListFollowingRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): ListFollowingRequest {
+    return new ListFollowingRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): ListFollowingRequest {
+    return new ListFollowingRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: ListFollowingRequest | PlainMessage<ListFollowingRequest> | undefined, b: ListFollowingRequest | PlainMessage<ListFollowingRequest> | undefined): boolean {
+    return proto3.util.equals(ListFollowingRequest, a, b);
+  }
+}
+
+/**
+ * @generated from message stockpicker.v1.ListFollowingResponse
+ */
+export class ListFollowingResponse extends Message<ListFollowingResponse> {
+  /**
+   * @generated from field: repeated stockpicker.v1.User users = 1;
+   */
+  users: User[] = [];
+
+  constructor(data?: PartialMessage<ListFollowingResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "stockpicker.v1.ListFollowingResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "users", kind: "message", T: User, repeated: true },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ListFollowingResponse {
+    return new ListFollowingResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): ListFollowingResponse {
+    return new ListFollowingResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): ListFollowingResponse {
+    return new ListFollowingResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: ListFollowingResponse | PlainMessage<ListFollowingResponse> | undefined, b: ListFollowingResponse | PlainMessage<ListFollowingResponse> | undefined): boolean {
+    return proto3.util.equals(ListFollowingResponse, a, b);
+  }
+}
+
+/**
+ * @generated from message stockpicker.v1.ListFollowersRequest
+ */
+export class ListFollowersRequest extends Message<ListFollowersRequest> {
+  /**
+   * If empty, current user
+   *
+   * @generated from field: optional string user_id = 1;
+   */
+  userId?: string;
+
+  constructor(data?: PartialMessage<ListFollowersRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "stockpicker.v1.ListFollowersRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "user_id", kind: "scalar", T: 9 /* ScalarType.STRING */, opt: true },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ListFollowersRequest {
+    return new ListFollowersRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): ListFollowersRequest {
+    return new ListFollowersRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): ListFollowersRequest {
+    return new ListFollowersRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: ListFollowersRequest | PlainMessage<ListFollowersRequest> | undefined, b: ListFollowersRequest | PlainMessage<ListFollowersRequest> | undefined): boolean {
+    return proto3.util.equals(ListFollowersRequest, a, b);
+  }
+}
+
+/**
+ * @generated from message stockpicker.v1.ListFollowersResponse
+ */
+export class ListFollowersResponse extends Message<ListFollowersResponse> {
+  /**
+   * @generated from field: repeated stockpicker.v1.User users = 1;
+   */
+  users: User[] = [];
+
+  constructor(data?: PartialMessage<ListFollowersResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "stockpicker.v1.ListFollowersResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "users", kind: "message", T: User, repeated: true },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ListFollowersResponse {
+    return new ListFollowersResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): ListFollowersResponse {
+    return new ListFollowersResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): ListFollowersResponse {
+    return new ListFollowersResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: ListFollowersResponse | PlainMessage<ListFollowersResponse> | undefined, b: ListFollowersResponse | PlainMessage<ListFollowersResponse> | undefined): boolean {
+    return proto3.util.equals(ListFollowersResponse, a, b);
+  }
+}
+
+/**
+ * @generated from message stockpicker.v1.ListCloseFriendsRequest
+ */
+export class ListCloseFriendsRequest extends Message<ListCloseFriendsRequest> {
+  constructor(data?: PartialMessage<ListCloseFriendsRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "stockpicker.v1.ListCloseFriendsRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ListCloseFriendsRequest {
+    return new ListCloseFriendsRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): ListCloseFriendsRequest {
+    return new ListCloseFriendsRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): ListCloseFriendsRequest {
+    return new ListCloseFriendsRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: ListCloseFriendsRequest | PlainMessage<ListCloseFriendsRequest> | undefined, b: ListCloseFriendsRequest | PlainMessage<ListCloseFriendsRequest> | undefined): boolean {
+    return proto3.util.equals(ListCloseFriendsRequest, a, b);
+  }
+}
+
+/**
+ * @generated from message stockpicker.v1.ListCloseFriendsResponse
+ */
+export class ListCloseFriendsResponse extends Message<ListCloseFriendsResponse> {
+  /**
+   * @generated from field: repeated stockpicker.v1.User users = 1;
+   */
+  users: User[] = [];
+
+  constructor(data?: PartialMessage<ListCloseFriendsResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "stockpicker.v1.ListCloseFriendsResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "users", kind: "message", T: User, repeated: true },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ListCloseFriendsResponse {
+    return new ListCloseFriendsResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): ListCloseFriendsResponse {
+    return new ListCloseFriendsResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): ListCloseFriendsResponse {
+    return new ListCloseFriendsResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: ListCloseFriendsResponse | PlainMessage<ListCloseFriendsResponse> | undefined, b: ListCloseFriendsResponse | PlainMessage<ListCloseFriendsResponse> | undefined): boolean {
+    return proto3.util.equals(ListCloseFriendsResponse, a, b);
+  }
+}
+
+/**
+ * @generated from message stockpicker.v1.GetUserProfileRequest
+ */
+export class GetUserProfileRequest extends Message<GetUserProfileRequest> {
+  /**
+   * @generated from field: string username = 1;
+   */
+  username = "";
+
+  constructor(data?: PartialMessage<GetUserProfileRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "stockpicker.v1.GetUserProfileRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "username", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): GetUserProfileRequest {
+    return new GetUserProfileRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): GetUserProfileRequest {
+    return new GetUserProfileRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): GetUserProfileRequest {
+    return new GetUserProfileRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: GetUserProfileRequest | PlainMessage<GetUserProfileRequest> | undefined, b: GetUserProfileRequest | PlainMessage<GetUserProfileRequest> | undefined): boolean {
+    return proto3.util.equals(GetUserProfileRequest, a, b);
+  }
+}
+
+/**
+ * @generated from message stockpicker.v1.GetUserProfileResponse
+ */
+export class GetUserProfileResponse extends Message<GetUserProfileResponse> {
+  /**
+   * @generated from field: stockpicker.v1.User user = 1;
+   */
+  user?: User;
+
+  /**
+   * Current user follows this user
+   *
+   * @generated from field: bool is_following = 2;
+   */
+  isFollowing = false;
+
+  /**
+   * This user follows current user
+   *
+   * @generated from field: bool is_followed_by = 3;
+   */
+  isFollowedBy = false;
+
+  /**
+   * Mutual follow
+   *
+   * @generated from field: bool is_close_friend = 4;
+   */
+  isCloseFriend = false;
+
+  /**
+   * @generated from field: stockpicker.v1.UserPerformance performance = 5;
+   */
+  performance?: UserPerformance;
+
+  constructor(data?: PartialMessage<GetUserProfileResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "stockpicker.v1.GetUserProfileResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "user", kind: "message", T: User },
+    { no: 2, name: "is_following", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
+    { no: 3, name: "is_followed_by", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
+    { no: 4, name: "is_close_friend", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
+    { no: 5, name: "performance", kind: "message", T: UserPerformance },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): GetUserProfileResponse {
+    return new GetUserProfileResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): GetUserProfileResponse {
+    return new GetUserProfileResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): GetUserProfileResponse {
+    return new GetUserProfileResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: GetUserProfileResponse | PlainMessage<GetUserProfileResponse> | undefined, b: GetUserProfileResponse | PlainMessage<GetUserProfileResponse> | undefined): boolean {
+    return proto3.util.equals(GetUserProfileResponse, a, b);
+  }
+}
+
+/**
+ * @generated from message stockpicker.v1.UserPerformance
+ */
+export class UserPerformance extends Message<UserPerformance> {
+  /**
+   * @generated from field: string user_id = 1;
+   */
+  userId = "";
+
+  /**
+   * @generated from field: int32 total_predictions = 2;
+   */
+  totalPredictions = 0;
+
+  /**
+   * @generated from field: int32 closed_predictions = 3;
+   */
+  closedPredictions = 0;
+
+  /**
+   * @generated from field: int32 wins = 4;
+   */
+  wins = 0;
+
+  /**
+   * Percentage (0-100)
+   *
+   * @generated from field: double win_rate = 5;
+   */
+  winRate = 0;
+
+  /**
+   * Average return percentage
+   *
+   * @generated from field: double avg_return = 6;
+   */
+  avgReturn = 0;
+
+  /**
+   * Sum of all returns
+   *
+   * @generated from field: double total_roi = 7;
+   */
+  totalRoi = 0;
+
+  /**
+   * Consecutive wins
+   *
+   * @generated from field: int32 current_streak = 8;
+   */
+  currentStreak = 0;
+
+  /**
+   * @generated from field: optional stockpicker.v1.Prediction best_prediction = 9;
+   */
+  bestPrediction?: Prediction;
+
+  constructor(data?: PartialMessage<UserPerformance>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "stockpicker.v1.UserPerformance";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "user_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "total_predictions", kind: "scalar", T: 5 /* ScalarType.INT32 */ },
+    { no: 3, name: "closed_predictions", kind: "scalar", T: 5 /* ScalarType.INT32 */ },
+    { no: 4, name: "wins", kind: "scalar", T: 5 /* ScalarType.INT32 */ },
+    { no: 5, name: "win_rate", kind: "scalar", T: 1 /* ScalarType.DOUBLE */ },
+    { no: 6, name: "avg_return", kind: "scalar", T: 1 /* ScalarType.DOUBLE */ },
+    { no: 7, name: "total_roi", kind: "scalar", T: 1 /* ScalarType.DOUBLE */ },
+    { no: 8, name: "current_streak", kind: "scalar", T: 5 /* ScalarType.INT32 */ },
+    { no: 9, name: "best_prediction", kind: "message", T: Prediction, opt: true },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): UserPerformance {
+    return new UserPerformance().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): UserPerformance {
+    return new UserPerformance().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): UserPerformance {
+    return new UserPerformance().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: UserPerformance | PlainMessage<UserPerformance> | undefined, b: UserPerformance | PlainMessage<UserPerformance> | undefined): boolean {
+    return proto3.util.equals(UserPerformance, a, b);
+  }
+}
+
+/**
+ * @generated from message stockpicker.v1.LeaderboardEntry
+ */
+export class LeaderboardEntry extends Message<LeaderboardEntry> {
+  /**
+   * @generated from field: int32 rank = 1;
+   */
+  rank = 0;
+
+  /**
+   * @generated from field: stockpicker.v1.User user = 2;
+   */
+  user?: User;
+
+  /**
+   * @generated from field: double performance_score = 3;
+   */
+  performanceScore = 0;
+
+  /**
+   * @generated from field: stockpicker.v1.UserPerformance performance = 4;
+   */
+  performance?: UserPerformance;
+
+  constructor(data?: PartialMessage<LeaderboardEntry>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "stockpicker.v1.LeaderboardEntry";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "rank", kind: "scalar", T: 5 /* ScalarType.INT32 */ },
+    { no: 2, name: "user", kind: "message", T: User },
+    { no: 3, name: "performance_score", kind: "scalar", T: 1 /* ScalarType.DOUBLE */ },
+    { no: 4, name: "performance", kind: "message", T: UserPerformance },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): LeaderboardEntry {
+    return new LeaderboardEntry().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): LeaderboardEntry {
+    return new LeaderboardEntry().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): LeaderboardEntry {
+    return new LeaderboardEntry().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: LeaderboardEntry | PlainMessage<LeaderboardEntry> | undefined, b: LeaderboardEntry | PlainMessage<LeaderboardEntry> | undefined): boolean {
+    return proto3.util.equals(LeaderboardEntry, a, b);
+  }
+}
+
+/**
+ * @generated from message stockpicker.v1.GetLeaderboardRequest
+ */
+export class GetLeaderboardRequest extends Message<GetLeaderboardRequest> {
+  /**
+   * @generated from field: stockpicker.v1.LeaderboardTimeframe timeframe = 1;
+   */
+  timeframe = LeaderboardTimeframe.UNSPECIFIED;
+
+  /**
+   * @generated from field: stockpicker.v1.LeaderboardScope scope = 2;
+   */
+  scope = LeaderboardScope.UNSPECIFIED;
+
+  /**
+   * Default 50
+   *
+   * @generated from field: optional int32 limit = 3;
+   */
+  limit?: number;
+
+  /**
+   * Default 0
+   *
+   * @generated from field: optional int32 offset = 4;
+   */
+  offset?: number;
+
+  constructor(data?: PartialMessage<GetLeaderboardRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "stockpicker.v1.GetLeaderboardRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "timeframe", kind: "enum", T: proto3.getEnumType(LeaderboardTimeframe) },
+    { no: 2, name: "scope", kind: "enum", T: proto3.getEnumType(LeaderboardScope) },
+    { no: 3, name: "limit", kind: "scalar", T: 5 /* ScalarType.INT32 */, opt: true },
+    { no: 4, name: "offset", kind: "scalar", T: 5 /* ScalarType.INT32 */, opt: true },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): GetLeaderboardRequest {
+    return new GetLeaderboardRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): GetLeaderboardRequest {
+    return new GetLeaderboardRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): GetLeaderboardRequest {
+    return new GetLeaderboardRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: GetLeaderboardRequest | PlainMessage<GetLeaderboardRequest> | undefined, b: GetLeaderboardRequest | PlainMessage<GetLeaderboardRequest> | undefined): boolean {
+    return proto3.util.equals(GetLeaderboardRequest, a, b);
+  }
+}
+
+/**
+ * @generated from message stockpicker.v1.GetLeaderboardResponse
+ */
+export class GetLeaderboardResponse extends Message<GetLeaderboardResponse> {
+  /**
+   * @generated from field: repeated stockpicker.v1.LeaderboardEntry entries = 1;
+   */
+  entries: LeaderboardEntry[] = [];
+
+  /**
+   * @generated from field: int32 total_count = 2;
+   */
+  totalCount = 0;
+
+  /**
+   * User's position
+   *
+   * @generated from field: optional stockpicker.v1.LeaderboardEntry current_user_entry = 3;
+   */
+  currentUserEntry?: LeaderboardEntry;
+
+  constructor(data?: PartialMessage<GetLeaderboardResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "stockpicker.v1.GetLeaderboardResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "entries", kind: "message", T: LeaderboardEntry, repeated: true },
+    { no: 2, name: "total_count", kind: "scalar", T: 5 /* ScalarType.INT32 */ },
+    { no: 3, name: "current_user_entry", kind: "message", T: LeaderboardEntry, opt: true },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): GetLeaderboardResponse {
+    return new GetLeaderboardResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): GetLeaderboardResponse {
+    return new GetLeaderboardResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): GetLeaderboardResponse {
+    return new GetLeaderboardResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: GetLeaderboardResponse | PlainMessage<GetLeaderboardResponse> | undefined, b: GetLeaderboardResponse | PlainMessage<GetLeaderboardResponse> | undefined): boolean {
+    return proto3.util.equals(GetLeaderboardResponse, a, b);
+  }
+}
+
+/**
+ * @generated from message stockpicker.v1.GetUserPerformanceRequest
+ */
+export class GetUserPerformanceRequest extends Message<GetUserPerformanceRequest> {
+  /**
+   * If empty, current user
+   *
+   * @generated from field: optional string user_id = 1;
+   */
+  userId?: string;
+
+  /**
+   * @generated from field: stockpicker.v1.LeaderboardTimeframe timeframe = 2;
+   */
+  timeframe = LeaderboardTimeframe.UNSPECIFIED;
+
+  constructor(data?: PartialMessage<GetUserPerformanceRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "stockpicker.v1.GetUserPerformanceRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "user_id", kind: "scalar", T: 9 /* ScalarType.STRING */, opt: true },
+    { no: 2, name: "timeframe", kind: "enum", T: proto3.getEnumType(LeaderboardTimeframe) },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): GetUserPerformanceRequest {
+    return new GetUserPerformanceRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): GetUserPerformanceRequest {
+    return new GetUserPerformanceRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): GetUserPerformanceRequest {
+    return new GetUserPerformanceRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: GetUserPerformanceRequest | PlainMessage<GetUserPerformanceRequest> | undefined, b: GetUserPerformanceRequest | PlainMessage<GetUserPerformanceRequest> | undefined): boolean {
+    return proto3.util.equals(GetUserPerformanceRequest, a, b);
+  }
+}
+
+/**
+ * @generated from message stockpicker.v1.GetUserPerformanceResponse
+ */
+export class GetUserPerformanceResponse extends Message<GetUserPerformanceResponse> {
+  /**
+   * @generated from field: stockpicker.v1.UserPerformance performance = 1;
+   */
+  performance?: UserPerformance;
+
+  constructor(data?: PartialMessage<GetUserPerformanceResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "stockpicker.v1.GetUserPerformanceResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "performance", kind: "message", T: UserPerformance },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): GetUserPerformanceResponse {
+    return new GetUserPerformanceResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): GetUserPerformanceResponse {
+    return new GetUserPerformanceResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): GetUserPerformanceResponse {
+    return new GetUserPerformanceResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: GetUserPerformanceResponse | PlainMessage<GetUserPerformanceResponse> | undefined, b: GetUserPerformanceResponse | PlainMessage<GetUserPerformanceResponse> | undefined): boolean {
+    return proto3.util.equals(GetUserPerformanceResponse, a, b);
+  }
+}
+
+/**
+ * @generated from message stockpicker.v1.CopyStrategyRequest
+ */
+export class CopyStrategyRequest extends Message<CopyStrategyRequest> {
+  /**
+   * Strategy to copy
+   *
+   * @generated from field: string strategy_id = 1;
+   */
+  strategyId = "";
+
+  constructor(data?: PartialMessage<CopyStrategyRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "stockpicker.v1.CopyStrategyRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "strategy_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): CopyStrategyRequest {
+    return new CopyStrategyRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): CopyStrategyRequest {
+    return new CopyStrategyRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): CopyStrategyRequest {
+    return new CopyStrategyRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: CopyStrategyRequest | PlainMessage<CopyStrategyRequest> | undefined, b: CopyStrategyRequest | PlainMessage<CopyStrategyRequest> | undefined): boolean {
+    return proto3.util.equals(CopyStrategyRequest, a, b);
+  }
+}
+
+/**
+ * @generated from message stockpicker.v1.CopyStrategyResponse
+ */
+export class CopyStrategyResponse extends Message<CopyStrategyResponse> {
+  /**
+   * New copied strategy
+   *
+   * @generated from field: stockpicker.v1.Strategy strategy = 1;
+   */
+  strategy?: Strategy;
+
+  constructor(data?: PartialMessage<CopyStrategyResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "stockpicker.v1.CopyStrategyResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "strategy", kind: "message", T: Strategy },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): CopyStrategyResponse {
+    return new CopyStrategyResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): CopyStrategyResponse {
+    return new CopyStrategyResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): CopyStrategyResponse {
+    return new CopyStrategyResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: CopyStrategyResponse | PlainMessage<CopyStrategyResponse> | undefined, b: CopyStrategyResponse | PlainMessage<CopyStrategyResponse> | undefined): boolean {
+    return proto3.util.equals(CopyStrategyResponse, a, b);
+  }
+}
+
+/**
+ * @generated from message stockpicker.v1.CopyPredictionRequest
+ */
+export class CopyPredictionRequest extends Message<CopyPredictionRequest> {
+  /**
+   * Prediction to copy
+   *
+   * @generated from field: string prediction_id = 1;
+   */
+  predictionId = "";
+
+  /**
+   * Target strategy to copy the prediction to
+   *
+   * @generated from field: string strategy_id = 2;
+   */
+  strategyId = "";
+
+  constructor(data?: PartialMessage<CopyPredictionRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "stockpicker.v1.CopyPredictionRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "prediction_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "strategy_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): CopyPredictionRequest {
+    return new CopyPredictionRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): CopyPredictionRequest {
+    return new CopyPredictionRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): CopyPredictionRequest {
+    return new CopyPredictionRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: CopyPredictionRequest | PlainMessage<CopyPredictionRequest> | undefined, b: CopyPredictionRequest | PlainMessage<CopyPredictionRequest> | undefined): boolean {
+    return proto3.util.equals(CopyPredictionRequest, a, b);
+  }
+}
+
+/**
+ * @generated from message stockpicker.v1.CopyPredictionResponse
+ */
+export class CopyPredictionResponse extends Message<CopyPredictionResponse> {
+  /**
+   * New copied prediction
+   *
+   * @generated from field: stockpicker.v1.Prediction prediction = 1;
+   */
+  prediction?: Prediction;
+
+  constructor(data?: PartialMessage<CopyPredictionResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "stockpicker.v1.CopyPredictionResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "prediction", kind: "message", T: Prediction },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): CopyPredictionResponse {
+    return new CopyPredictionResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): CopyPredictionResponse {
+    return new CopyPredictionResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): CopyPredictionResponse {
+    return new CopyPredictionResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: CopyPredictionResponse | PlainMessage<CopyPredictionResponse> | undefined, b: CopyPredictionResponse | PlainMessage<CopyPredictionResponse> | undefined): boolean {
+    return proto3.util.equals(CopyPredictionResponse, a, b);
   }
 }
 

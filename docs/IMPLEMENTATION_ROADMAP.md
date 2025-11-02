@@ -6,8 +6,8 @@ Step-by-step guide to build the StockPicker MVP.
 
 - Docker & Docker Compose installed
 - API Keys:
-  - Alpha Vantage: https://www.alphavantage.co/support/#api-key
-  - Reddit OAuth: https://www.reddit.com/prefs/apps
+  - Alpha Vantage: [API Key](https://www.alphavantage.co/support/#api-key)
+  - Reddit OAuth: [OAuth](https://www.reddit.com/prefs/apps)
 
 ## Phase 1: Project Setup (Day 1)
 
@@ -150,6 +150,7 @@ CREATE INDEX IF NOT EXISTS idx_predictions_action ON predictions(action);
 ### 2.1 Create Express Server
 
 `apiserver/package.json`:
+
 ```json
 {
   "name": "stockpicker-server",
@@ -173,6 +174,7 @@ CREATE INDEX IF NOT EXISTS idx_predictions_action ON predictions(action);
 ```
 
 `apiserver/Dockerfile`:
+
 ```dockerfile
 FROM node:18-alpine
 WORKDIR /app
@@ -186,6 +188,7 @@ CMD ["npm", "start"]
 ### 2.2 Create n8n API Client
 
 `apiserver/src/services/n8n-client.js`:
+
 ```javascript
 const axios = require('axios');
 
@@ -251,6 +254,7 @@ module.exports = new N8nClient();
 ### 2.3 Create Strategy Routes
 
 `apiserver/src/routes/strategies.js`:
+
 ```javascript
 const express = require('express');
 const router = express.Router();
@@ -337,6 +341,7 @@ module.exports = router;
 ### 2.4 Main App File
 
 `apiserver/src/app.js`:
+
 ```javascript
 const express = require('express');
 const cors = require('cors');
@@ -361,6 +366,7 @@ app.listen(PORT, () => {
 ### 3.1 Create React UI
 
 `webapp/package.json`:
+
 ```json
 {
   "name": "stockpicker-ui",
@@ -381,6 +387,7 @@ app.listen(PORT, () => {
 ```
 
 `webapp/Dockerfile`:
+
 ```dockerfile
 FROM node:18-alpine
 WORKDIR /app
@@ -394,6 +401,7 @@ CMD ["npm", "start"]
 ### 3.2 Basic UI Components
 
 Create:
+
 - Strategy creation form
 - Strategy list/dashboard
 - Predictions display
@@ -408,6 +416,7 @@ Create:
 **Inputs:** `strategy_id`, `time_horizon`, `risk_level`, `custom_prompt`
 
 **Nodes:**
+
 1. HTTP Request: GET strategy config from API (`http://apiserver:3000/api/strategies/:id`)
 2. Extract strategy config
 3. **Data Collection:**
@@ -419,6 +428,7 @@ Create:
    - Apply custom prompt filters
    - Calculate composite scores
 5. **Ranking:**
+
    - Sort by score
    - Return top 10
 
@@ -429,6 +439,7 @@ Create:
 **Trigger:** Cron (per strategy frequency) OR Manual
 
 **Nodes:**
+
 1. **Get Strategy Config:** HTTP Request to API (`http://apiserver:3000/api/strategies/:id`)
 2. **Check Status:** Skip if paused/stopped
 3. **Check Monthly Budget:** Calculate spent from predictions WHERE `action='entered'` in current month, verify remaining
@@ -442,6 +453,7 @@ Create:
 7. **Notify UI:** Optional webhook call
 
 **Important:** The server creates this workflow dynamically with:
+
 - Strategy-specific cron schedule
 - Strategy ID parameter
 - Custom analysis config
@@ -451,9 +463,11 @@ Create:
 **Trigger:** Cron (daily at 4:30 PM EST)
 
 **Nodes:**
+
 1. **Get Active Predictions:** HTTP GET to API (`http://apiserver:3000/api/predictions?status=active&action=entered`)
    - Only track performance for predictions marked as `'entered'`
 2. **For Each Prediction:**
+
    - Fetch current price (Alpha Vantage)
    - Calculate return %
    - Check stop loss/target
@@ -467,22 +481,28 @@ Create:
 **Purpose:** Generate comprehensive monthly performance report
 
 **Nodes:**
+
 1. **Get All Strategies:** HTTP GET to API (`http://apiserver:3000/api/strategies`)
 2. **For Each Strategy:**
+
    - **Get Previous Month Predictions:** HTTP GET to API (`http://apiserver:3000/api/predictions?strategy_id=:id&month=YYYY-MM`)
    - **Analyze Entered Predictions:**
+
      - Count hits (`status='hit_target'`), misses (`status='hit_stop'` or `'expired'`), pending
      - Calculate average return %, best/worst performers
      - Total budget spent vs allocated
    - **Analyze Dismissed Predictions:**
+
      - Count dismissed predictions
      - Calculate what return % they would have had if entered (missed opportunities)
      - Compare dismissed vs entered performance
    - **Analyze Top 10 Rankings:**
+
      - For each trade cycle, compare which top 10 picks were entered vs dismissed
      - Identify dismissed top 10 picks that performed well
      - Calculate performance difference between entered and dismissed selections
    - **Generate Summary Metrics:**
+
      - Win rate: (hits / total entered predictions)
      - Average return % (entered predictions)
      - Total gains/losses in dollars
@@ -492,6 +512,7 @@ Create:
      - Performance comparison: entered vs dismissed
    - **Store or Send Summary:** Optional webhook or API call to store/send report
 3. **Aggregate Cross-Strategy Insights:**
+
    - Overall win rate across all strategies
    - Best/worst performing strategies
    - Total portfolio performance
@@ -499,21 +520,25 @@ Create:
 ## Phase 5: Integration & Testing (Day 7-8)
 
 ### 5.1 Test Strategy Creation
+
 - Create strategy via UI
 - Verify in database
 - Check n8n workflow execution
 
 ### 5.2 Test Trade Execution
+
 - Manually trigger scheduled trade workflow
 - Verify predictions created
 - Check budget updated
 
 ### 5.3 Test Performance Tracking
+
 - Create test predictions
 - Run performance tracking workflow
 - Verify price updates
 
 ### 5.4 End-to-End Test
+
 1. Create strategy via UI
 2. Wait for scheduled trade (or trigger manually)
 3. Verify predictions displayed

@@ -1,6 +1,10 @@
+import { existsSync } from "node:fs";
 import { createServer } from "node:http";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { ConnectRouter } from "@connectrpc/connect";
 import { connectNodeAdapter } from "@connectrpc/connect-node";
+import { registerServerReflectionFromFile } from "@lambdalisue/connectrpc-grpcreflect";
 import { appConfig } from "./config.js";
 import { PredictionService, StrategyService } from "./gen/stockpicker/v1/strategy_connect.js";
 import { predictionServiceImpl } from "./services/predictionService.js";
@@ -11,9 +15,39 @@ const HOST = appConfig.server.host;
 
 // Create the Connect routes
 const routes = (router: ConnectRouter) => {
+  console.log("🔧 Setting up Connect routes...");
   router.service(StrategyService, strategyServiceImpl);
+  console.log("✅ StrategyService registered");
   router.service(PredictionService, predictionServiceImpl);
+  console.log("✅ PredictionService registered");
+
+  // Enable gRPC reflection in dev environment only
+  if (appConfig.nodeEnv !== "production") {
+    try {
+      const __dirname = dirname(fileURLToPath(import.meta.url));
+      const projectRoot = resolve(__dirname, "../..");
+      const fdsetPath = resolve(projectRoot, "proto/stockpicker.fdset");
+
+      if (existsSync(fdsetPath)) {
+        // Type assertion needed due to Connect RPC version differences
+        registerServerReflectionFromFile(router as any, fdsetPath);
+        console.log("✅ gRPC Reflection enabled (dev mode)");
+      } else {
+        console.warn(
+          "⚠️  gRPC Reflection file not found:",
+          fdsetPath,
+          "\n   Generate it with: buf build -o proto/stockpicker.fdset"
+        );
+      }
+    } catch (error) {
+      console.warn("⚠️  Failed to enable gRPC Reflection:", error);
+      // Don't fail server startup if reflection setup fails
+    }
+  }
 };
+
+// Create Connect adapter once (not per request)
+const adapter = connectNodeAdapter({ routes });
 
 // Create HTTP server with Connect adapter and CORS
 const server = createServer((req, res) => {
@@ -22,7 +56,7 @@ const server = createServer((req, res) => {
   res.setHeader("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
   res.setHeader(
     "Access-Control-Allow-Headers",
-    "Content-Type, Connect-Protocol-Version, Connect-Timeout-Ms"
+    "Content-Type, Connect-Protocol-Version, Connect-Timeout-Ms, Authorization"
   );
   res.setHeader("Access-Control-Max-Age", "86400");
 
@@ -34,29 +68,87 @@ const server = createServer((req, res) => {
   }
 
   // Log incoming requests
-  console.log(`${new Date().toISOString()} ${req.method} ${req.url}`);
+  console.log(`[API SERVER] ${new Date().toISOString()} ${req.method} ${req.url}`);
 
-  // Pass to Connect adapter
+  // Pass to Connect adapter (handles request/response directly)
   try {
-    const adapter = connectNodeAdapter({ routes });
     adapter(req, res);
-  } catch (error) {
-    console.error("❌ Error handling request:", error);
-    res.writeHead(500);
-    res.end(JSON.stringify({ error: "Internal server error" }));
+  } catch (err) {
+    console.error(`[API SERVER] ❌ Synchronous adapter error:`, err);
+    console.error(`[API SERVER] Error details:`, {
+      message: err instanceof Error ? err.message : String(err),
+      stack: err instanceof Error ? err.stack : undefined,
+      code: typeof err === "object" && err !== null && "code" in err ? String(err.code) : undefined,
+    });
+    if (!res.headersSent) {
+      res.writeHead(500);
+      res.end(
+        JSON.stringify({
+          error: "Internal server error",
+          details: err instanceof Error ? err.message : String(err),
+        })
+      );
+    }
   }
 });
 
+// Helper function to list all available endpoints
+function listAvailableEndpoints(): void {
+  const baseUrl = `http://${HOST}:${PORT}`;
+  console.log(`📡 Available endpoints:`);
+
+  // StrategyService endpoints
+  const strategyMethods = Object.entries(StrategyService.methods).map(([key, method]) => ({
+    key,
+    name: method.name,
+  }));
+
+  console.log(`\n   StrategyService (${strategyMethods.length} endpoints):`);
+  for (const method of strategyMethods) {
+    console.log(`   - POST ${baseUrl}/stockpicker.v1.StrategyService/${method.name}`);
+  }
+
+  // PredictionService endpoints
+  const predictionMethods = Object.entries(PredictionService.methods).map(([key, method]) => ({
+    key,
+    name: method.name,
+  }));
+
+  console.log(`\n   PredictionService (${predictionMethods.length} endpoints):`);
+  for (const method of predictionMethods) {
+    console.log(`   - POST ${baseUrl}/stockpicker.v1.PredictionService/${method.name}`);
+  }
+  console.log(); // Empty line for readability
+}
+
+// CRITICAL: Server must start successfully - exit on failure
 server.listen(Number(PORT), HOST, async () => {
   console.log(`🚀 API Server running on http://${HOST}:${PORT}`);
   console.log(`📡 Connect RPC endpoint ready`);
-  
-  // Sync n8n workflows after server starts (non-blocking)
+  await listAvailableEndpoints();
+
+  // Sync n8n workflows after server starts (non-blocking, non-critical)
   // This ensures workflows from JSON files are synced without creating duplicates
+  // Note: Workflow sync failures are non-critical and won't prevent server startup
   syncWorkflowsOnStartup().catch((error) => {
-    console.error("❌ Failed to sync workflows on startup:", error);
-    // Don't exit - server should continue running even if workflow sync fails
+    console.error("⚠️  Failed to sync workflows on startup (non-critical):", error);
+    console.error("   Server will continue running - workflows can be synced manually");
   });
+});
+
+// CRITICAL: Handle server errors that prevent startup
+server.on("error", (error: NodeJS.ErrnoException) => {
+  console.error("❌ CRITICAL: Server startup error:", error);
+  if (error.code === "EADDRINUSE") {
+    console.error(`   Port ${PORT} is already in use`);
+    console.error("   Fix: Stop the process using this port or change PORT in environment");
+  } else {
+    console.error(`   Error code: ${error.code || "unknown"}`);
+    console.error(`   Error message: ${error.message}`);
+  }
+  console.error("   Exiting...");
+  // Exit immediately - this is a runtime error, not a startup promise rejection
+  process.exit(1);
 });
 
 /**
@@ -76,22 +168,58 @@ async function syncWorkflowsOnStartup(): Promise<void> {
   try {
     console.log("🔄 Syncing n8n workflows from JSON files...");
     const { syncWorkflows } = await import("./scripts/sync-workflows.js");
-    // Sync workflows from the n8n workflows directory (mounted at /tmp/workflows in n8n container)
-    // In Docker, we need to use the path where workflows are copied in the n8n container
-    // For the API server, we'll look for workflows relative to the repo root
-    // Use environment variable or default to /app/workflows (mounted in Docker)
-    // In local development, this should point to n8n/workflows directory
-    const workflowsDir = process.env.N8N_WORKFLOWS_DIR || "./n8n/workflows";
+
+    // Resolve workflows directory path
+    // In Docker: N8N_WORKFLOWS_DIR=/app/workflows (from docker-compose volume mount)
+    // Locally: Resolve relative to project root (two levels up from apiserver/src)
+    let workflowsDir: string;
+    if (process.env.N8N_WORKFLOWS_DIR) {
+      workflowsDir = process.env.N8N_WORKFLOWS_DIR;
+    } else {
+      // Resolve relative to project root (same approach as config.ts)
+      const __dirname = dirname(fileURLToPath(import.meta.url));
+      const projectRoot = resolve(__dirname, "../..");
+      workflowsDir = resolve(projectRoot, "n8n/workflows");
+    }
+
+    // Verify directory exists before syncing
+    if (!existsSync(workflowsDir)) {
+      console.warn(
+        `⚠️  Workflows directory not found: ${workflowsDir}\n   This is expected if running locally and workflows haven't been created yet.\n   The directory will be created automatically when needed.`
+      );
+      return;
+    }
+
     await syncWorkflows(workflowsDir);
-    console.log("✅ Workflow sync completed");
+    // Note: syncWorkflows() logs its own completion message
   } catch (error) {
-    console.error("❌ Could not sync workflows:", 
-      error instanceof Error ? error.message : String(error));
+    console.error(
+      "❌ Could not sync workflows:",
+      error instanceof Error ? error.message : String(error)
+    );
     console.error("   Stack:", error instanceof Error ? error.stack : "N/A");
     // Don't fail the server if workflow sync fails, but log it clearly
     console.error("   ⚠️  Workflow sync failed - duplicates may appear. Run sync manually.");
   }
 }
+
+// CRITICAL: Handle unhandled promise rejections (catches startup errors from db.ts)
+process.on("unhandledRejection", (reason, _promise) => {
+  console.error("❌ CRITICAL: Unhandled promise rejection:", reason);
+  console.error("   This indicates a critical startup error (e.g., migration failure)");
+  console.error("   Server cannot start - fix the error and restart");
+  console.error("   Note: tsx watch will attempt to restart, but will fail until error is fixed");
+  console.error("   Exiting...");
+  process.exit(1);
+});
+
+// CRITICAL: Handle uncaught exceptions (indicates programming errors)
+process.on("uncaughtException", (error) => {
+  console.error("❌ CRITICAL: Uncaught exception:", error);
+  console.error("   This indicates a programming error that must be fixed");
+  console.error("   Exiting...");
+  process.exit(1);
+});
 
 // Graceful shutdown
 process.on("SIGTERM", () => {

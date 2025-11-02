@@ -1,5 +1,6 @@
 import { Frequency, RiskLevel } from "@/gen/stockpicker/v1/strategy_pb";
-import { strategyClient } from "@/lib/connect";
+import { useAuth } from "@/lib/auth";
+import { createClient } from "@/lib/connect";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { ChevronDown, ChevronUp, Info } from "lucide-react";
 import { type FormEvent, useMemo, useState } from "react";
@@ -29,6 +30,7 @@ function getTradesPerMonth(frequency: Frequency): number {
 
 function NewStrategyPage() {
   const navigate = useNavigate();
+  const { token } = useAuth();
   const [loading, setLoading] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
 
@@ -56,8 +58,15 @@ function NewStrategyPage() {
 
     const formData = new FormData(e.currentTarget);
 
+    if (!token) {
+      toast.error("Please log in to create strategies");
+      navigate({ to: "/login" });
+      return;
+    }
+
     try {
-      await strategyClient.createStrategy({
+      const client = createClient(token);
+      await client.strategy.createStrategy({
         name: formData.get("name") as string,
         description: formData.get("description") as string,
         customPrompt: formData.get("customPrompt") as string,

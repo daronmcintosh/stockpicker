@@ -1,0 +1,30 @@
+# DigitalOcean API Token
+# Get it from: https://cloud.digitalocean.com/account/api/tokens
+do_token = "your-digitalocean-api-token-here"
+
+# Project name (used as prefix for all resources)
+project_name = "stockpicker"
+
+# Droplet configuration
+droplet_size   = "s-2vcpu-4gb"  # 2 vCPU, 4GB RAM - recommended for production
+droplet_region = "nyc1"          # Choose your preferred region
+droplet_image  = "ubuntu-22-04-x64"
+
+# SSH Key configuration
+# Option 1: Use existing SSH key ID from DigitalOcean
+# ssh_key_id = "12345678"
+
+# Option 2: Provide public key content (will create new SSH key)
+# ssh_public_key = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC..."
+
+# Security settings
+# Restrict SSH access to specific IPs (recommended for production)
+# ssh_allowed_ips = ["YOUR_IP_ADDRESS/32"]
+
+# Don't expose service ports directly (use reverse proxy instead)
+expose_n8n_directly = false
+expose_api_directly = false
+
+# Additional tags (optional - beyond project_name and production)
+# droplet_tags = ["tag1", "tag2"]
+

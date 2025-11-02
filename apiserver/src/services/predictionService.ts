@@ -1,8 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { Timestamp } from "@bufbuild/protobuf";
-import { type PredictionRow, db } from "../db.js";
+import type { HandlerContext } from "@connectrpc/connect";
+import { type PredictionRow, type StrategyRow, db } from "../db.js";
 import { PredictionService } from "../gen/stockpicker/v1/strategy_connect.js";
 import {
+  type CopyPredictionRequest,
+  CopyPredictionResponse,
   type CreatePredictionRequest,
   CreatePredictionResponse,
   type DeletePredictionRequest,
@@ -27,7 +30,9 @@ import {
   UpdatePredictionActionResponse,
   type UpdatePredictionPrivacyRequest,
   UpdatePredictionPrivacyResponse,
+  User,
 } from "../gen/stockpicker/v1/strategy_pb.js";
+import { getCurrentUserId, getUserById } from "./authHelpers.js";
 
 // Helper to safely convert BigInt or number to number
 // Ensures we never pass BigInt to protobuf or frontend
@@ -82,7 +87,7 @@ function mapSourceToDb(source: PredictionSource): string {
 }
 
 // Helper to convert DB row to proto Prediction message
-function dbRowToProtoPrediction(row: PredictionRow): Prediction {
+async function dbRowToProtoPrediction(row: PredictionRow): Promise<Prediction> {
   const prediction = new Prediction({
     id: row.id,
     strategyId: row.strategy_id,
@@ -104,6 +109,7 @@ function dbRowToProtoPrediction(row: PredictionRow): Prediction {
     createdAt: Timestamp.fromDate(new Date(row.created_at)),
     privacy: mapPredictionPrivacyFromDb(row.privacy || "PREDICTION_PRIVACY_PRIVATE"),
     source: mapSourceFromDb(row.source),
+    userId: row.user_id,
   });
 
   // Optional fields
@@ -121,6 +127,27 @@ function dbRowToProtoPrediction(row: PredictionRow): Prediction {
   }
   if (row.closed_reason) {
     prediction.closedReason = row.closed_reason;
+  }
+
+  // Populate user field
+  const userRow = await getUserById(row.user_id);
+  if (userRow) {
+    // Handle timestamp conversion - SQLite unixepoch() returns seconds, Date.now() returns milliseconds
+    // If timestamp is < 1e10, it's in seconds, otherwise it's in milliseconds
+    const timestampToDate = (timestamp: number): Date => {
+      const ms = timestamp < 1e10 ? timestamp * 1000 : timestamp;
+      return new Date(ms);
+    };
+
+    prediction.user = new User({
+      id: userRow.id,
+      email: userRow.email,
+      username: userRow.username,
+      displayName: userRow.display_name ?? undefined,
+      avatarUrl: userRow.avatar_url ?? undefined,
+      createdAt: Timestamp.fromDate(timestampToDate(userRow.created_at)),
+      updatedAt: Timestamp.fromDate(timestampToDate(userRow.updated_at)),
+    });
   }
 
   return prediction;
@@ -251,14 +278,33 @@ function riskLevelToDbString(riskLevel: RiskLevel): string {
 
 // Prediction service implementation
 export const predictionServiceImpl = {
-  async createPrediction(req: CreatePredictionRequest): Promise<CreatePredictionResponse> {
+  async createPrediction(
+    req: CreatePredictionRequest,
+    context: HandlerContext
+  ): Promise<CreatePredictionResponse> {
     try {
+      const userId = getCurrentUserId(context);
       console.log("📝 Creating prediction:", {
         strategyId: req.strategyId,
         symbol: req.symbol,
         entryPrice: req.entryPrice,
         allocatedAmount: req.allocatedAmount,
+        userId,
       });
+
+      // Get strategy to determine user_id and validate ownership
+      const strategyRow = (await db.get("SELECT * FROM strategies WHERE id = ?", [
+        req.strategyId,
+      ])) as StrategyRow | undefined;
+
+      if (!strategyRow) {
+        throw new Error(`Strategy not found: ${req.strategyId}`);
+      }
+
+      // Check ownership: user must own the strategy to create predictions for it
+      if (userId !== strategyRow.user_id) {
+        throw new Error("Access denied: You can only create predictions for your own strategies");
+      }
 
       const id = randomUUID();
       const now = new Date().toISOString();
@@ -314,6 +360,7 @@ export const predictionServiceImpl = {
         closed_reason: null,
         created_at: now,
         source: sourceStr,
+        user_id: strategyRow.user_id, // Inherit from strategy owner
       };
 
       console.log("💾 Inserting prediction data:", predictionData);
@@ -326,8 +373,8 @@ export const predictionServiceImpl = {
           evaluation_date, target_return_pct, target_price, stop_loss_pct,
           stop_loss_price, stop_loss_dollar_impact, risk_level, technical_analysis,
           sentiment_score, overall_score, action, status, current_price, current_return_pct,
-          closed_at, closed_reason, created_at, source
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          closed_at, closed_reason, created_at, source, user_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
         [
           predictionData.id,
@@ -354,11 +401,12 @@ export const predictionServiceImpl = {
           predictionData.closed_reason,
           predictionData.created_at,
           predictionData.source,
+          predictionData.user_id,
         ]
       );
 
       const row = (await db.get("SELECT * FROM predictions WHERE id = ?", [id])) as PredictionRow;
-      const prediction = dbRowToProtoPrediction(row);
+      const prediction = await dbRowToProtoPrediction(row);
 
       console.log("✅ Prediction created successfully:", id);
 
@@ -373,7 +421,29 @@ export const predictionServiceImpl = {
     }
   },
 
-  async listPredictions(req: ListPredictionsRequest): Promise<ListPredictionsResponse> {
+  async listPredictions(
+    req: ListPredictionsRequest,
+    context: HandlerContext
+  ): Promise<ListPredictionsResponse> {
+    const userId = getCurrentUserId(context);
+
+    // Get strategy to validate ownership
+    const strategyRow = (await db.get("SELECT * FROM strategies WHERE id = ?", [req.strategyId])) as
+      | StrategyRow
+      | undefined;
+
+    if (!strategyRow) {
+      throw new Error(`Strategy not found: ${req.strategyId}`);
+    }
+
+    // Check access: owner OR public strategy
+    const isOwner = userId && strategyRow.user_id === userId;
+    const isPublic = strategyRow.privacy === "STRATEGY_PRIVACY_PUBLIC";
+
+    if (!isOwner && !isPublic) {
+      throw new Error("Access denied: This strategy is private");
+    }
+
     let rows: PredictionRow[];
     if (req.status) {
       const statusStr = PredictionStatus[req.status] || "PREDICTION_STATUS_ACTIVE";
@@ -388,24 +458,40 @@ export const predictionServiceImpl = {
       )) as PredictionRow[];
     }
 
-    const predictions = rows.map((row) => dbRowToProtoPrediction(row));
+    const predictions = await Promise.all(rows.map((row) => dbRowToProtoPrediction(row)));
     return new ListPredictionsResponse({ predictions });
   },
 
-  async getPrediction(req: GetPredictionRequest): Promise<GetPredictionResponse> {
+  async getPrediction(
+    req: GetPredictionRequest,
+    context: HandlerContext
+  ): Promise<GetPredictionResponse> {
+    const userId = getCurrentUserId(context);
     const row = (await db.get("SELECT * FROM predictions WHERE id = ?", [req.id])) as
       | PredictionRow
       | undefined;
     if (!row) {
       throw new Error(`Prediction not found: ${req.id}`);
     }
-    const prediction = dbRowToProtoPrediction(row);
+
+    // Check access: owner OR public prediction
+    const isOwner = userId && row.user_id === userId;
+    const isPublic = row.privacy === "PREDICTION_PRIVACY_PUBLIC";
+
+    if (!isOwner && !isPublic) {
+      throw new Error("Access denied: This prediction is private");
+    }
+
+    const prediction = await dbRowToProtoPrediction(row);
     return new GetPredictionResponse({ prediction });
   },
 
   async getPredictionsBySymbol(
-    req: GetPredictionsBySymbolRequest
+    req: GetPredictionsBySymbolRequest,
+    context: HandlerContext
   ): Promise<GetPredictionsBySymbolResponse> {
+    const userId = getCurrentUserId(context);
+
     let rows: PredictionRow[];
     if (req.strategyId) {
       // Filter by both symbol and strategy
@@ -419,13 +505,35 @@ export const predictionServiceImpl = {
       ])) as PredictionRow[];
     }
 
-    const predictions = rows.map((row) => dbRowToProtoPrediction(row));
+    // Filter to show user's own + public predictions
+    const accessibleRows = rows.filter((row) => {
+      const isOwner = userId && row.user_id === userId;
+      const isPublic = row.privacy === "PREDICTION_PRIVACY_PUBLIC";
+      return isOwner || isPublic;
+    });
+
+    const predictions = await Promise.all(accessibleRows.map((row) => dbRowToProtoPrediction(row)));
     return new GetPredictionsBySymbolResponse({ predictions });
   },
 
   async updatePredictionAction(
-    req: UpdatePredictionActionRequest
+    req: UpdatePredictionActionRequest,
+    context: HandlerContext
   ): Promise<UpdatePredictionActionResponse> {
+    const userId = getCurrentUserId(context);
+
+    // Check ownership before update
+    const existingRow = (await db.get("SELECT * FROM predictions WHERE id = ?", [req.id])) as
+      | PredictionRow
+      | undefined;
+    if (!existingRow) {
+      throw new Error(`Prediction not found: ${req.id}`);
+    }
+
+    if (userId !== existingRow.user_id) {
+      throw new Error("Access denied: You can only update your own predictions");
+    }
+
     const actionStr = mapEnumToAction(req.action);
     await db.run("UPDATE predictions SET action = ? WHERE id = ?", [actionStr, req.id]);
 
@@ -436,12 +544,13 @@ export const predictionServiceImpl = {
       throw new Error(`Prediction not found: ${req.id}`);
     }
 
-    const prediction = dbRowToProtoPrediction(row);
+    const prediction = await dbRowToProtoPrediction(row);
     return new UpdatePredictionActionResponse({ prediction });
   },
 
   async getPublicPredictions(
-    req: GetPublicPredictionsRequest
+    req: GetPublicPredictionsRequest,
+    _context: HandlerContext
   ): Promise<GetPublicPredictionsResponse> {
     const limit = req.limit ?? 50;
     const offset = req.offset ?? 0;
@@ -461,7 +570,7 @@ export const predictionServiceImpl = {
       [limit, offset]
     )) as PredictionRow[];
 
-    const predictions = rows.map((row) => dbRowToProtoPrediction(row));
+    const predictions = await Promise.all(rows.map((row) => dbRowToProtoPrediction(row)));
 
     console.log(`📋 Fetched ${predictions.length} public predictions (total: ${total})`);
 
@@ -469,8 +578,23 @@ export const predictionServiceImpl = {
   },
 
   async updatePredictionPrivacy(
-    req: UpdatePredictionPrivacyRequest
+    req: UpdatePredictionPrivacyRequest,
+    context: HandlerContext
   ): Promise<UpdatePredictionPrivacyResponse> {
+    const userId = getCurrentUserId(context);
+
+    // Check ownership before update
+    const existingRow = (await db.get("SELECT * FROM predictions WHERE id = ?", [req.id])) as
+      | PredictionRow
+      | undefined;
+    if (!existingRow) {
+      throw new Error(`Prediction not found: ${req.id}`);
+    }
+
+    if (userId !== existingRow.user_id) {
+      throw new Error("Access denied: You can only update privacy for your own predictions");
+    }
+
     const privacyStr = mapPredictionPrivacyToDb(req.privacy);
 
     await db.run("UPDATE predictions SET privacy = ? WHERE id = ?", [privacyStr, req.id]);
@@ -482,7 +606,7 @@ export const predictionServiceImpl = {
       throw new Error(`Prediction not found: ${req.id}`);
     }
 
-    const prediction = dbRowToProtoPrediction(row);
+    const prediction = await dbRowToProtoPrediction(row);
 
     console.log(`🔒 Updated prediction privacy: ${req.id} -> ${privacyStr}`);
 
@@ -605,7 +729,10 @@ export const predictionServiceImpl = {
   //   }
   // },
 
-  async getCurrentPrices(req: GetCurrentPricesRequest): Promise<GetCurrentPricesResponse> {
+  async getCurrentPrices(
+    req: GetCurrentPricesRequest,
+    _context: HandlerContext
+  ): Promise<GetCurrentPricesResponse> {
     const prices: Record<string, number> = {};
     const symbols = req.symbols || [];
 
@@ -624,7 +751,7 @@ export const predictionServiceImpl = {
           if (response.ok) {
             const data = await response.json();
             const quote = data?.["Global Quote"];
-            if (quote && quote["05. price"]) {
+            if (quote?.["05. price"]) {
               const price = Number.parseFloat(quote["05. price"]);
               if (!Number.isNaN(price)) {
                 prices[symbol] = price;
@@ -657,14 +784,23 @@ export const predictionServiceImpl = {
     return new GetCurrentPricesResponse({ prices });
   },
 
-  async deletePrediction(req: DeletePredictionRequest): Promise<DeletePredictionResponse> {
+  async deletePrediction(
+    req: DeletePredictionRequest,
+    context: HandlerContext
+  ): Promise<DeletePredictionResponse> {
     try {
-      // Check if prediction exists
+      const userId = getCurrentUserId(context);
+
+      // Check if prediction exists and validate ownership
       const row = (await db.get("SELECT * FROM predictions WHERE id = ?", [req.id])) as
         | PredictionRow
         | undefined;
       if (!row) {
         throw new Error(`Prediction not found: ${req.id}`);
+      }
+
+      if (userId !== row.user_id) {
+        throw new Error("Access denied: You can only delete your own predictions");
       }
 
       // Delete the prediction
@@ -673,6 +809,132 @@ export const predictionServiceImpl = {
       return new DeletePredictionResponse({ success: true });
     } catch (error) {
       console.error("❌ Error deleting prediction:", error);
+      throw error;
+    }
+  },
+
+  async copyPrediction(
+    req: CopyPredictionRequest,
+    context: HandlerContext
+  ): Promise<CopyPredictionResponse> {
+    try {
+      const currentUserId = getCurrentUserId(context);
+
+      if (!currentUserId) {
+        throw new Error("Authentication required to copy predictions");
+      }
+
+      if (!req.predictionId) {
+        throw new Error("Prediction ID is required");
+      }
+
+      if (!req.strategyId) {
+        throw new Error("Target strategy ID is required");
+      }
+
+      // Get the original prediction
+      const originalRow = (await db.get("SELECT * FROM predictions WHERE id = ?", [
+        req.predictionId,
+      ])) as PredictionRow | undefined;
+
+      if (!originalRow) {
+        throw new Error(`Prediction not found: ${req.predictionId}`);
+      }
+
+      // Check if prediction is public or user owns it
+      const isPublic = originalRow.privacy === "PREDICTION_PRIVACY_PUBLIC";
+      const isOwner = originalRow.user_id === currentUserId;
+
+      if (!isPublic && !isOwner) {
+        throw new Error("Cannot copy private prediction you don't own");
+      }
+
+      // Get and validate target strategy
+      const targetStrategyRow = (await db.get("SELECT * FROM strategies WHERE id = ?", [
+        req.strategyId,
+      ])) as StrategyRow | undefined;
+
+      if (!targetStrategyRow) {
+        throw new Error(`Target strategy not found: ${req.strategyId}`);
+      }
+
+      // User must own the target strategy
+      if (targetStrategyRow.user_id !== currentUserId) {
+        throw new Error("Access denied: You can only copy predictions to your own strategies");
+      }
+
+      // Create a copy with new ID and target strategy
+      const newId = randomUUID();
+      const now = new Date().toISOString();
+
+      // Recalculate evaluation date if time horizon exists
+      let evaluationDate: string | null = null;
+      if (originalRow.time_horizon_days) {
+        const evalDate = new Date();
+        evalDate.setDate(evalDate.getDate() + originalRow.time_horizon_days);
+        evaluationDate = evalDate.toISOString().split("T")[0];
+      }
+
+      // Insert copied prediction - reset status to ACTIVE, action to pending
+      await db.run(
+        `
+        INSERT INTO predictions (
+          id, strategy_id, symbol, entry_price, allocated_amount, time_horizon_days,
+          evaluation_date, target_return_pct, target_price, stop_loss_pct,
+          stop_loss_price, stop_loss_dollar_impact, risk_level, technical_analysis,
+          sentiment_score, overall_score, action, status, current_price, current_return_pct,
+          closed_at, closed_reason, created_at, source, user_id, privacy
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `,
+        [
+          newId,
+          req.strategyId, // New strategy_id
+          originalRow.symbol,
+          originalRow.entry_price,
+          originalRow.allocated_amount,
+          originalRow.time_horizon_days,
+          evaluationDate,
+          originalRow.target_return_pct,
+          originalRow.target_price,
+          originalRow.stop_loss_pct,
+          originalRow.stop_loss_price,
+          originalRow.stop_loss_dollar_impact,
+          originalRow.risk_level,
+          originalRow.technical_analysis || "",
+          originalRow.sentiment_score,
+          originalRow.overall_score,
+          "pending", // Reset to pending
+          "PREDICTION_STATUS_ACTIVE", // Reset to active
+          null, // Reset current_price
+          null, // Reset current_return_pct
+          null, // Reset closed_at
+          null, // Reset closed_reason
+          now, // New created_at
+          originalRow.source,
+          currentUserId, // Owned by the user copying it
+          "PREDICTION_PRIVACY_PRIVATE", // Copied predictions are private by default
+        ]
+      );
+
+      // Fetch the created prediction
+      const newRow = (await db.get("SELECT * FROM predictions WHERE id = ?", [newId])) as
+        | PredictionRow
+        | undefined;
+
+      if (!newRow) {
+        throw new Error(`Failed to fetch copied prediction: ${newId}`);
+      }
+
+      // Convert to proto
+      const copiedPrediction = await dbRowToProtoPrediction(newRow);
+
+      console.log(`✅ Prediction copied successfully: ${originalRow.id} -> ${newId}`);
+
+      return new CopyPredictionResponse({
+        prediction: copiedPrediction,
+      });
+    } catch (error) {
+      console.error("❌ Error copying prediction:", error);
       throw error;
     }
   },

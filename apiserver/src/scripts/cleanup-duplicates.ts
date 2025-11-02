@@ -24,12 +24,16 @@ async function cleanupDuplicates(): Promise<void> {
       if (!workflowsByName.has(workflow.name)) {
         workflowsByName.set(workflow.name, []);
       }
-      workflowsByName.get(workflow.name)!.push(workflow);
+      const workflowsList = workflowsByName.get(workflow.name);
+      if (workflowsList) {
+        workflowsList.push(workflow);
+      }
     }
 
     // Find duplicates (names with more than 1 workflow)
-    const duplicates = Array.from(workflowsByName.entries())
-      .filter(([_, workflows]) => workflows.length > 1);
+    const duplicates = Array.from(workflowsByName.entries()).filter(
+      ([_, workflows]) => workflows.length > 1
+    );
 
     if (duplicates.length === 0) {
       console.log("✅ No duplicate workflows found!");
@@ -37,9 +41,9 @@ async function cleanupDuplicates(): Promise<void> {
     }
 
     console.log(`\n⚠️  Found ${duplicates.length} workflow name(s) with duplicates:`);
-    duplicates.forEach(([name, wfs]) => {
+    for (const [name, wfs] of duplicates) {
       console.log(`   - "${name}": ${wfs.length} copies`);
-    });
+    }
 
     console.log("\n🗑️  Cleaning up duplicates...");
 
@@ -48,7 +52,6 @@ async function cleanupDuplicates(): Promise<void> {
 
       // Check which ones are active
       const activeWorkflows = duplicateWorkflows.filter((w) => w.active);
-      const inactiveWorkflows = duplicateWorkflows.filter((w) => !w.active);
 
       if (activeWorkflows.length > 1) {
         console.log(`   ⚠️  Warning: ${activeWorkflows.length} active copies found!`);
@@ -75,8 +78,10 @@ async function cleanupDuplicates(): Promise<void> {
           console.log(`   🗑️  Deleting: ID ${workflow.id} (active: ${workflow.active})`);
           await n8nClient.deleteWorkflow(workflow.id);
         } catch (error) {
-          console.error(`   ❌ Failed to delete ${workflow.id}:`,
-            error instanceof Error ? error.message : String(error));
+          console.error(
+            `   ❌ Failed to delete ${workflow.id}:`,
+            error instanceof Error ? error.message : String(error)
+          );
         }
       }
     }
@@ -86,12 +91,13 @@ async function cleanupDuplicates(): Promise<void> {
     // Show final count
     const finalWorkflows = await n8nClient.listWorkflows(true);
     console.log(`\n📊 Final workflow count: ${finalWorkflows.length}`);
-
   } catch (error) {
-    console.error("❌ Error cleaning up duplicates:", error instanceof Error ? error.message : String(error));
+    console.error(
+      "❌ Error cleaning up duplicates:",
+      error instanceof Error ? error.message : String(error)
+    );
     process.exit(1);
   }
 }
 
 cleanupDuplicates();
-
