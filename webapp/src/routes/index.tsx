@@ -27,12 +27,12 @@ function Home() {
                 >
                   Get Started
                 </Link>
-                <Link
-                  to="#features"
+                <a
+                  href="#features"
                   className="inline-flex h-10 items-center justify-center rounded-md border border-white bg-transparent px-8 text-sm font-medium text-white shadow-sm transition-colors hover:bg-white hover:text-blue-600 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white disabled:pointer-events-none disabled:opacity-50"
                 >
                   Learn More
-                </Link>
+                </a>
               </div>
             </div>
           </div>

@@ -9,7 +9,7 @@
     "lint": "biome check .",
     "lint:api": "biome check apiserver/src",
     "lint:web": "biome check webapp/app",
-    "typecheck": "pnpm --filter stockpicker-apiserver run typecheck",
+    "typecheck": "pnpm -r run typecheck",
     "format": "biome format --write .",
     "fix": "biome check --write .",
     "fix:unsafe": "biome check --write --unsafe .",

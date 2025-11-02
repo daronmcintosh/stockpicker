@@ -188,11 +188,12 @@ function FeedPage() {
     return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
   };
 
-  const _formatTime = (timestamp: { seconds: bigint } | undefined) => {
-    if (!timestamp) return "—";
-    const date = new Date(Number(timestamp.seconds) * 1000);
-    return date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
-  };
+  // Unused function - kept for potential future use
+  // const _formatTime = (timestamp: { seconds: bigint } | undefined) => {
+  //   if (!timestamp) return "—";
+  //   const date = new Date(Number(timestamp.seconds) * 1000);
+  //   return date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  // };
 
   const getStatusBadge = (status: PredictionStatus) => {
     const statusMap = {
@@ -462,7 +463,8 @@ function FeedPage() {
                         </div>
                         {prediction.user && (
                           <Link
-                            to={`/users/${prediction.user.username}`}
+                            to="/users/$username"
+                            params={{ username: prediction.user.username }}
                             className="flex items-center gap-2 text-sm font-medium text-gray-700 hover:text-blue-600 transition-colors"
                           >
                             <UserAvatar user={prediction.user} size="sm" />
@@ -624,7 +626,8 @@ function FeedPage() {
                       </div>
                       {strategy.user && (
                         <Link
-                          to={`/users/${strategy.user.username}`}
+                          to="/users/$username"
+                          params={{ username: strategy.user.username }}
                           className="flex items-center gap-2 text-sm font-medium text-gray-700 hover:text-blue-600 transition-colors"
                         >
                           <UserAvatar user={strategy.user} size="sm" />

@@ -223,7 +223,7 @@ function StrategiesPage() {
 
   async function copyStrategy(id: string) {
     try {
-      const _response = await getClients().strategy.copyStrategy({ strategyId: id });
+      await getClients().strategy.copyStrategy({ strategyId: id });
       toast.success("Strategy copied successfully!");
       await loadStrategies();
     } catch (error) {

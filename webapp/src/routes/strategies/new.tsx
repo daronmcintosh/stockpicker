@@ -79,7 +79,7 @@ function NewStrategyPage() {
       });
 
       toast.success("Strategy created successfully!");
-      navigate({ to: "/strategies" });
+      navigate({ to: "/strategies", search: { id: undefined } });
     } catch (error) {
       console.error("Failed to create strategy:", error);
       toast.error(

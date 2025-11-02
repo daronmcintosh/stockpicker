@@ -87,6 +87,7 @@ interface DialogButtonProps {
   onClick: () => void;
   children: ReactNode;
   disabled?: boolean;
+  className?: string;
 }
 
 export function DialogButton({
@@ -94,6 +95,7 @@ export function DialogButton({
   onClick,
   children,
   disabled,
+  className,
 }: DialogButtonProps) {
   const baseClasses =
     "px-4 py-2 rounded-md font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed";
@@ -109,7 +111,7 @@ export function DialogButton({
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className={`${baseClasses} ${variantClasses[variant]}`}
+      className={`${baseClasses} ${variantClasses[variant]} ${className || ""}`}
     >
       {children}
     </button>

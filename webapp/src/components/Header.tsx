@@ -90,7 +90,8 @@ export default function Header() {
                           <p className="text-xs text-gray-500 truncate">{user.email}</p>
                         </div>
                         <Link
-                          to={`/users/${user.username}`}
+                          to="/users/$username"
+                          params={{ username: user.username }}
                           onClick={() => setUserMenuOpen(false)}
                           className="flex items-center gap-2 w-full px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors"
                         >
@@ -184,6 +185,7 @@ export default function Header() {
               </Link>
               <Link
                 to="/strategies"
+                search={{ id: undefined }}
                 onClick={() => setIsOpen(false)}
                 className="flex items-center gap-3 px-4 py-3 rounded-lg text-gray-700 hover:bg-gray-100 transition-colors mb-1"
                 activeProps={{
@@ -197,6 +199,7 @@ export default function Header() {
 
               <Link
                 to="/predictions"
+                search={{ strategy: undefined, status: undefined, action: undefined }}
                 onClick={() => setIsOpen(false)}
                 className="flex items-center gap-3 px-4 py-3 rounded-lg text-gray-700 hover:bg-gray-100 transition-colors mb-1"
                 activeProps={{

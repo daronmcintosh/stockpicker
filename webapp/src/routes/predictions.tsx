@@ -7,7 +7,6 @@ import {
   PredictionStatus,
   RiskLevel,
   StrategyPrivacy,
-  StrategyStatus,
 } from "@/gen/stockpicker/v1/strategy_pb";
 import { useAuth } from "@/lib/auth";
 import { createClient } from "@/lib/connect";
@@ -18,7 +17,6 @@ import {
   CheckCircle2,
   Copy,
   Edit,
-  Eye,
   Globe,
   Lock,
   Pencil,
@@ -30,7 +28,7 @@ import {
   TrendingUp,
   XCircle,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import toast from "react-hot-toast";
 
 // Helper to determine prediction source
@@ -1007,7 +1005,7 @@ function PredictionsPage() {
         title={
           <div className="flex items-center gap-2">
             <span>Edit Prediction</span>
-            {editingPrediction && getPredictionSource(editingPrediction) === "manual" && (
+            {editingPrediction && getPredictionSource(editingPrediction) === "Manual" && (
               <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-semibold bg-blue-100 text-blue-800">
                 <Pencil className="w-3 h-3" />
                 Manual
@@ -1388,18 +1386,19 @@ function PredictionCard({
     }
   };
 
-  const _getActionColor = (action: PredictionAction) => {
-    switch (action) {
-      case PredictionAction.PENDING:
-        return "bg-yellow-100 text-yellow-800";
-      case PredictionAction.ENTERED:
-        return "bg-green-100 text-green-800";
-      case PredictionAction.DISMISSED:
-        return "bg-gray-100 text-gray-800";
-      default:
-        return "bg-gray-100 text-gray-800";
-    }
-  };
+  // Unused function - kept for potential future use
+  // const _getActionColor = (action: PredictionAction) => {
+  //   switch (action) {
+  //     case PredictionAction.PENDING:
+  //       return "bg-yellow-100 text-yellow-800";
+  //     case PredictionAction.ENTERED:
+  //       return "bg-green-100 text-green-800";
+  //     case PredictionAction.DISMISSED:
+  //       return "bg-gray-100 text-gray-800";
+  //     default:
+  //       return "bg-gray-100 text-gray-800";
+  //   }
+  // };
 
   const getActionLabel = (action: PredictionAction) => {
     switch (action) {

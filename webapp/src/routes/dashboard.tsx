@@ -20,9 +20,7 @@ import {
   Bot,
   CheckCircle2,
   DollarSign,
-  Edit,
   Eye,
-  Globe,
   Lock,
   Pencil,
   Sparkles,
@@ -162,7 +160,7 @@ function App() {
   const [selectedPrediction, setSelectedPrediction] = useState<Prediction | null>(null);
   const [predictionCounts, setPredictionCounts] = useState<Record<string, number>>({});
   const [currentPrices, setCurrentPrices] = useState<Record<string, number>>({});
-  const [_isUpdatingPrivacy, setIsUpdatingPrivacy] = useState(false);
+  // const [_isUpdatingPrivacy, setIsUpdatingPrivacy] = useState(false);
   const [isUpdatingAction, setIsUpdatingAction] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -319,46 +317,47 @@ function App() {
     setPredictionDialogOpen(true);
   }
 
-  const _handlePrivacyToggle = async () => {
-    if (!selectedPrediction) return;
-    setIsUpdatingPrivacy(true);
-    try {
-      const newPrivacy =
-        selectedPrediction.privacy === PredictionPrivacy.PUBLIC
-          ? PredictionPrivacy.PRIVATE
-          : PredictionPrivacy.PUBLIC;
-
-      if (!token) {
-        toast.error("Please log in to update privacy");
-        setIsUpdatingPrivacy(false);
-        return;
-      }
-
-      const client = createClient(token);
-      await client.prediction.updatePredictionPrivacy({
-        id: selectedPrediction.id,
-        privacy: newPrivacy,
-      });
-
-      toast.success(
-        `Prediction is now ${newPrivacy === PredictionPrivacy.PUBLIC ? "public" : "private"}`
-      );
-
-      // Update selectedPrediction immediately so the dialog reflects the change
-      setSelectedPrediction({
-        ...selectedPrediction,
-        privacy: newPrivacy,
-      });
-
-      // Reload dashboard data to refresh
-      await loadDashboardData();
-    } catch (error) {
-      console.error("Failed to update privacy:", error);
-      toast.error("Failed to update privacy setting");
-    } finally {
-      setIsUpdatingPrivacy(false);
-    }
-  };
+  // Unused function - kept for potential future use
+  // const _handlePrivacyToggle = async () => {
+  //   if (!selectedPrediction) return;
+  //   setIsUpdatingPrivacy(true);
+  //   try {
+  //     const newPrivacy =
+  //       selectedPrediction.privacy === PredictionPrivacy.PUBLIC
+  //         ? PredictionPrivacy.PRIVATE
+  //         : PredictionPrivacy.PUBLIC;
+  //
+  //     if (!token) {
+  //       toast.error("Please log in to update privacy");
+  //       setIsUpdatingPrivacy(false);
+  //       return;
+  //     }
+  //
+  //     const client = createClient(token);
+  //     await client.prediction.updatePredictionPrivacy({
+  //       id: selectedPrediction.id,
+  //       privacy: newPrivacy,
+  //     });
+  //
+  //     toast.success(
+  //       `Prediction is now ${newPrivacy === PredictionPrivacy.PUBLIC ? "public" : "private"}`
+  //     );
+  //
+  //     // Update selectedPrediction immediately so the dialog reflects the change
+  //     setSelectedPrediction({
+  //       ...selectedPrediction,
+  //       privacy: newPrivacy,
+  //     });
+  //
+  //     // Reload dashboard data to refresh
+  //     await loadDashboardData();
+  //   } catch (error) {
+  //     console.error("Failed to update privacy:", error);
+  //     toast.error("Failed to update privacy setting");
+  //   } finally {
+  //     setIsUpdatingPrivacy(false);
+  //   }
+  // };
 
   const handleActionChange = async (newAction: PredictionAction) => {
     if (!selectedPrediction || selectedPrediction.action === newAction) return;
@@ -556,6 +555,7 @@ function App() {
             <h2 className="text-lg font-semibold">Recent Predictions</h2>
             <Link
               to="/predictions"
+              search={{ strategy: undefined, status: undefined, action: undefined }}
               className="text-sm text-blue-600 hover:text-blue-700 flex items-center gap-1"
             >
               View All <ArrowRight className="w-4 h-4" />
@@ -567,7 +567,7 @@ function App() {
             ) : recentPredictions.length === 0 ? (
               <div className="p-8 text-center text-gray-500">
                 <p className="mb-2">No predictions yet</p>
-                <Link to="/strategies" className="text-sm text-blue-600 hover:text-blue-700">
+                <Link to="/strategies" search={{ id: undefined }} className="text-sm text-blue-600 hover:text-blue-700">
                   Create a strategy to get started
                 </Link>
               </div>
@@ -680,6 +680,7 @@ function App() {
             </p>
             <Link
               to="/strategies"
+              search={{ id: undefined }}
               className="inline-block bg-white text-blue-600 px-4 py-2 rounded-lg font-semibold hover:bg-blue-50 transition-colors text-sm"
             >
               Manage Strategies
@@ -691,6 +692,7 @@ function App() {
             <p className="text-sm opacity-90 mb-4">View and manage stock predictions</p>
             <Link
               to="/predictions"
+              search={{ strategy: undefined, status: undefined, action: undefined }}
               className="inline-block bg-white text-green-600 px-4 py-2 rounded-lg font-semibold hover:bg-green-50 transition-colors text-sm"
             >
               View Predictions
@@ -706,6 +708,7 @@ function App() {
             <h2 className="text-lg font-semibold">Active Strategies</h2>
             <Link
               to="/strategies"
+              search={{ id: undefined }}
               className="text-sm text-blue-600 hover:text-blue-700 flex items-center gap-1"
             >
               View All <ArrowRight className="w-4 h-4" />
@@ -1274,10 +1277,10 @@ function App() {
           </DialogButton>
           <DialogButton
             onClick={() => {
-              if (selectedPrediction) {
+              if (selectedPrediction && selectedPrediction.strategyId) {
                 navigate({
                   to: "/predictions",
-                  search: { strategy: selectedPrediction.strategyId },
+                  search: { strategy: selectedPrediction.strategyId, status: undefined, action: undefined },
                 });
                 setPredictionDialogOpen(false);
               }

@@ -176,7 +176,7 @@ function LeaderboardPage() {
       </div>
 
       {/* Current User's Position Banner */}
-      {currentUserEntry && (
+      {currentUserEntry && currentUserEntry.user?.username && (
         <div
           className={`mb-6 p-4 rounded-lg border-2 ${
             isCurrentUser(currentUserEntry.user?.id)
@@ -212,7 +212,7 @@ function LeaderboardPage() {
               <div>
                 <div className="text-xs text-gray-500">Avg Return</div>
                 <div className="font-semibold">
-                  {currentUserEntry.performance?.avgReturn.toFixed(2)}%
+                  {currentUserEntry.performance?.avgReturn?.toFixed(2) ?? "0.00"}%
                 </div>
               </div>
               <div>
@@ -273,7 +273,7 @@ function LeaderboardPage() {
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
               {entries.map((entry) => {
-                const isCurrent = isCurrentUser(entry.user?.id);
+                const isCurrent = entry.user?.id ? isCurrentUser(entry.user.id) : false;
                 return (
                   <tr
                     key={entry.user?.id}
@@ -283,23 +283,35 @@ function LeaderboardPage() {
                   >
                     <td className="px-6 py-4 whitespace-nowrap">{getRankDisplay(entry.rank)}</td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <Link
-                        to={`/users/${entry.user?.username}`}
-                        className="flex items-center gap-3 hover:text-blue-600 transition-colors"
-                      >
-                        <UserAvatar user={entry.user} size="sm" />
-                        <div>
-                          <div className="font-semibold">
-                            {entry.user?.displayName || entry.user?.username}
-                            {isCurrent && (
-                              <span className="ml-2 text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded">
-                                You
-                              </span>
-                            )}
+                      {entry.user?.username ? (
+                        <Link
+                          to="/users/$username"
+                          params={{ username: entry.user.username }}
+                          className="flex items-center gap-3 hover:text-blue-600 transition-colors"
+                        >
+                          <UserAvatar user={entry.user} size="sm" />
+                          <div>
+                            <div className="font-semibold">
+                              {entry.user?.displayName || entry.user?.username}
+                              {isCurrent && (
+                                <span className="ml-2 text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded">
+                                  You
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-sm text-gray-600">@{entry.user?.username}</div>
                           </div>
-                          <div className="text-sm text-gray-600">@{entry.user?.username}</div>
+                        </Link>
+                      ) : (
+                        <div className="flex items-center gap-3">
+                          <UserAvatar user={entry.user} size="sm" />
+                          <div>
+                            <div className="font-semibold">
+                              {entry.user?.displayName || "Unknown User"}
+                            </div>
+                          </div>
                         </div>
-                      </Link>
+                      )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-center">
                       <span className="font-bold text-lg">{entry.performanceScore.toFixed(2)}</span>
@@ -316,11 +328,11 @@ function LeaderboardPage() {
                     <td className="px-6 py-4 whitespace-nowrap text-center">
                       <span
                         className={`font-semibold ${
-                          entry.performance?.avgReturn >= 0 ? "text-green-600" : "text-red-600"
+                          (entry.performance?.avgReturn ?? 0) >= 0 ? "text-green-600" : "text-red-600"
                         }`}
                       >
-                        {entry.performance?.avgReturn >= 0 ? "+" : ""}
-                        {entry.performance?.avgReturn.toFixed(2)}%
+                        {(entry.performance?.avgReturn ?? 0) >= 0 ? "+" : ""}
+                        {entry.performance?.avgReturn?.toFixed(2) ?? "0.00"}%
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-center">

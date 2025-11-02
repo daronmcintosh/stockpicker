@@ -48,11 +48,6 @@ function createTransportWithAuth(token?: string) {
   });
 }
 
-// Legacy clients (deprecated - use useAuthenticatedClient hook instead)
-const transport = createTransportWithAuth();
-export const strategyClient = createConnectClient(StrategyService, transport);
-export const predictionClient = createConnectClient(PredictionService, transport);
-
 // Create authenticated clients (preferred)
 // Returns both strategy and prediction clients
 export function createClient(token?: string) {

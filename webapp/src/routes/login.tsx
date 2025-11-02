@@ -57,7 +57,7 @@ function LoginPage() {
       const response = await client.strategy.verifyOTP({ email, otpCode: otp });
 
       if (!response.success || !response.token) {
-        throw new Error(response.message || "Invalid OTP");
+        throw new Error("Invalid OTP. Please try again.");
       }
 
       await login(response.token);

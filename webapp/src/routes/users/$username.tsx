@@ -6,7 +6,6 @@ import { createClient } from "@/lib/connect";
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
 import {
   BarChart3,
-  Calendar,
   Edit2,
   Mail,
   TrendingUp,

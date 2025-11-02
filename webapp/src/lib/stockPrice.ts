@@ -3,13 +3,13 @@
  * Fetches current stock prices from the backend API
  */
 
-import { predictionClient } from "./connect";
+import { createClient } from "./connect";
 
 /**
  * Fetch current prices for multiple symbols using the backend API
  * The backend handles API rate limiting and caching
  */
-export async function fetchStockPrices(symbols: string[]): Promise<Record<string, number>> {
+export async function fetchStockPrices(symbols: string[], token?: string): Promise<Record<string, number>> {
   if (symbols.length === 0) {
     return {};
   }
@@ -20,7 +20,7 @@ export async function fetchStockPrices(symbols: string[]): Promise<Record<string
       return {};
     }
 
-    const response = await predictionClient.getCurrentPrices({
+    const response = await createClient(token).prediction.getCurrentPrices({
       symbols: uniqueSymbols,
     });
 

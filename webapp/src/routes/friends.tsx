@@ -178,12 +178,13 @@ function FriendsPage() {
               className="bg-white rounded-lg shadow border border-gray-200 p-4 hover:shadow-md transition-shadow"
             >
               <div className="flex items-center gap-4">
-                <Link to={`/users/${user.username}`}>
+                <Link to="/users/$username" params={{ username: user.username }}>
                   <UserAvatar user={user} size="md" />
                 </Link>
                 <div className="flex-1">
                   <Link
-                    to={`/users/${user.username}`}
+                    to="/users/$username"
+                    params={{ username: user.username }}
                     className="block hover:text-blue-600 transition-colors"
                   >
                     <h3 className="font-semibold text-lg">{user.displayName || user.username}</h3>
