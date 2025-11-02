@@ -8,7 +8,10 @@ import { registerServerReflectionFromFile } from "@lambdalisue/connectrpc-grpcre
 import { appConfig } from "./config.js";
 import { PredictionService, StrategyService } from "./gen/stockpicker/v1/strategy_connect.js";
 import { predictionServiceImpl } from "./services/predictionService.js";
-import { strategyServiceImpl } from "./services/strategyService.js";
+import {
+  strategyServiceImpl,
+  syncStrategiesWithWorkflows,
+} from "./services/strategyService.js";
 
 const PORT = appConfig.server.port;
 const HOST = appConfig.server.host;
@@ -30,7 +33,7 @@ const routes = (router: ConnectRouter) => {
 
       if (existsSync(fdsetPath)) {
         // Type assertion needed due to Connect RPC version differences
-        registerServerReflectionFromFile(router as any, fdsetPath);
+        registerServerReflectionFromFile(router as ConnectRouter, fdsetPath);
         console.log("✅ gRPC Reflection enabled (dev mode)");
       } else {
         console.warn(
@@ -134,6 +137,19 @@ server.listen(Number(PORT), HOST, async () => {
     console.error("⚠️  Failed to sync workflows on startup (non-critical):", error);
     console.error("   Server will continue running - workflows can be synced manually");
   });
+
+  // Sync strategies with n8n workflows after server starts (non-blocking, non-critical)
+  // This ensures all strategies have corresponding workflows in n8n
+  // Handles cases where workflows were deleted or n8n instance was reset
+  if (appConfig.n8n.apiKey) {
+    // Wait a bit longer for n8n to be fully ready after workflow file sync
+    setTimeout(() => {
+      syncStrategiesWithWorkflows().catch((error) => {
+        console.error("⚠️  Failed to sync strategies with workflows (non-critical):", error);
+        console.error("   Server will continue running - workflows will be synced on-demand");
+      });
+    }, 10000); // Wait 10 seconds after startup to allow n8n to be ready
+  }
 });
 
 // CRITICAL: Handle server errors that prevent startup

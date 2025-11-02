@@ -102,6 +102,159 @@ function getTradesPerMonth(frequency: Frequency): number {
   }
 }
 
+/**
+ * Ensure a workflow exists for a strategy. Creates it if missing.
+ * This handles cases where workflows were deleted or n8n instance was reset.
+ * @param row - The strategy row from the database
+ * @returns The workflow ID (existing or newly created)
+ */
+async function ensureWorkflowExists(row: StrategyRow): Promise<string> {
+  const strategyId = row.id;
+  const strategyName = row.name;
+  const currentWorkflowId = row.n8n_workflow_id;
+  const frequency = protoNameToFrequency(row.frequency);
+
+  // If we have a workflow ID, check if it exists and update API URL if needed
+  if (currentWorkflowId) {
+    try {
+      const workflow = await n8nClient.getWorkflow(currentWorkflowId);
+      console.log(`✅ Workflow exists for strategy:`, {
+        strategyId,
+        workflowId: workflow.id,
+        workflowName: workflow.name,
+      });
+      
+      // Check and update API URL if it has changed (e.g., N8N_API_SERVER_URL was updated)
+      try {
+        await n8nClient.updateWorkflowApiUrl(currentWorkflowId);
+      } catch (updateError) {
+        // Non-critical - log warning but don't fail
+        console.warn(`⚠️ Failed to update workflow API URL (workflow will still work):`, {
+          strategyId,
+          workflowId: currentWorkflowId,
+          error: updateError instanceof Error ? updateError.message : String(updateError),
+        });
+      }
+      
+      return workflow.id;
+    } catch (error) {
+      console.warn(`⚠️ Workflow ${currentWorkflowId} not found in n8n, will create new one:`, {
+        strategyId,
+        workflowId: currentWorkflowId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      // Fall through to create new workflow
+    }
+  }
+
+  // Workflow doesn't exist or no workflow ID - create it
+  console.log(`🔄 Creating missing workflow for strategy:`, {
+    strategyId,
+    strategyName,
+    frequency: frequencyToName(frequency),
+    previousWorkflowId: currentWorkflowId,
+  });
+
+  try {
+    const workflow = await n8nClient.createStrategyWorkflow(strategyId, strategyName, frequency);
+    console.log(`✅ Created new workflow for strategy:`, {
+      strategyId,
+      workflowId: workflow.id,
+      workflowName: workflow.name,
+    });
+
+    // Update the database with the new workflow ID
+    await db.run(
+      "UPDATE strategies SET n8n_workflow_id = ?, updated_at = ? WHERE id = ?",
+      [workflow.id, new Date().toISOString(), strategyId]
+    );
+
+    return workflow.id;
+  } catch (error) {
+    console.error(`❌ Failed to create workflow for strategy:`, {
+      strategyId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    throw new Error(
+      `Failed to create workflow: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+}
+
+// Helper to convert frequency to name (duplicate from n8nClient for convenience)
+function frequencyToName(frequency: Frequency): string {
+  switch (frequency) {
+    case Frequency.DAILY:
+      return "Daily";
+    case Frequency.TWICE_WEEKLY:
+      return "Twice Weekly";
+    case Frequency.WEEKLY:
+      return "Weekly";
+    case Frequency.BIWEEKLY:
+      return "Biweekly";
+    case Frequency.MONTHLY:
+      return "Monthly";
+    default:
+      return "Unknown";
+  }
+}
+
+/**
+ * Sync all strategies with n8n workflows.
+ * Checks each strategy and creates missing workflows.
+ * This is useful after n8n instance restarts or when workflows are deleted.
+ */
+export async function syncStrategiesWithWorkflows(): Promise<void> {
+  try {
+    console.log("🔄 Syncing strategies with n8n workflows...");
+    
+    // Get all strategies from database
+    const rows = (await db.all("SELECT * FROM strategies")) as StrategyRow[];
+    console.log(`📋 Found ${rows.length} strategy(ies) to sync`);
+
+    let synced = 0;
+    let created = 0;
+    let errors = 0;
+
+    for (const row of rows) {
+      try {
+        const hadWorkflow = !!row.n8n_workflow_id;
+        const workflowId = await ensureWorkflowExists(row);
+        
+        if (!hadWorkflow || workflowId !== row.n8n_workflow_id) {
+          created++;
+          console.log(`✅ Synced strategy "${row.name}":`, {
+            strategyId: row.id,
+            workflowId,
+            created: !hadWorkflow,
+            updated: hadWorkflow && workflowId !== row.n8n_workflow_id,
+          });
+        } else {
+          synced++;
+        }
+      } catch (error) {
+        errors++;
+        console.error(`❌ Failed to sync strategy "${row.name}":`, {
+          strategyId: row.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    console.log("📊 Strategy workflow sync summary:", {
+      total: rows.length,
+      alreadySynced: synced,
+      created: created,
+      errors: errors,
+    });
+  } catch (error) {
+    console.error("❌ Failed to sync strategies with workflows:", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  }
+}
+
 // Helper to convert enum numeric value to proto enum name string for database storage
 function riskLevelToProtoName(riskLevel: RiskLevel): string {
   switch (riskLevel) {
@@ -734,12 +887,68 @@ export const strategyServiceImpl = {
       params.push(req.maxUniqueStocks);
     }
 
+    // Track if name changed for workflow update
+    const nameChanged = req.name && req.name !== existingRow.name;
+    const oldName = existingRow.name;
+
+    console.log(`🔍 Strategy update check:`, {
+      strategyId: req.id,
+      nameProvided: !!req.name,
+      currentName: existingRow.name,
+      newName: req.name,
+      nameChanged,
+      hasWorkflow: !!existingRow.n8n_workflow_id,
+      workflowId: existingRow.n8n_workflow_id,
+    });
+
     if (updates.length > 0) {
       updates.push("updated_at = ?");
       params.push(now);
       params.push(req.id); // for WHERE clause
 
       await db.run(`UPDATE strategies SET ${updates.join(", ")} WHERE id = ?`, params);
+      console.log(`✅ Strategy database updated`);
+    }
+
+    // Update n8n workflow name if strategy name changed
+    if (nameChanged && existingRow.n8n_workflow_id) {
+      console.log(`🔄 Attempting to update n8n workflow name:`, {
+        strategyId: req.id,
+        workflowId: existingRow.n8n_workflow_id,
+        oldName,
+        newName: req.name,
+      });
+      try {
+        const frequency = protoNameToFrequency(existingRow.frequency);
+        const result = await n8nClient.updateStrategyWorkflow(
+          existingRow.n8n_workflow_id,
+          req.id,
+          req.name!,
+          frequency
+        );
+        console.log(`✅ n8n workflow name updated successfully:`, {
+          strategyId: req.id,
+          oldName,
+          newName: req.name,
+          workflowId: existingRow.n8n_workflow_id,
+          updatedWorkflowName: result.name,
+        });
+      } catch (error) {
+        // Non-critical - log warning but don't fail the strategy update
+        console.error(`❌ Failed to update n8n workflow name (strategy was still updated):`, {
+          strategyId: req.id,
+          workflowId: existingRow.n8n_workflow_id,
+          error: error instanceof Error ? error.message : String(error),
+          stack: error instanceof Error ? error.stack : undefined,
+        });
+      }
+    } else {
+      if (!nameChanged) {
+        console.log(`ℹ️ Strategy name unchanged, skipping workflow update`);
+      }
+      if (!existingRow.n8n_workflow_id) {
+        console.log(`ℹ️ Strategy has no workflow ID, skipping workflow update`);
+      }
     }
 
     const row = (await db.get("SELECT * FROM strategies WHERE id = ?", [req.id])) as StrategyRow;
@@ -833,23 +1042,25 @@ export const strategyServiceImpl = {
         ["STRATEGY_STATUS_ACTIVE", now, now, req.id]
       );
 
-      // Activate n8n workflow if it exists
-      if (row.n8n_workflow_id) {
-        try {
-          console.log(`▶️ Activating n8n workflow for strategy:`, {
-            strategyId: req.id,
-            workflowId: row.n8n_workflow_id,
-          });
-          await n8nClient.activateWorkflow(row.n8n_workflow_id);
+      // Ensure workflow exists (sync) before activating
+      const workflowId = await ensureWorkflowExists(row);
+      
+      // Activate n8n workflow
+      try {
+        console.log(`▶️ Activating n8n workflow for strategy:`, {
+          strategyId: req.id,
+          workflowId,
+        });
+        await n8nClient.activateWorkflow(workflowId);
 
           // Verify workflow is actually active
-          const workflow = await n8nClient.getWorkflow(row.n8n_workflow_id);
+          const workflow = await n8nClient.getWorkflow(workflowId);
           if (!workflow.active) {
             console.error(
               "⚠️ Workflow activation reported success but workflow is still inactive:",
               {
                 strategyId: req.id,
-                workflowId: row.n8n_workflow_id,
+                workflowId,
               }
             );
             // Revert strategy status to match workflow state
@@ -863,13 +1074,13 @@ export const strategyServiceImpl = {
 
           console.log(`✅ n8n workflow activated successfully and verified:`, {
             strategyId: req.id,
-            workflowId: row.n8n_workflow_id,
+            workflowId,
             workflowActive: workflow.active,
           });
         } catch (error) {
           console.error("⚠️ Failed to activate n8n workflow:", {
             strategyId: req.id,
-            workflowId: row.n8n_workflow_id,
+            workflowId,
             error: error instanceof Error ? error.message : String(error),
           });
           // Revert strategy status to match workflow state (inactive)
@@ -889,9 +1100,6 @@ export const strategyServiceImpl = {
             `Failed to activate workflow: ${error instanceof Error ? error.message : String(error)}`
           );
         }
-      } else {
-        console.log(`⚠️ No n8n workflow found for strategy:`, { strategyId: req.id });
-      }
 
       // Use direct query instead of prepared statement
       const updatedRow = (await db.get("SELECT * FROM strategies WHERE id = ?", [
@@ -1098,24 +1306,20 @@ export const strategyServiceImpl = {
         );
       }
 
-      // Validate workflow exists
-      if (!row.n8n_workflow_id) {
-        throw new Error(
-          `No workflow found for strategy ${req.id}. Strategy may not have been started properly.`
-        );
-      }
+      // Ensure workflow exists (sync) before executing
+      const workflowId = await ensureWorkflowExists(row);
 
       // Execute the n8n workflow manually
       console.log(`▶️ Executing n8n workflow:`, {
         strategyId: req.id,
-        workflowId: row.n8n_workflow_id,
+        workflowId,
       });
 
-      await n8nClient.executeWorkflow(row.n8n_workflow_id);
+      await n8nClient.executeWorkflow(workflowId);
 
       console.log(`✅ Predictions triggered successfully:`, {
         strategyId: req.id,
-        workflowId: row.n8n_workflow_id,
+        workflowId,
       });
 
       return new TriggerPredictionsResponse({

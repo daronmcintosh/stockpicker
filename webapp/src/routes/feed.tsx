@@ -188,7 +188,7 @@ function FeedPage() {
     return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
   };
 
-  const formatTime = (timestamp: { seconds: bigint } | undefined) => {
+  const _formatTime = (timestamp: { seconds: bigint } | undefined) => {
     if (!timestamp) return "—";
     const date = new Date(Number(timestamp.seconds) * 1000);
     return date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
@@ -304,7 +304,7 @@ function FeedPage() {
     }
   }
 
-  async function shareStrategy(id: string, name: string) {
+  async function shareStrategy(id: string, _name: string) {
     const url = `${window.location.origin}/strategies?id=${id}`;
     try {
       await navigator.clipboard.writeText(url);

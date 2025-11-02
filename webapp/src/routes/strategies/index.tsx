@@ -223,7 +223,7 @@ function StrategiesPage() {
 
   async function copyStrategy(id: string) {
     try {
-      const response = await getClients().strategy.copyStrategy({ strategyId: id });
+      const _response = await getClients().strategy.copyStrategy({ strategyId: id });
       toast.success("Strategy copied successfully!");
       await loadStrategies();
     } catch (error) {
@@ -232,7 +232,7 @@ function StrategiesPage() {
     }
   }
 
-  async function shareStrategy(id: string, name: string) {
+  async function shareStrategy(id: string, _name: string) {
     const url = `${window.location.origin}/strategies?id=${id}`;
     try {
       await navigator.clipboard.writeText(url);

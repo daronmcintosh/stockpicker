@@ -2,11 +2,18 @@ import { appConfig } from "../config.js";
 import { Frequency } from "../gen/stockpicker/v1/strategy_pb.js";
 
 /**
+ * Get the current API URL from config
+ */
+function getCurrentApiUrl(): string {
+  return appConfig.n8n.apiServerUrl || "http://apiserver:3000";
+}
+
+/**
  * Replace $env.API_URL placeholders with actual API URL
  * Since n8n env vars aren't reliable, we inject the URL directly into the workflow
  */
 function injectApiUrl(workflow: N8nWorkflow): N8nWorkflow {
-  const apiUrl = appConfig.n8n.apiServerUrl || "http://apiserver:3000";
+  const apiUrl = getCurrentApiUrl();
 
   // Deep clone to avoid mutating original
   const processed = JSON.parse(JSON.stringify(workflow));
@@ -15,10 +22,12 @@ function injectApiUrl(workflow: N8nWorkflow): N8nWorkflow {
   function replaceEnvVars(obj: unknown): unknown {
     if (typeof obj === "string") {
       // Replace n8n expression syntax: {{ $env.API_URL }} or ={{ $env.API_URL }}
-      // Replace with just the URL value (no expression, since we're hardcoding it)
+      // Also replace any old hardcoded URLs with the new one
       return obj
         .replace(/\{\{\s*\$env\.API_URL\s*\}\}/g, apiUrl)
-        .replace(/=\{\{\s*\$env\.API_URL\s*\}\}/g, apiUrl);
+        .replace(/=\{\{\s*\$env\.API_URL\s*\}\}/g, apiUrl)
+        // Replace common API URL patterns (http://apiserver:3000, http://localhost:3001, etc.)
+        .replace(/https?:\/\/[^\/\s"']+(\/stockpicker\.v1\.(Strategy|Prediction)Service\/)/g, `${apiUrl}$1`);
     }
     if (Array.isArray(obj)) {
       return obj.map(replaceEnvVars);
@@ -34,6 +43,40 @@ function injectApiUrl(workflow: N8nWorkflow): N8nWorkflow {
   }
 
   return replaceEnvVars(processed) as N8nWorkflow;
+}
+
+/**
+ * Check if a workflow needs API URL updates by scanning for URLs in nodes
+ * Returns true if any URL in the workflow doesn't match the current API URL
+ */
+function needsApiUrlUpdate(workflow: N8nFullWorkflow): boolean {
+  const currentApiUrl = getCurrentApiUrl();
+  const workflowJson = JSON.stringify(workflow);
+  
+  // Check if workflow contains old API URLs (not using current URL and not using $env.API_URL)
+  // We'll look for common patterns that indicate a hardcoded API URL
+  const urlPatterns = [
+    /http:\/\/apiserver:3000/,
+    /http:\/\/localhost:\d+/,
+    /https?:\/\/[^\/\s"']+\/stockpicker\.v1\.(Strategy|Prediction)Service/,
+  ];
+  
+  // If workflow uses $env.API_URL, it doesn't need updating (n8n will resolve it)
+  if (workflowJson.includes("$env.API_URL")) {
+    return false;
+  }
+  
+  // Check if any old URL patterns exist
+  for (const pattern of urlPatterns) {
+    if (pattern.test(workflowJson)) {
+      // Check if it's not the current URL
+      if (!workflowJson.includes(currentApiUrl)) {
+        return true;
+      }
+    }
+  }
+  
+  return false;
 }
 
 // Helper to get auth headers (n8n API requires X-N8N-API-KEY header)
@@ -87,6 +130,49 @@ function frequencyToName(frequency: Frequency): string {
     default:
       return "Unknown";
   }
+}
+
+/**
+ * Filter workflow object to only include fields that n8n API accepts
+ * n8n API only accepts: name, nodes, connections, settings (optional), staticData (optional), tags (optional)
+ * It does NOT accept: id, active, versionId, meta, createdAt, updatedAt, note, etc.
+ */
+function filterWorkflowForApi(workflow: Record<string, unknown>): Record<string, unknown> {
+  // Filter nodes to remove unsupported fields (like "note" which is UI-only)
+  // Nodes can have: id, name, type, typeVersion, position, parameters, disabled, executeOnce, continueOnFail, retryOnFail
+  // They should NOT have: note, webhookId, etc.
+  const filteredNodes = Array.isArray(workflow.nodes)
+    ? workflow.nodes.map((node: unknown) => {
+        if (typeof node === "object" && node !== null) {
+          const nodeObj = node as Record<string, unknown>;
+          // Remove unsupported fields from nodes
+          const { note, webhookId, ...filteredNode } = nodeObj;
+          return filteredNode;
+        }
+        return node;
+      })
+    : workflow.nodes;
+
+  // Whitelist approach: only include accepted fields
+  const requestBody: Record<string, unknown> = {
+    name: workflow.name,
+    nodes: filteredNodes,
+    connections: workflow.connections,
+  };
+
+  // Include optional fields only if they exist and are not empty
+  if (workflow.settings) {
+    requestBody.settings = workflow.settings;
+  }
+  if (workflow.staticData) {
+    requestBody.staticData = workflow.staticData;
+  }
+  // Tags must be an array with at least one element (empty arrays might cause issues)
+  if (workflow.tags && Array.isArray(workflow.tags) && workflow.tags.length > 0) {
+    requestBody.tags = workflow.tags;
+  }
+
+  return requestBody;
 }
 
 interface N8nWorkflow {
@@ -649,6 +735,7 @@ return recommendations.map(rec => ({ json: rec }));`,
 
   /**
    * Update a workflow
+   * Note: n8n doesn't support PATCH, so we fetch the full workflow, apply updates, and PUT it back
    */
   async updateWorkflow(
     workflowId: string,
@@ -659,11 +746,20 @@ return recommendations.map(rec => ({ json: rec }));`,
         workflowId,
         updates: Object.keys(updates),
       });
-      const response = await this.request<N8nWorkflowResponse>(
-        "PATCH",
-        `/workflows/${workflowId}`,
-        updates
-      );
+      
+      // n8n doesn't support PATCH, so we need to fetch the full workflow first
+      const existingWorkflow = await this.getFullWorkflow(workflowId);
+      
+      // Merge updates into the existing workflow
+      const updatedWorkflow: N8nFullWorkflow = {
+        ...existingWorkflow,
+        ...updates,
+        id: workflowId, // Ensure ID is set
+      };
+      
+      // Use PUT to update the entire workflow
+      const response = await this.updateFullWorkflow(workflowId, updatedWorkflow);
+      
       console.log(`✅ n8n workflow updated:`, {
         workflowId: response.id,
         workflowName: response.name,
@@ -831,6 +927,47 @@ return recommendations.map(rec => ({ json: rec }));`,
   }
 
   /**
+   * Update API URLs in an existing workflow if they've changed
+   * This is more efficient than recreating the workflow
+   */
+  async updateWorkflowApiUrl(workflowId: string): Promise<N8nWorkflowResponse | null> {
+    try {
+      // Get the full workflow
+      const workflow = await this.getFullWorkflow(workflowId);
+      
+      // Check if it needs updating
+      if (!needsApiUrlUpdate(workflow)) {
+        console.log(`✅ Workflow API URL is current:`, { workflowId });
+        return null;
+      }
+      
+      console.log(`🔄 Updating API URL in workflow:`, {
+        workflowId,
+        workflowName: workflow.name,
+      });
+      
+      // Inject the current API URL into the workflow
+      const updatedWorkflow = injectApiUrl(workflow);
+      
+      // Update the workflow (PUT replaces entire workflow)
+      const response = await this.updateFullWorkflow(workflowId, updatedWorkflow);
+      
+      console.log(`✅ Workflow API URL updated:`, {
+        workflowId: response.id,
+        workflowName: response.name,
+      });
+      
+      return response;
+    } catch (error) {
+      console.error(`❌ Error updating workflow API URL:`, {
+        workflowId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
+  }
+
+  /**
    * Get full workflow details including nodes and connections
    */
   async getFullWorkflow(workflowId: string): Promise<N8nFullWorkflow> {
@@ -868,39 +1005,8 @@ return recommendations.map(rec => ({ json: rec }));`,
       // It does NOT accept: id, active, versionId, meta, createdAt, updatedAt, note, etc.
       const workflowData = workflowWithApiUrl as Record<string, unknown>;
 
-      // Filter nodes to remove unsupported fields (like "note" which is UI-only)
-      // Nodes can have: id, name, type, typeVersion, position, parameters, disabled, executeOnce, continueOnFail, retryOnFail
-      // They should NOT have: note, webhookId, etc.
-      const filteredNodes = Array.isArray(workflowData.nodes)
-        ? workflowData.nodes.map((node: unknown) => {
-            if (typeof node === "object" && node !== null) {
-              const nodeObj = node as Record<string, unknown>;
-              // Remove "note" field from nodes (UI-only, not accepted by API)
-              const { note, webhookId, ...filteredNode } = nodeObj;
-              return filteredNode;
-            }
-            return node;
-          })
-        : workflowData.nodes;
-
-      // Whitelist approach: only include accepted fields
-      const requestBody: Record<string, unknown> = {
-        name: workflowData.name,
-        nodes: filteredNodes,
-        connections: workflowData.connections,
-      };
-
-      // Include optional fields only if they exist and are not empty
-      if (workflowData.settings) {
-        requestBody.settings = workflowData.settings;
-      }
-      if (workflowData.staticData) {
-        requestBody.staticData = workflowData.staticData;
-      }
-      // Tags must be an array with at least one element (empty arrays might cause issues)
-      if (workflowData.tags && Array.isArray(workflowData.tags) && workflowData.tags.length > 0) {
-        requestBody.tags = workflowData.tags;
-      }
+      // Filter workflow to only include API-accepted fields
+      const requestBody = filterWorkflowForApi(workflowData);
 
       console.log(`📝 Creating n8n workflow from JSON:`, {
         name: workflow.name,
@@ -939,11 +1045,21 @@ return recommendations.map(rec => ({ json: rec }));`,
         name: workflow.name,
         nodeCount: Array.isArray(workflow.nodes) ? workflow.nodes.length : undefined,
       });
+      
+      // Filter workflow to only include API-accepted fields (remove id, active, versionId, meta, etc.)
+      const workflowData = workflow as Record<string, unknown>;
+      const requestBody = filterWorkflowForApi(workflowData);
+      
+      console.log(`📝 Filtered workflow fields for update:`, {
+        fields: Object.keys(requestBody),
+        nodeCount: Array.isArray(requestBody.nodes) ? requestBody.nodes.length : 0,
+      });
+      
       // Use PUT to replace the entire workflow
       const response = await this.request<N8nWorkflowResponse>(
         "PUT",
         `/workflows/${workflowId}`,
-        workflow
+        requestBody
       );
       console.log(`✅ n8n workflow updated successfully:`, {
         workflowId: response.id,
@@ -965,16 +1081,88 @@ return recommendations.map(rec => ({ json: rec }));`,
   /**
    * Manually execute a workflow (triggers the manual trigger node)
    * See: https://docs.n8n.io/api/
+   *
+   * Note: n8n workflow execution can be done via:
+   * - POST /workflows/{id}/activate (to activate and run)
+   * - POST /executions/workflow/{id} (alternative endpoint)
+   * - Using webhook trigger (if configured)
    */
   async executeWorkflow(workflowId: string): Promise<void> {
     try {
-      console.log(`▶️ Executing n8n workflow manually:`, { workflowId });
-      // Use the workflow execution endpoint - POST /workflows/{id}/run
-      await this.request<void>("POST", `/workflows/${workflowId}/run`);
-      console.log(`✅ n8n workflow execution triggered successfully:`, { workflowId });
+      console.log(`▶️ Executing n8n workflow manually:`, { workflowId, baseURL: this.baseURL });
+
+      // First verify the workflow exists and get its details
+      let workflow: N8nWorkflowResponse;
+      try {
+        workflow = await this.getWorkflow(workflowId);
+        console.log(`✅ Workflow verified:`, {
+          workflowId: workflow.id,
+          name: workflow.name,
+          active: workflow.active,
+        });
+      } catch (verifyError) {
+        console.error(`❌ Workflow verification failed:`, {
+          workflowId,
+          error: verifyError instanceof Error ? verifyError.message : String(verifyError),
+        });
+
+        // List available workflows to help debug
+        try {
+          const allWorkflows = await this.listWorkflows(true);
+          console.log(`📋 Available workflows in n8n:`, {
+            count: allWorkflows.length,
+            workflowIds: allWorkflows.map((w) => ({ id: w.id, name: w.name })),
+          });
+        } catch (listError) {
+          console.error(`⚠️ Could not list workflows:`, listError);
+        }
+
+        throw new Error(
+          `Workflow ${workflowId} does not exist in n8n. It may have been deleted or the ID is incorrect. Check the logs above for available workflow IDs.`
+        );
+      }
+
+      // Try the standard workflow execution endpoint
+      // POST /workflows/{id}/run
+      try {
+        await this.request<void>("POST", `/workflows/${workflowId}/run`);
+        console.log(`✅ n8n workflow execution triggered successfully:`, { workflowId });
+        return;
+      } catch (runError) {
+        // If /run endpoint doesn't work, try alternative: activate workflow first
+        if (runError instanceof Error && runError.message.includes("404")) {
+          console.log(`⚠️ /run endpoint returned 404, trying alternative approach...`);
+
+          // Try activating the workflow if it's not active
+          if (!workflow.active) {
+            console.log(`🔄 Activating workflow first...`);
+            try {
+              await this.request<void>("POST", `/workflows/${workflowId}/activate`);
+              console.log(`✅ Workflow activated`);
+            } catch (activateError) {
+              console.error(`❌ Failed to activate workflow:`, activateError);
+            }
+          }
+
+          // Try the executions endpoint instead
+          try {
+            console.log(`🔄 Trying executions endpoint...`);
+            await this.request<void>("POST", `/executions/workflow/${workflowId}`);
+            console.log(`✅ n8n workflow execution triggered via executions endpoint:`, { workflowId });
+            return;
+          } catch (execError) {
+            console.error(`❌ Executions endpoint also failed:`, execError);
+            throw new Error(
+              `Both execution endpoints failed. Original error: ${runError.message}. Alternative error: ${execError instanceof Error ? execError.message : String(execError)}`
+            );
+          }
+        }
+        throw runError;
+      }
     } catch (error) {
       console.error(`❌ Error executing n8n workflow:`, {
         workflowId,
+        baseURL: this.baseURL,
         error: error instanceof Error ? error.message : String(error),
       });
       throw new Error(

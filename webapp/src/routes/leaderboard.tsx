@@ -179,19 +179,19 @@ function LeaderboardPage() {
       {currentUserEntry && (
         <div
           className={`mb-6 p-4 rounded-lg border-2 ${
-            isCurrentUser(currentUserEntry.user!.id!)
+            isCurrentUser(currentUserEntry.user?.id)
               ? "bg-blue-50 border-blue-500"
               : "bg-gray-50 border-gray-300"
           }`}
         >
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
-              <UserAvatar user={currentUserEntry.user!} size="md" />
+              <UserAvatar user={currentUserEntry.user} size="md" />
               <div>
                 <h3 className="font-semibold text-lg">
-                  {currentUserEntry.user!.displayName || currentUserEntry.user!.username}
+                  {currentUserEntry.user?.displayName || currentUserEntry.user?.username}
                 </h3>
-                <p className="text-sm text-gray-600">@{currentUserEntry.user!.username}</p>
+                <p className="text-sm text-gray-600">@{currentUserEntry.user?.username}</p>
               </div>
             </div>
             <div className="text-right">
@@ -206,18 +206,18 @@ function LeaderboardPage() {
               <div>
                 <div className="text-xs text-gray-500">Win Rate</div>
                 <div className="font-semibold">
-                  {currentUserEntry.performance!.winRate.toFixed(1)}%
+                  {currentUserEntry.performance?.winRate.toFixed(1)}%
                 </div>
               </div>
               <div>
                 <div className="text-xs text-gray-500">Avg Return</div>
                 <div className="font-semibold">
-                  {currentUserEntry.performance!.avgReturn.toFixed(2)}%
+                  {currentUserEntry.performance?.avgReturn.toFixed(2)}%
                 </div>
               </div>
               <div>
                 <div className="text-xs text-gray-500">Streak</div>
-                <div className="font-semibold">{currentUserEntry.performance!.currentStreak}</div>
+                  {currentUserEntry.performance?.currentStreak}
               </div>
             </div>
           </div>
@@ -273,10 +273,10 @@ function LeaderboardPage() {
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
               {entries.map((entry) => {
-                const isCurrent = isCurrentUser(entry.user!.id!);
+                const isCurrent = isCurrentUser(entry.user?.id);
                 return (
                   <tr
-                    key={entry.user!.id}
+                    key={entry.user?.id}
                     className={`hover:bg-gray-50 transition-colors ${
                       isCurrent ? "bg-blue-50 border-l-4 border-l-blue-500" : ""
                     }`}
@@ -284,20 +284,20 @@ function LeaderboardPage() {
                     <td className="px-6 py-4 whitespace-nowrap">{getRankDisplay(entry.rank)}</td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <Link
-                        to={`/users/${entry.user!.username}`}
+                        to={`/users/${entry.user?.username}`}
                         className="flex items-center gap-3 hover:text-blue-600 transition-colors"
                       >
-                        <UserAvatar user={entry.user!} size="sm" />
+                        <UserAvatar user={entry.user} size="sm" />
                         <div>
                           <div className="font-semibold">
-                            {entry.user!.displayName || entry.user!.username}
+                            {entry.user?.displayName || entry.user?.username}
                             {isCurrent && (
                               <span className="ml-2 text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded">
                                 You
                               </span>
                             )}
                           </div>
-                          <div className="text-sm text-gray-600">@{entry.user!.username}</div>
+                          <div className="text-sm text-gray-600">@{entry.user?.username}</div>
                         </div>
                       </Link>
                     </td>
@@ -305,27 +305,27 @@ function LeaderboardPage() {
                       <span className="font-bold text-lg">{entry.performanceScore.toFixed(2)}</span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-center text-gray-700">
-                      {entry.performance!.totalPredictions}
+                      {entry.performance?.totalPredictions}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-center text-green-600 font-semibold">
-                      {entry.performance!.wins}
+                      {entry.performance?.wins}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-center text-gray-700">
-                      {entry.performance!.winRate.toFixed(1)}%
+                      {entry.performance?.winRate.toFixed(1)}%
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-center">
                       <span
                         className={`font-semibold ${
-                          entry.performance!.avgReturn >= 0 ? "text-green-600" : "text-red-600"
+                          entry.performance?.avgReturn >= 0 ? "text-green-600" : "text-red-600"
                         }`}
                       >
-                        {entry.performance!.avgReturn >= 0 ? "+" : ""}
-                        {entry.performance!.avgReturn.toFixed(2)}%
+                        {entry.performance?.avgReturn >= 0 ? "+" : ""}
+                        {entry.performance?.avgReturn.toFixed(2)}%
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-center">
                       <span className="font-semibold text-orange-600">
-                        {entry.performance!.currentStreak}
+                        {entry.performance?.currentStreak}
                       </span>
                     </td>
                   </tr>
