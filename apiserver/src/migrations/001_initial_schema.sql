@@ -20,9 +20,13 @@ CREATE TABLE IF NOT EXISTS strategies (
   n8n_workflow_id TEXT,
   next_trade_scheduled TIMESTAMP,
   last_trade_executed TIMESTAMP,
+  privacy TEXT CHECK(privacy IN ('STRATEGY_PRIVACY_PRIVATE', 'STRATEGY_PRIVACY_PUBLIC')) DEFAULT 'STRATEGY_PRIVACY_PRIVATE',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Create index for strategy privacy
+CREATE INDEX IF NOT EXISTS idx_strategies_privacy ON strategies(privacy);
 
 -- predictions table
 CREATE TABLE IF NOT EXISTS predictions (
@@ -48,7 +52,8 @@ CREATE TABLE IF NOT EXISTS predictions (
   current_return_pct DECIMAL(5,2),
   closed_at TIMESTAMP,
   closed_reason TEXT,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  privacy TEXT CHECK(privacy IN ('PREDICTION_PRIVACY_PRIVATE', 'PREDICTION_PRIVACY_PUBLIC')) DEFAULT 'PREDICTION_PRIVACY_PRIVATE'
 );
 
 -- Create indexes
@@ -56,4 +61,6 @@ CREATE INDEX IF NOT EXISTS idx_predictions_strategy ON predictions(strategy_id);
 CREATE INDEX IF NOT EXISTS idx_predictions_status ON predictions(status);
 CREATE INDEX IF NOT EXISTS idx_predictions_symbol ON predictions(symbol);
 CREATE INDEX IF NOT EXISTS idx_predictions_action ON predictions(action);
+CREATE INDEX IF NOT EXISTS idx_predictions_privacy ON predictions(privacy);
+CREATE INDEX IF NOT EXISTS idx_predictions_created_at ON predictions(created_at DESC);
 

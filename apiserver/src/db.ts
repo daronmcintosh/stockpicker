@@ -43,13 +43,13 @@ export const statements = {
       current_month_start, time_horizon, target_return_pct, frequency,
       trades_per_month, per_trade_budget, per_stock_allocation, risk_level,
       unique_stocks_count, max_unique_stocks, n8n_workflow_id, status,
-      created_at, updated_at
+      privacy, created_at, updated_at
     ) VALUES (
       $id, $name, $description, $custom_prompt, $monthly_budget, $current_month_spent,
       $current_month_start, $time_horizon, $target_return_pct, $frequency,
       $trades_per_month, $per_trade_budget, $per_stock_allocation, $risk_level,
       $unique_stocks_count, $max_unique_stocks, $n8n_workflow_id, $status,
-      $created_at, $updated_at
+      $privacy, $created_at, $updated_at
     )
   `),
 
@@ -171,6 +171,7 @@ export interface StrategyRow {
   last_trade_executed: string | null;
   created_at: string;
   updated_at: string;
+  privacy: string;
 }
 
 export interface PredictionRow {
@@ -197,6 +198,8 @@ export interface PredictionRow {
   closed_at: string | null;
   closed_reason: string | null;
   created_at: string;
+  privacy: string;
+  source: string | null;
 }
 
 // Graceful shutdown

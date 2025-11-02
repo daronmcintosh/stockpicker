@@ -3,11 +3,13 @@ import { HeadContent, Scripts, createRootRoute } from "@tanstack/react-router";
 import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools";
 import { Toaster } from "react-hot-toast";
 
+import { ErrorFallback } from "../components/ErrorFallback";
 import Header from "../components/Header";
 
 import appCss from "../styles.css?url";
 
 export const Route = createRootRoute({
+  errorComponent: ErrorFallback,
   head: () => ({
     meta: [
       {
@@ -18,7 +20,7 @@ export const Route = createRootRoute({
         content: "width=device-width, initial-scale=1",
       },
       {
-        title: "TanStack Start Starter",
+        title: "StockPicker",
       },
     ],
     links: [

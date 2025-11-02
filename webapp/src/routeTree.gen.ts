@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as PredictionsRouteImport } from './routes/predictions'
+import { Route as FeedRouteImport } from './routes/feed'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as StrategiesIndexRouteImport } from './routes/strategies/index'
 import { Route as StrategiesNewRouteImport } from './routes/strategies/new'
@@ -17,6 +18,11 @@ import { Route as StrategiesNewRouteImport } from './routes/strategies/new'
 const PredictionsRoute = PredictionsRouteImport.update({
   id: '/predictions',
   path: '/predictions',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const FeedRoute = FeedRouteImport.update({
+  id: '/feed',
+  path: '/feed',
   getParentRoute: () => rootRouteImport,
 } as any)
 const IndexRoute = IndexRouteImport.update({
@@ -37,12 +43,14 @@ const StrategiesNewRoute = StrategiesNewRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/feed': typeof FeedRoute
   '/predictions': typeof PredictionsRoute
   '/strategies/new': typeof StrategiesNewRoute
   '/strategies': typeof StrategiesIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/feed': typeof FeedRoute
   '/predictions': typeof PredictionsRoute
   '/strategies/new': typeof StrategiesNewRoute
   '/strategies': typeof StrategiesIndexRoute
@@ -50,20 +58,28 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/feed': typeof FeedRoute
   '/predictions': typeof PredictionsRoute
   '/strategies/new': typeof StrategiesNewRoute
   '/strategies/': typeof StrategiesIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/predictions' | '/strategies/new' | '/strategies'
+  fullPaths: '/' | '/feed' | '/predictions' | '/strategies/new' | '/strategies'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/predictions' | '/strategies/new' | '/strategies'
-  id: '__root__' | '/' | '/predictions' | '/strategies/new' | '/strategies/'
+  to: '/' | '/feed' | '/predictions' | '/strategies/new' | '/strategies'
+  id:
+    | '__root__'
+    | '/'
+    | '/feed'
+    | '/predictions'
+    | '/strategies/new'
+    | '/strategies/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  FeedRoute: typeof FeedRoute
   PredictionsRoute: typeof PredictionsRoute
   StrategiesNewRoute: typeof StrategiesNewRoute
   StrategiesIndexRoute: typeof StrategiesIndexRoute
@@ -76,6 +92,13 @@ declare module '@tanstack/react-router' {
       path: '/predictions'
       fullPath: '/predictions'
       preLoaderRoute: typeof PredictionsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/feed': {
+      id: '/feed'
+      path: '/feed'
+      fullPath: '/feed'
+      preLoaderRoute: typeof FeedRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/': {
@@ -104,6 +127,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  FeedRoute: FeedRoute,
   PredictionsRoute: PredictionsRoute,
   StrategiesNewRoute: StrategiesNewRoute,
   StrategiesIndexRoute: StrategiesIndexRoute,

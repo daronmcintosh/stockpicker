@@ -1,7 +1,7 @@
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 // Load .env file from repo root before anything else
 import { config } from "dotenv";
-import { resolve, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // Load .env from repo root (two levels up from apiserver/src)
@@ -45,4 +45,3 @@ export const appConfig = {
     }
   },
 };
-

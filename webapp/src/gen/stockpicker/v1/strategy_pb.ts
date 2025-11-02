@@ -195,6 +195,90 @@ proto3.util.setEnumType(PredictionStatus, "stockpicker.v1.PredictionStatus", [
 ]);
 
 /**
+ * Prediction privacy enum
+ *
+ * @generated from enum stockpicker.v1.PredictionPrivacy
+ */
+export enum PredictionPrivacy {
+  /**
+   * @generated from enum value: PREDICTION_PRIVACY_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: PREDICTION_PRIVACY_PRIVATE = 1;
+   */
+  PRIVATE = 1,
+
+  /**
+   * @generated from enum value: PREDICTION_PRIVACY_PUBLIC = 2;
+   */
+  PUBLIC = 2,
+}
+// Retrieve enum metadata with: proto3.getEnumType(PredictionPrivacy)
+proto3.util.setEnumType(PredictionPrivacy, "stockpicker.v1.PredictionPrivacy", [
+  { no: 0, name: "PREDICTION_PRIVACY_UNSPECIFIED" },
+  { no: 1, name: "PREDICTION_PRIVACY_PRIVATE" },
+  { no: 2, name: "PREDICTION_PRIVACY_PUBLIC" },
+]);
+
+/**
+ * Prediction source enum
+ *
+ * @generated from enum stockpicker.v1.PredictionSource
+ */
+export enum PredictionSource {
+  /**
+   * @generated from enum value: PREDICTION_SOURCE_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: PREDICTION_SOURCE_AI = 1;
+   */
+  AI = 1,
+
+  /**
+   * @generated from enum value: PREDICTION_SOURCE_MANUAL = 2;
+   */
+  MANUAL = 2,
+}
+// Retrieve enum metadata with: proto3.getEnumType(PredictionSource)
+proto3.util.setEnumType(PredictionSource, "stockpicker.v1.PredictionSource", [
+  { no: 0, name: "PREDICTION_SOURCE_UNSPECIFIED" },
+  { no: 1, name: "PREDICTION_SOURCE_AI" },
+  { no: 2, name: "PREDICTION_SOURCE_MANUAL" },
+]);
+
+/**
+ * Strategy privacy enum
+ *
+ * @generated from enum stockpicker.v1.StrategyPrivacy
+ */
+export enum StrategyPrivacy {
+  /**
+   * @generated from enum value: STRATEGY_PRIVACY_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: STRATEGY_PRIVACY_PRIVATE = 1;
+   */
+  PRIVATE = 1,
+
+  /**
+   * @generated from enum value: STRATEGY_PRIVACY_PUBLIC = 2;
+   */
+  PUBLIC = 2,
+}
+// Retrieve enum metadata with: proto3.getEnumType(StrategyPrivacy)
+proto3.util.setEnumType(StrategyPrivacy, "stockpicker.v1.StrategyPrivacy", [
+  { no: 0, name: "STRATEGY_PRIVACY_UNSPECIFIED" },
+  { no: 1, name: "STRATEGY_PRIVACY_PRIVATE" },
+  { no: 2, name: "STRATEGY_PRIVACY_PUBLIC" },
+]);
+
+/**
  * Strategy message
  *
  * @generated from message stockpicker.v1.Strategy
@@ -315,6 +399,13 @@ export class Strategy extends Message<Strategy> {
    */
   updatedAt?: Timestamp;
 
+  /**
+   * Privacy
+   *
+   * @generated from field: stockpicker.v1.StrategyPrivacy privacy = 22;
+   */
+  privacy = StrategyPrivacy.UNSPECIFIED;
+
   constructor(data?: PartialMessage<Strategy>) {
     super();
     proto3.util.initPartial(data, this);
@@ -344,6 +435,7 @@ export class Strategy extends Message<Strategy> {
     { no: 19, name: "last_trade_executed", kind: "message", T: Timestamp },
     { no: 20, name: "created_at", kind: "message", T: Timestamp },
     { no: 21, name: "updated_at", kind: "message", T: Timestamp },
+    { no: 22, name: "privacy", kind: "enum", T: proto3.getEnumType(StrategyPrivacy) },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): Strategy {
@@ -1064,6 +1156,92 @@ export class StopStrategyResponse extends Message<StopStrategyResponse> {
 }
 
 /**
+ * Trigger Predictions
+ *
+ * @generated from message stockpicker.v1.TriggerPredictionsRequest
+ */
+export class TriggerPredictionsRequest extends Message<TriggerPredictionsRequest> {
+  /**
+   * Strategy ID
+   *
+   * @generated from field: string id = 1;
+   */
+  id = "";
+
+  constructor(data?: PartialMessage<TriggerPredictionsRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "stockpicker.v1.TriggerPredictionsRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): TriggerPredictionsRequest {
+    return new TriggerPredictionsRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): TriggerPredictionsRequest {
+    return new TriggerPredictionsRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): TriggerPredictionsRequest {
+    return new TriggerPredictionsRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: TriggerPredictionsRequest | PlainMessage<TriggerPredictionsRequest> | undefined, b: TriggerPredictionsRequest | PlainMessage<TriggerPredictionsRequest> | undefined): boolean {
+    return proto3.util.equals(TriggerPredictionsRequest, a, b);
+  }
+}
+
+/**
+ * @generated from message stockpicker.v1.TriggerPredictionsResponse
+ */
+export class TriggerPredictionsResponse extends Message<TriggerPredictionsResponse> {
+  /**
+   * @generated from field: bool success = 1;
+   */
+  success = false;
+
+  /**
+   * Status message (e.g., "Predictions generation triggered successfully")
+   *
+   * @generated from field: string message = 2;
+   */
+  message = "";
+
+  constructor(data?: PartialMessage<TriggerPredictionsResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "stockpicker.v1.TriggerPredictionsResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "success", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
+    { no: 2, name: "message", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): TriggerPredictionsResponse {
+    return new TriggerPredictionsResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): TriggerPredictionsResponse {
+    return new TriggerPredictionsResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): TriggerPredictionsResponse {
+    return new TriggerPredictionsResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: TriggerPredictionsResponse | PlainMessage<TriggerPredictionsResponse> | undefined, b: TriggerPredictionsResponse | PlainMessage<TriggerPredictionsResponse> | undefined): boolean {
+    return proto3.util.equals(TriggerPredictionsResponse, a, b);
+  }
+}
+
+/**
  * Prediction message
  *
  * @generated from message stockpicker.v1.Prediction
@@ -1186,6 +1364,18 @@ export class Prediction extends Message<Prediction> {
    */
   createdAt?: Timestamp;
 
+  /**
+   * @generated from field: stockpicker.v1.PredictionPrivacy privacy = 24;
+   */
+  privacy = PredictionPrivacy.UNSPECIFIED;
+
+  /**
+   * AI-generated or manually created
+   *
+   * @generated from field: stockpicker.v1.PredictionSource source = 25;
+   */
+  source = PredictionSource.UNSPECIFIED;
+
   constructor(data?: PartialMessage<Prediction>) {
     super();
     proto3.util.initPartial(data, this);
@@ -1217,6 +1407,8 @@ export class Prediction extends Message<Prediction> {
     { no: 21, name: "closed_at", kind: "message", T: Timestamp, opt: true },
     { no: 22, name: "closed_reason", kind: "scalar", T: 9 /* ScalarType.STRING */, opt: true },
     { no: 23, name: "created_at", kind: "message", T: Timestamp },
+    { no: 24, name: "privacy", kind: "enum", T: proto3.getEnumType(PredictionPrivacy) },
+    { no: 25, name: "source", kind: "enum", T: proto3.getEnumType(PredictionSource) },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): Prediction {
@@ -1549,6 +1741,13 @@ export class CreatePredictionRequest extends Message<CreatePredictionRequest> {
    */
   riskLevel?: RiskLevel;
 
+  /**
+   * AI-generated or manually created
+   *
+   * @generated from field: optional stockpicker.v1.PredictionSource source = 14;
+   */
+  source?: PredictionSource;
+
   constructor(data?: PartialMessage<CreatePredictionRequest>) {
     super();
     proto3.util.initPartial(data, this);
@@ -1570,6 +1769,7 @@ export class CreatePredictionRequest extends Message<CreatePredictionRequest> {
     { no: 11, name: "target_return_pct", kind: "scalar", T: 1 /* ScalarType.DOUBLE */, opt: true },
     { no: 12, name: "stop_loss_pct", kind: "scalar", T: 1 /* ScalarType.DOUBLE */, opt: true },
     { no: 13, name: "risk_level", kind: "enum", T: proto3.getEnumType(RiskLevel), opt: true },
+    { no: 14, name: "source", kind: "enum", T: proto3.getEnumType(PredictionSource), opt: true },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): CreatePredictionRequest {
@@ -1705,6 +1905,422 @@ export class UpdatePredictionActionResponse extends Message<UpdatePredictionActi
 
   static equals(a: UpdatePredictionActionResponse | PlainMessage<UpdatePredictionActionResponse> | undefined, b: UpdatePredictionActionResponse | PlainMessage<UpdatePredictionActionResponse> | undefined): boolean {
     return proto3.util.equals(UpdatePredictionActionResponse, a, b);
+  }
+}
+
+/**
+ * Get Public Predictions
+ *
+ * @generated from message stockpicker.v1.GetPublicPredictionsRequest
+ */
+export class GetPublicPredictionsRequest extends Message<GetPublicPredictionsRequest> {
+  /**
+   * Max number of predictions to return (default: 50)
+   *
+   * @generated from field: optional int32 limit = 1;
+   */
+  limit?: number;
+
+  /**
+   * Pagination offset (default: 0)
+   *
+   * @generated from field: optional int32 offset = 2;
+   */
+  offset?: number;
+
+  constructor(data?: PartialMessage<GetPublicPredictionsRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "stockpicker.v1.GetPublicPredictionsRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "limit", kind: "scalar", T: 5 /* ScalarType.INT32 */, opt: true },
+    { no: 2, name: "offset", kind: "scalar", T: 5 /* ScalarType.INT32 */, opt: true },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): GetPublicPredictionsRequest {
+    return new GetPublicPredictionsRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): GetPublicPredictionsRequest {
+    return new GetPublicPredictionsRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): GetPublicPredictionsRequest {
+    return new GetPublicPredictionsRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: GetPublicPredictionsRequest | PlainMessage<GetPublicPredictionsRequest> | undefined, b: GetPublicPredictionsRequest | PlainMessage<GetPublicPredictionsRequest> | undefined): boolean {
+    return proto3.util.equals(GetPublicPredictionsRequest, a, b);
+  }
+}
+
+/**
+ * @generated from message stockpicker.v1.GetPublicPredictionsResponse
+ */
+export class GetPublicPredictionsResponse extends Message<GetPublicPredictionsResponse> {
+  /**
+   * @generated from field: repeated stockpicker.v1.Prediction predictions = 1;
+   */
+  predictions: Prediction[] = [];
+
+  /**
+   * Total count of public predictions
+   *
+   * @generated from field: int32 total = 2;
+   */
+  total = 0;
+
+  constructor(data?: PartialMessage<GetPublicPredictionsResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "stockpicker.v1.GetPublicPredictionsResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "predictions", kind: "message", T: Prediction, repeated: true },
+    { no: 2, name: "total", kind: "scalar", T: 5 /* ScalarType.INT32 */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): GetPublicPredictionsResponse {
+    return new GetPublicPredictionsResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): GetPublicPredictionsResponse {
+    return new GetPublicPredictionsResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): GetPublicPredictionsResponse {
+    return new GetPublicPredictionsResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: GetPublicPredictionsResponse | PlainMessage<GetPublicPredictionsResponse> | undefined, b: GetPublicPredictionsResponse | PlainMessage<GetPublicPredictionsResponse> | undefined): boolean {
+    return proto3.util.equals(GetPublicPredictionsResponse, a, b);
+  }
+}
+
+/**
+ * Update Prediction Privacy
+ *
+ * @generated from message stockpicker.v1.UpdatePredictionPrivacyRequest
+ */
+export class UpdatePredictionPrivacyRequest extends Message<UpdatePredictionPrivacyRequest> {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id = "";
+
+  /**
+   * @generated from field: stockpicker.v1.PredictionPrivacy privacy = 2;
+   */
+  privacy = PredictionPrivacy.UNSPECIFIED;
+
+  constructor(data?: PartialMessage<UpdatePredictionPrivacyRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "stockpicker.v1.UpdatePredictionPrivacyRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "privacy", kind: "enum", T: proto3.getEnumType(PredictionPrivacy) },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): UpdatePredictionPrivacyRequest {
+    return new UpdatePredictionPrivacyRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): UpdatePredictionPrivacyRequest {
+    return new UpdatePredictionPrivacyRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): UpdatePredictionPrivacyRequest {
+    return new UpdatePredictionPrivacyRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: UpdatePredictionPrivacyRequest | PlainMessage<UpdatePredictionPrivacyRequest> | undefined, b: UpdatePredictionPrivacyRequest | PlainMessage<UpdatePredictionPrivacyRequest> | undefined): boolean {
+    return proto3.util.equals(UpdatePredictionPrivacyRequest, a, b);
+  }
+}
+
+/**
+ * @generated from message stockpicker.v1.UpdatePredictionPrivacyResponse
+ */
+export class UpdatePredictionPrivacyResponse extends Message<UpdatePredictionPrivacyResponse> {
+  /**
+   * @generated from field: stockpicker.v1.Prediction prediction = 1;
+   */
+  prediction?: Prediction;
+
+  constructor(data?: PartialMessage<UpdatePredictionPrivacyResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "stockpicker.v1.UpdatePredictionPrivacyResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "prediction", kind: "message", T: Prediction },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): UpdatePredictionPrivacyResponse {
+    return new UpdatePredictionPrivacyResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): UpdatePredictionPrivacyResponse {
+    return new UpdatePredictionPrivacyResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): UpdatePredictionPrivacyResponse {
+    return new UpdatePredictionPrivacyResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: UpdatePredictionPrivacyResponse | PlainMessage<UpdatePredictionPrivacyResponse> | undefined, b: UpdatePredictionPrivacyResponse | PlainMessage<UpdatePredictionPrivacyResponse> | undefined): boolean {
+    return proto3.util.equals(UpdatePredictionPrivacyResponse, a, b);
+  }
+}
+
+/**
+ * Update Strategy Privacy
+ *
+ * @generated from message stockpicker.v1.UpdateStrategyPrivacyRequest
+ */
+export class UpdateStrategyPrivacyRequest extends Message<UpdateStrategyPrivacyRequest> {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id = "";
+
+  /**
+   * @generated from field: stockpicker.v1.StrategyPrivacy privacy = 2;
+   */
+  privacy = StrategyPrivacy.UNSPECIFIED;
+
+  constructor(data?: PartialMessage<UpdateStrategyPrivacyRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "stockpicker.v1.UpdateStrategyPrivacyRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "privacy", kind: "enum", T: proto3.getEnumType(StrategyPrivacy) },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): UpdateStrategyPrivacyRequest {
+    return new UpdateStrategyPrivacyRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): UpdateStrategyPrivacyRequest {
+    return new UpdateStrategyPrivacyRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): UpdateStrategyPrivacyRequest {
+    return new UpdateStrategyPrivacyRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: UpdateStrategyPrivacyRequest | PlainMessage<UpdateStrategyPrivacyRequest> | undefined, b: UpdateStrategyPrivacyRequest | PlainMessage<UpdateStrategyPrivacyRequest> | undefined): boolean {
+    return proto3.util.equals(UpdateStrategyPrivacyRequest, a, b);
+  }
+}
+
+/**
+ * @generated from message stockpicker.v1.UpdateStrategyPrivacyResponse
+ */
+export class UpdateStrategyPrivacyResponse extends Message<UpdateStrategyPrivacyResponse> {
+  /**
+   * @generated from field: stockpicker.v1.Strategy strategy = 1;
+   */
+  strategy?: Strategy;
+
+  constructor(data?: PartialMessage<UpdateStrategyPrivacyResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "stockpicker.v1.UpdateStrategyPrivacyResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "strategy", kind: "message", T: Strategy },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): UpdateStrategyPrivacyResponse {
+    return new UpdateStrategyPrivacyResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): UpdateStrategyPrivacyResponse {
+    return new UpdateStrategyPrivacyResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): UpdateStrategyPrivacyResponse {
+    return new UpdateStrategyPrivacyResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: UpdateStrategyPrivacyResponse | PlainMessage<UpdateStrategyPrivacyResponse> | undefined, b: UpdateStrategyPrivacyResponse | PlainMessage<UpdateStrategyPrivacyResponse> | undefined): boolean {
+    return proto3.util.equals(UpdateStrategyPrivacyResponse, a, b);
+  }
+}
+
+/**
+ * Get Current Prices
+ *
+ * @generated from message stockpicker.v1.GetCurrentPricesRequest
+ */
+export class GetCurrentPricesRequest extends Message<GetCurrentPricesRequest> {
+  /**
+   * List of stock symbols to fetch prices for
+   *
+   * @generated from field: repeated string symbols = 1;
+   */
+  symbols: string[] = [];
+
+  constructor(data?: PartialMessage<GetCurrentPricesRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "stockpicker.v1.GetCurrentPricesRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "symbols", kind: "scalar", T: 9 /* ScalarType.STRING */, repeated: true },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): GetCurrentPricesRequest {
+    return new GetCurrentPricesRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): GetCurrentPricesRequest {
+    return new GetCurrentPricesRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): GetCurrentPricesRequest {
+    return new GetCurrentPricesRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: GetCurrentPricesRequest | PlainMessage<GetCurrentPricesRequest> | undefined, b: GetCurrentPricesRequest | PlainMessage<GetCurrentPricesRequest> | undefined): boolean {
+    return proto3.util.equals(GetCurrentPricesRequest, a, b);
+  }
+}
+
+/**
+ * @generated from message stockpicker.v1.GetCurrentPricesResponse
+ */
+export class GetCurrentPricesResponse extends Message<GetCurrentPricesResponse> {
+  /**
+   * Map of symbol to current price
+   *
+   * @generated from field: map<string, double> prices = 1;
+   */
+  prices: { [key: string]: number } = {};
+
+  constructor(data?: PartialMessage<GetCurrentPricesResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "stockpicker.v1.GetCurrentPricesResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "prices", kind: "map", K: 9 /* ScalarType.STRING */, V: {kind: "scalar", T: 1 /* ScalarType.DOUBLE */} },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): GetCurrentPricesResponse {
+    return new GetCurrentPricesResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): GetCurrentPricesResponse {
+    return new GetCurrentPricesResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): GetCurrentPricesResponse {
+    return new GetCurrentPricesResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: GetCurrentPricesResponse | PlainMessage<GetCurrentPricesResponse> | undefined, b: GetCurrentPricesResponse | PlainMessage<GetCurrentPricesResponse> | undefined): boolean {
+    return proto3.util.equals(GetCurrentPricesResponse, a, b);
+  }
+}
+
+/**
+ * Delete Prediction
+ *
+ * @generated from message stockpicker.v1.DeletePredictionRequest
+ */
+export class DeletePredictionRequest extends Message<DeletePredictionRequest> {
+  /**
+   * Prediction ID to delete
+   *
+   * @generated from field: string id = 1;
+   */
+  id = "";
+
+  constructor(data?: PartialMessage<DeletePredictionRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "stockpicker.v1.DeletePredictionRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): DeletePredictionRequest {
+    return new DeletePredictionRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): DeletePredictionRequest {
+    return new DeletePredictionRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): DeletePredictionRequest {
+    return new DeletePredictionRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: DeletePredictionRequest | PlainMessage<DeletePredictionRequest> | undefined, b: DeletePredictionRequest | PlainMessage<DeletePredictionRequest> | undefined): boolean {
+    return proto3.util.equals(DeletePredictionRequest, a, b);
+  }
+}
+
+/**
+ * @generated from message stockpicker.v1.DeletePredictionResponse
+ */
+export class DeletePredictionResponse extends Message<DeletePredictionResponse> {
+  /**
+   * @generated from field: bool success = 1;
+   */
+  success = false;
+
+  constructor(data?: PartialMessage<DeletePredictionResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "stockpicker.v1.DeletePredictionResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "success", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): DeletePredictionResponse {
+    return new DeletePredictionResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): DeletePredictionResponse {
+    return new DeletePredictionResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): DeletePredictionResponse {
+    return new DeletePredictionResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: DeletePredictionResponse | PlainMessage<DeletePredictionResponse> | undefined, b: DeletePredictionResponse | PlainMessage<DeletePredictionResponse> | undefined): boolean {
+    return proto3.util.equals(DeletePredictionResponse, a, b);
   }
 }
 

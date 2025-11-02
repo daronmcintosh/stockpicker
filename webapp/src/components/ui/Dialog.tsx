@@ -4,13 +4,28 @@ import type { ReactNode } from "react";
 interface DialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  title: string;
+  title: ReactNode;
   description?: string;
   children: ReactNode;
+  size?: "sm" | "md" | "lg" | "xl";
 }
 
-export function Dialog({ open, onOpenChange, title, description, children }: DialogProps) {
+export function Dialog({
+  open,
+  onOpenChange,
+  title,
+  description,
+  children,
+  size = "md",
+}: DialogProps) {
   if (!open) return null;
+
+  const sizeClasses = {
+    sm: "max-w-sm",
+    md: "max-w-lg",
+    lg: "max-w-3xl",
+    xl: "max-w-5xl",
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
@@ -29,9 +44,12 @@ export function Dialog({ open, onOpenChange, title, description, children }: Dia
       />
 
       {/* Dialog */}
-      <div className="relative z-50 w-full max-w-lg mx-4 bg-white rounded-lg shadow-lg">
-        <div className="flex items-center justify-between p-6 border-b">
-          <div>
+      <div
+        className={`relative z-50 w-full ${sizeClasses[size]} mx-4 bg-white rounded-lg shadow-lg max-h-[90vh] overflow-hidden flex flex-col sm:mx-4 max-sm:h-full max-sm:max-w-full max-sm:rounded-none`}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between p-6 border-b flex-shrink-0">
+          <div className="flex-1">
             <h2 className="text-lg font-semibold">{title}</h2>
             {description && <p className="text-sm text-gray-600 mt-1">{description}</p>}
           </div>
@@ -44,7 +62,7 @@ export function Dialog({ open, onOpenChange, title, description, children }: Dia
             <X className="w-5 h-5" />
           </button>
         </div>
-        <div className="p-6">{children}</div>
+        <div className="p-6 overflow-y-auto flex-1">{children}</div>
       </div>
     </div>
   );

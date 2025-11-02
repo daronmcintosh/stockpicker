@@ -1,20 +1,20 @@
-import { Frequency } from "../gen/stockpicker/v1/strategy_pb.js";
 import { appConfig } from "../config.js";
+import { Frequency } from "../gen/stockpicker/v1/strategy_pb.js";
 
 // Helper to get auth headers (n8n API requires X-N8N-API-KEY header)
 // See: https://docs.n8n.io/api/authentication/
 function getAuthHeaders(): Record<string, string> {
   const headers: Record<string, string> = {};
-  
+
   if (!appConfig.n8n.apiKey) {
     throw new Error(
       "N8N_API_KEY environment variable is required. Get your API key from n8n: Settings > n8n API"
     );
   }
-  
+
   // n8n API authentication uses X-N8N-API-KEY header
   headers["X-N8N-API-KEY"] = appConfig.n8n.apiKey;
-  
+
   return headers;
 }
 
@@ -76,7 +76,7 @@ class N8nClient {
 
   constructor() {
     this.baseURL = appConfig.n8n.apiUrl;
-    
+
     // Log configuration for debugging
     console.log("🔧 N8nClient initialized:", {
       baseURL: this.baseURL,
@@ -386,7 +386,7 @@ class N8nClient {
             sendBody: true,
             bodyContentType: "json",
             jsonBody:
-              '={{ {"model": "gpt-4o-mini", "messages": [{"role": "system", "content": "You are a financial analyst AI assistant. Provide data-driven stock recommendations. Always respond with valid JSON only, no markdown formatting."}, {"role": "user", "content": "You are a stock market analyst. Analyze the following stocks and recommend the top 10 based on:\\n\\nStrategy Parameters:\\n- Time Horizon: {{ $node[\'Get Strategy\'].json.strategy.timeHorizon }}\\n- Target Return: {{ $node[\'Get Strategy\'].json.strategy.targetReturnPct }}%\\n- Risk Level: {{ $node[\'Get Strategy\'].json.strategy.riskLevel }}\\n- Per Stock Budget: ${{ $node[\'Get Strategy\'].json.strategy.perStockAllocation }}\\n- Custom Instructions: {{ $node[\'Get Strategy\'].json.strategy.customPrompt || \'None\' }}\\n\\nAvailable Stocks:\\n{{ JSON.stringify($json.top_stocks.slice(0, 50), null, 2) }}\\n\\nFor each recommended stock, provide:\\n1. symbol (string)\\n2. entry_price (number)\\n3. target_price (number)\\n4. stop_loss_price (number)\\n5. technical_analysis (JSON object with RSI, MACD, trends)\\n6. sentiment_score (number 1-10)\\n7. overall_score (number 1-10)\\n\\nReturn a JSON object with a \'recommendations\' property containing an array of exactly 10 stocks, sorted by overall_score descending. Format: {\\"recommendations\\": [...]}"}], "temperature": 0.7, "response_format": {"type": "json_object"}} }}',
+              '={{ {"model": "gpt-4o-mini", "messages": [{"role": "system", "content": "You are a financial analyst AI assistant. Provide data-driven stock recommendations. Always respond with valid JSON only, no markdown formatting."}, {"role": "user", "content": "You are a stock market analyst. Analyze the following stocks and recommend the top 10 based on:\\n\\nStrategy Parameters:\\n- Time Horizon: " + $node["Get Strategy"].json.strategy.timeHorizon + "\\n- Target Return: " + $node["Get Strategy"].json.strategy.targetReturnPct + "%\\n- Risk Level: " + $node["Get Strategy"].json.strategy.riskLevel + "\\n- Per Stock Budget: $" + $node["Get Strategy"].json.strategy.perStockAllocation + "\\n- Custom Instructions: " + ($node["Get Strategy"].json.strategy.customPrompt || "None") + "\\n\\nAvailable Stocks:\\n" + JSON.stringify($json.top_stocks.slice(0, 50), null, 2) + "\\n\\nFor each recommended stock, provide:\\n1. symbol (string)\\n2. entry_price (number)\\n3. target_price (number)\\n4. stop_loss_price (number)\\n5. technical_analysis (JSON object with RSI, MACD, trends)\\n6. sentiment_score (number 1-10)\\n7. overall_score (number 1-10)\\n\\nReturn a JSON object with a \'recommendations\' property containing an array of exactly 10 stocks, sorted by overall_score descending. Format: {\\"recommendations\\": [...]}"}], "temperature": 0.7, "response_format": {"type": "json_object"}} }}',
             options: {},
           },
           id: "ai-stock-analysis-http",
@@ -398,12 +398,18 @@ class N8nClient {
         // Parse AI Response - extract JSON from OpenAI response
         {
           parameters: {
+            mode: "runOnceForEachItem",
             jsCode: `// Extract recommendations from OpenAI response
 const response = $input.item.json;
-const content = response.choices[0].message.content;
-let recommendations;
+const content = response.choices?.[0]?.message?.content || response.message?.content || '';
+let recommendations = [];
 
 try {
+  if (!content) {
+    console.error('No content found in OpenAI response');
+    return [];
+  }
+
   // Parse JSON content
   const parsed = JSON.parse(content);
   // Handle if OpenAI returns object with array property, or direct array
@@ -752,6 +758,27 @@ return recommendations.map(rec => ({ json: rec }));`,
       });
       throw new Error(
         `Failed to get n8n workflow: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
+
+  /**
+   * Manually execute a workflow (triggers the manual trigger node)
+   * See: https://docs.n8n.io/api/
+   */
+  async executeWorkflow(workflowId: string): Promise<void> {
+    try {
+      console.log(`▶️ Executing n8n workflow manually:`, { workflowId });
+      // Use the workflow execution endpoint - POST /workflows/{id}/run
+      await this.request<void>("POST", `/workflows/${workflowId}/run`);
+      console.log(`✅ n8n workflow execution triggered successfully:`, { workflowId });
+    } catch (error) {
+      console.error(`❌ Error executing n8n workflow:`, {
+        workflowId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw new Error(
+        `Failed to execute n8n workflow: ${error instanceof Error ? error.message : String(error)}`
       );
     }
   }

@@ -29,6 +29,12 @@ service StrategyService {
 
   // Stop a strategy (permanently end)
   rpc StopStrategy(StopStrategyRequest) returns (StopStrategyResponse);
+
+  // Manually trigger prediction generation for a strategy
+  rpc TriggerPredictions(TriggerPredictionsRequest) returns (TriggerPredictionsResponse);
+  
+  // Update strategy privacy (public/private)
+  rpc UpdateStrategyPrivacy(UpdateStrategyPrivacyRequest) returns (UpdateStrategyPrivacyResponse);
 }
 
 // Prediction service for managing stock predictions
@@ -47,7 +53,23 @@ service PredictionService {
 
   // Update prediction action (pending/entered/dismissed)
   rpc UpdatePredictionAction(UpdatePredictionActionRequest) returns (UpdatePredictionActionResponse);
+
+  // Get public predictions (sorted by most recent)
+  rpc GetPublicPredictions(GetPublicPredictionsRequest) returns (GetPublicPredictionsResponse);
+
+  // Update prediction privacy (public/private)
+  rpc UpdatePredictionPrivacy(UpdatePredictionPrivacyRequest) returns (UpdatePredictionPrivacyResponse);
+
+  // Update prediction fields
+  rpc UpdatePrediction(UpdatePredictionRequest) returns (UpdatePredictionResponse);
+
+  // Get current stock prices for symbols
+  rpc GetCurrentPrices(GetCurrentPricesRequest) returns (GetCurrentPricesResponse);
+
+  // Delete a prediction
+  rpc DeletePrediction(DeletePredictionRequest) returns (DeletePredictionResponse);
 }
+
 
 // Strategy status enum
 enum StrategyStatus {
@@ -108,6 +130,9 @@ message Strategy {
   // Timestamps
   google.protobuf.Timestamp created_at = 20;
   google.protobuf.Timestamp updated_at = 21;
+  
+  // Privacy
+  StrategyPrivacy privacy = 22;
 }
 
 // Create Strategy
@@ -198,6 +223,16 @@ message StopStrategyResponse {
   Strategy strategy = 1;
 }
 
+// Trigger Predictions
+message TriggerPredictionsRequest {
+  string id = 1; // Strategy ID
+}
+
+message TriggerPredictionsResponse {
+  bool success = 1;
+  string message = 2; // Status message (e.g., "Predictions generation triggered successfully")
+}
+
 // ============================================================================
 // PREDICTION SERVICE MESSAGES
 // ============================================================================
@@ -217,6 +252,27 @@ enum PredictionStatus {
   PREDICTION_STATUS_HIT_TARGET = 2;
   PREDICTION_STATUS_HIT_STOP = 3;
   PREDICTION_STATUS_EXPIRED = 4;
+}
+
+// Prediction privacy enum
+enum PredictionPrivacy {
+  PREDICTION_PRIVACY_UNSPECIFIED = 0;
+  PREDICTION_PRIVACY_PRIVATE = 1;
+  PREDICTION_PRIVACY_PUBLIC = 2;
+}
+
+// Prediction source enum
+enum PredictionSource {
+  PREDICTION_SOURCE_UNSPECIFIED = 0;
+  PREDICTION_SOURCE_AI = 1;
+  PREDICTION_SOURCE_MANUAL = 2;
+}
+
+// Strategy privacy enum
+enum StrategyPrivacy {
+  STRATEGY_PRIVACY_UNSPECIFIED = 0;
+  STRATEGY_PRIVACY_PRIVATE = 1;
+  STRATEGY_PRIVACY_PUBLIC = 2;
 }
 
 // Prediction message
@@ -244,6 +300,8 @@ message Prediction {
   optional google.protobuf.Timestamp closed_at = 21;
   optional string closed_reason = 22;
   google.protobuf.Timestamp created_at = 23;
+  PredictionPrivacy privacy = 24;
+  PredictionSource source = 25; // AI-generated or manually created
 }
 
 // List Predictions
@@ -290,6 +348,7 @@ message CreatePredictionRequest {
   optional double target_return_pct = 11;
   optional double stop_loss_pct = 12;
   optional RiskLevel risk_level = 13;
+  optional PredictionSource source = 14; // AI-generated or manually created
 }
 
 message CreatePredictionResponse {
@@ -304,4 +363,72 @@ message UpdatePredictionActionRequest {
 
 message UpdatePredictionActionResponse {
   Prediction prediction = 1;
+}
+
+// Get Public Predictions
+message GetPublicPredictionsRequest {
+  optional int32 limit = 1; // Max number of predictions to return (default: 50)
+  optional int32 offset = 2; // Pagination offset (default: 0)
+}
+
+message GetPublicPredictionsResponse {
+  repeated Prediction predictions = 1;
+  int32 total = 2; // Total count of public predictions
+}
+
+// Update Prediction Privacy
+message UpdatePredictionPrivacyRequest {
+  string id = 1;
+  PredictionPrivacy privacy = 2;
+}
+
+message UpdatePredictionPrivacyResponse {
+  Prediction prediction = 1;
+}
+
+// Update Prediction
+message UpdatePredictionRequest {
+  string id = 1;
+  optional string symbol = 2;
+  optional double entry_price = 3;
+  optional double allocated_amount = 4;
+  optional double target_price = 5;
+  optional double stop_loss_price = 6;
+  optional double sentiment_score = 7;
+  optional double overall_score = 8;
+  optional string technical_analysis = 9;
+  optional int32 time_horizon_days = 10;
+  optional RiskLevel risk_level = 11;
+}
+
+message UpdatePredictionResponse {
+  Prediction prediction = 1;
+}
+
+// Update Strategy Privacy
+message UpdateStrategyPrivacyRequest {
+  string id = 1;
+  StrategyPrivacy privacy = 2;
+}
+
+message UpdateStrategyPrivacyResponse {
+  Strategy strategy = 1;
+}
+
+// Get Current Prices
+message GetCurrentPricesRequest {
+  repeated string symbols = 1; // List of stock symbols to fetch prices for
+}
+
+message GetCurrentPricesResponse {
+  map<string, double> prices = 1; // Map of symbol to current price
+}
+
+// Delete Prediction
+message DeletePredictionRequest {
+  string id = 1; // Prediction ID to delete
+}
+
+message DeletePredictionResponse {
+  bool success = 1;
 }

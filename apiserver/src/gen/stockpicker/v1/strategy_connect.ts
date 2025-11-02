@@ -3,7 +3,7 @@
 /* eslint-disable */
 // @ts-nocheck
 
-import { CreatePredictionRequest, CreatePredictionResponse, CreateStrategyRequest, CreateStrategyResponse, DeleteStrategyRequest, DeleteStrategyResponse, GetPredictionRequest, GetPredictionResponse, GetPredictionsBySymbolRequest, GetPredictionsBySymbolResponse, GetStrategyRequest, GetStrategyResponse, ListPredictionsRequest, ListPredictionsResponse, ListStrategiesRequest, ListStrategiesResponse, PauseStrategyRequest, PauseStrategyResponse, StartStrategyRequest, StartStrategyResponse, StopStrategyRequest, StopStrategyResponse, UpdatePredictionActionRequest, UpdatePredictionActionResponse, UpdateStrategyRequest, UpdateStrategyResponse } from "./strategy_pb.js";
+import { CreatePredictionRequest, CreatePredictionResponse, CreateStrategyRequest, CreateStrategyResponse, DeletePredictionRequest, DeletePredictionResponse, DeleteStrategyRequest, DeleteStrategyResponse, GetCurrentPricesRequest, GetCurrentPricesResponse, GetPredictionRequest, GetPredictionResponse, GetPredictionsBySymbolRequest, GetPredictionsBySymbolResponse, GetPublicPredictionsRequest, GetPublicPredictionsResponse, GetStrategyRequest, GetStrategyResponse, ListPredictionsRequest, ListPredictionsResponse, ListStrategiesRequest, ListStrategiesResponse, PauseStrategyRequest, PauseStrategyResponse, StartStrategyRequest, StartStrategyResponse, StopStrategyRequest, StopStrategyResponse, TriggerPredictionsRequest, TriggerPredictionsResponse, UpdatePredictionActionRequest, UpdatePredictionActionResponse, UpdatePredictionPrivacyRequest, UpdatePredictionPrivacyResponse, UpdateStrategyPrivacyRequest, UpdateStrategyPrivacyResponse, UpdateStrategyRequest, UpdateStrategyResponse } from "./strategy_pb.js";
 import { MethodKind } from "@bufbuild/protobuf";
 
 /**
@@ -102,6 +102,28 @@ export const StrategyService = {
       O: StopStrategyResponse,
       kind: MethodKind.Unary,
     },
+    /**
+     * Manually trigger prediction generation for a strategy
+     *
+     * @generated from rpc stockpicker.v1.StrategyService.TriggerPredictions
+     */
+    triggerPredictions: {
+      name: "TriggerPredictions",
+      I: TriggerPredictionsRequest,
+      O: TriggerPredictionsResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * Update strategy privacy (public/private)
+     *
+     * @generated from rpc stockpicker.v1.StrategyService.UpdateStrategyPrivacy
+     */
+    updateStrategyPrivacy: {
+      name: "UpdateStrategyPrivacy",
+      I: UpdateStrategyPrivacyRequest,
+      O: UpdateStrategyPrivacyResponse,
+      kind: MethodKind.Unary,
+    },
   }
 } as const;
 
@@ -166,6 +188,50 @@ export const PredictionService = {
       name: "UpdatePredictionAction",
       I: UpdatePredictionActionRequest,
       O: UpdatePredictionActionResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * Get public predictions (sorted by most recent)
+     *
+     * @generated from rpc stockpicker.v1.PredictionService.GetPublicPredictions
+     */
+    getPublicPredictions: {
+      name: "GetPublicPredictions",
+      I: GetPublicPredictionsRequest,
+      O: GetPublicPredictionsResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * Update prediction privacy (public/private)
+     *
+     * @generated from rpc stockpicker.v1.PredictionService.UpdatePredictionPrivacy
+     */
+    updatePredictionPrivacy: {
+      name: "UpdatePredictionPrivacy",
+      I: UpdatePredictionPrivacyRequest,
+      O: UpdatePredictionPrivacyResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * Get current stock prices for symbols
+     *
+     * @generated from rpc stockpicker.v1.PredictionService.GetCurrentPrices
+     */
+    getCurrentPrices: {
+      name: "GetCurrentPrices",
+      I: GetCurrentPricesRequest,
+      O: GetCurrentPricesResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * Delete a prediction
+     *
+     * @generated from rpc stockpicker.v1.PredictionService.DeletePrediction
+     */
+    deletePrediction: {
+      name: "DeletePrediction",
+      I: DeletePredictionRequest,
+      O: DeletePredictionResponse,
       kind: MethodKind.Unary,
     },
   }

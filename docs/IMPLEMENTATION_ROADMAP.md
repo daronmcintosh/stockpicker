@@ -1,6 +1,6 @@
 # Implementation Roadmap
 
-Step-by-step guide to build the Stock Picker MVP.
+Step-by-step guide to build the StockPicker MVP.
 
 ## Prerequisites
 
@@ -212,7 +212,7 @@ class N8nClient {
         // ... more nodes
       ]
     };
-    
+
     const response = await axios.post(`${N8N_API_URL}/workflows`, workflow, {
       headers: this.getHeaders()
     });
@@ -264,24 +264,24 @@ const db = new Database(process.env.DB_PATH || '/app/db/stockpicker.db');
 router.post('/', async (req, res) => {
   const { name, monthly_budget, frequency, risk_level, custom_prompt, time_horizon } = req.body;
   const id = uuidv4();
-  
+
   // Save to database (calculated fields computed on-demand when needed)
   db.prepare(`
-    INSERT INTO strategies (id, name, custom_prompt, monthly_budget, frequency, 
+    INSERT INTO strategies (id, name, custom_prompt, monthly_budget, frequency,
       risk_level, time_horizon)
     VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).run(id, name, custom_prompt || null, monthly_budget, frequency, 
+  `).run(id, name, custom_prompt || null, monthly_budget, frequency,
     risk_level, time_horizon);
-  
+
   // Create n8n workflow
   try {
     const cronSchedule = calculateCronSchedule(frequency);
     const workflow = await n8nClient.createWorkflow(id, frequency, cronSchedule);
-    
+
     // Store workflow ID in strategy
     db.prepare('UPDATE strategies SET n8n_workflow_id = ? WHERE id = ?')
       .run(workflow.id, id);
-    
+
     res.json({ id, workflow_id: workflow.id, message: 'Strategy created' });
   } catch (error) {
     console.error('Failed to create n8n workflow:', error);
@@ -299,13 +299,13 @@ router.get('/', (req, res) => {
 router.patch('/:id/status', async (req, res) => {
   const { id } = req.params;
   const { status } = req.body;
-  
+
   // Update database
   db.prepare('UPDATE strategies SET status = ? WHERE id = ?').run(status, id);
-  
+
   // Get workflow ID
   const strategy = db.prepare('SELECT n8n_workflow_id FROM strategies WHERE id = ?').get(id);
-  
+
   // Activate/Deactivate workflow
   if (strategy && strategy.n8n_workflow_id) {
     if (status === 'active') {
@@ -314,7 +314,7 @@ router.patch('/:id/status', async (req, res) => {
       await n8nClient.deactivateWorkflow(strategy.n8n_workflow_id);
     }
   }
-  
+
   res.json({ message: 'Status updated' });
 });
 

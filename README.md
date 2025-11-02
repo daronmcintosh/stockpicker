@@ -1,4 +1,4 @@
-# Stock Picker - Always-On Stock Strategy Engine
+# StockPicker - Always-On Stock Strategy Engine
 
 An intelligent, always-on stock trading system built with n8n workflows that continuously analyzes markets and makes periodic trades based on your strategy. Combines technical analysis, sentiment scoring, and analyst ratings.
 
@@ -36,13 +36,13 @@ make init-db
    ```bash
    # Get your n8n API key (required for API access)
    export N8N_API_KEY=your_api_key_here
-   
+
    # Or create a .env file in the repo root:
    # N8N_API_KEY=your_api_key_here
    ```
-   
+
    The apiserver will automatically use `http://localhost:5678` when running locally.
-   
+
    **To get your n8n API key** (see [n8n API docs](https://docs.n8n.io/api/authentication/)):
    1. Open http://localhost:5678
    2. Login with Basic Auth (admin / your password from docker-compose)

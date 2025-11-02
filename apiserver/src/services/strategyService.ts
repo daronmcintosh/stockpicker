@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Timestamp } from "@bufbuild/protobuf";
-import { type StrategyRow, db, statements } from "../db.js";
 import { appConfig } from "../config.js";
+import { type StrategyRow, db, statements } from "../db.js";
 import { StrategyService } from "../gen/stockpicker/v1/strategy_connect.js";
 import {
   type CreateStrategyRequest,
@@ -21,7 +21,12 @@ import {
   type StopStrategyRequest,
   StopStrategyResponse,
   Strategy,
+  StrategyPrivacy,
   StrategyStatus,
+  type TriggerPredictionsRequest,
+  TriggerPredictionsResponse,
+  type UpdateStrategyPrivacyRequest,
+  UpdateStrategyPrivacyResponse,
   type UpdateStrategyRequest,
   UpdateStrategyResponse,
 } from "../gen/stockpicker/v1/strategy_pb.js";
@@ -133,6 +138,42 @@ function protoNameToStrategyStatus(protoName: string): StrategyStatus {
   }
 }
 
+// Helper to safely convert BigInt or number to number
+function toNumber(value: unknown): number {
+  if (value === null || value === undefined) {
+    return 0;
+  }
+  if (typeof value === "bigint") {
+    return Number(value);
+  }
+  if (typeof value === "number") {
+    return value;
+  }
+  if (typeof value === "string") {
+    const parsed = Number.parseFloat(value);
+    return Number.isNaN(parsed) ? 0 : parsed;
+  }
+  return 0;
+}
+
+// Helper to safely convert BigInt or number to integer
+function toInteger(value: unknown): number {
+  if (value === null || value === undefined) {
+    return 0;
+  }
+  if (typeof value === "bigint") {
+    return Number(value);
+  }
+  if (typeof value === "number") {
+    return Math.floor(value);
+  }
+  if (typeof value === "string") {
+    const parsed = Number.parseInt(value, 10);
+    return Number.isNaN(parsed) ? 0 : parsed;
+  }
+  return 0;
+}
+
 // Helper to convert DB row to proto Strategy message
 function dbRowToProtoStrategy(row: StrategyRow): Strategy {
   const strategy = new Strategy({
@@ -140,19 +181,20 @@ function dbRowToProtoStrategy(row: StrategyRow): Strategy {
     name: row.name,
     description: row.description,
     customPrompt: row.custom_prompt,
-    monthlyBudget: row.monthly_budget,
-    currentMonthSpent: row.current_month_spent,
+    monthlyBudget: toNumber(row.monthly_budget),
+    currentMonthSpent: toNumber(row.current_month_spent),
     currentMonthStart: Timestamp.fromDate(new Date(row.current_month_start)),
     timeHorizon: row.time_horizon,
-    targetReturnPct: row.target_return_pct,
+    targetReturnPct: toNumber(row.target_return_pct),
     frequency: protoNameToFrequency(row.frequency),
-    tradesPerMonth: row.trades_per_month,
-    perTradeBudget: row.per_trade_budget,
-    perStockAllocation: row.per_stock_allocation,
+    tradesPerMonth: toInteger(row.trades_per_month),
+    perTradeBudget: toNumber(row.per_trade_budget),
+    perStockAllocation: toNumber(row.per_stock_allocation),
     riskLevel: protoNameToRiskLevel(row.risk_level),
-    uniqueStocksCount: row.unique_stocks_count,
-    maxUniqueStocks: row.max_unique_stocks,
+    uniqueStocksCount: toInteger(row.unique_stocks_count),
+    maxUniqueStocks: toInteger(row.max_unique_stocks),
     status: protoNameToStrategyStatus(row.status),
+    privacy: mapPrivacyFromDb(row.privacy),
     createdAt: Timestamp.fromDate(new Date(row.created_at)),
     updatedAt: Timestamp.fromDate(new Date(row.updated_at)),
   });
@@ -167,9 +209,36 @@ function dbRowToProtoStrategy(row: StrategyRow): Strategy {
   return strategy;
 }
 
+// Helper to map database privacy string to StrategyPrivacy enum
+function mapPrivacyFromDb(privacy: string): StrategyPrivacy {
+  switch (privacy) {
+    case "STRATEGY_PRIVACY_PUBLIC":
+      return StrategyPrivacy.PUBLIC;
+    case "STRATEGY_PRIVACY_PRIVATE":
+      return StrategyPrivacy.PRIVATE;
+    default:
+      return StrategyPrivacy.PRIVATE;
+  }
+}
+
+// Helper to map StrategyPrivacy enum to database string
+function mapPrivacyToDb(privacy: StrategyPrivacy): string {
+  switch (privacy) {
+    case StrategyPrivacy.PUBLIC:
+      return "STRATEGY_PRIVACY_PUBLIC";
+    case StrategyPrivacy.PRIVATE:
+      return "STRATEGY_PRIVACY_PRIVATE";
+    default:
+      return "STRATEGY_PRIVACY_PRIVATE";
+  }
+}
+
 // Strategy service implementation
 export const strategyServiceImpl = {
   async createStrategy(req: CreateStrategyRequest): Promise<CreateStrategyResponse> {
+    const id = randomUUID();
+    let workflowId: string | null = null;
+
     try {
       console.log("📝 Creating strategy:", {
         name: req.name,
@@ -178,11 +247,47 @@ export const strategyServiceImpl = {
         riskLevel: req.riskLevel,
       });
 
-      const id = randomUUID();
+      // Step 1: Create n8n workflow first (external resource)
+      // If this fails, we won't create the strategy at all
+      try {
+        const apiUrl = appConfig.n8n.apiServerUrl;
+        console.log(`📝 Creating n8n workflow for new strategy:`, {
+          strategyId: id,
+          strategyName: req.name,
+          apiUrl,
+        });
+
+        const workflow = await n8nClient.createStrategyWorkflow(
+          id,
+          req.name,
+          req.frequency,
+          apiUrl
+        );
+        workflowId = workflow.id;
+
+        console.log(`✅ n8n workflow created successfully:`, {
+          strategyId: id,
+          workflowId: workflow.id,
+          workflowName: workflow.name,
+        });
+      } catch (error) {
+        console.error("❌ Failed to create n8n workflow - aborting strategy creation:", {
+          strategyId: id,
+          strategyName: req.name,
+          error: error instanceof Error ? error.message : String(error),
+          stack: error instanceof Error ? error.stack : undefined,
+        });
+        throw new Error(
+          `Failed to create n8n workflow: ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
+
+      // Step 2: Now create strategy in database with workflow ID in a transaction
       const now = new Date().toISOString();
       const tradesPerMonth = getTradesPerMonth(req.frequency);
-      const perTradeBudget = req.monthlyBudget / tradesPerMonth;
-      const perStockAllocation = perTradeBudget / 3; // Always 3 stocks per trade
+      // Round to 2 decimal places for monetary values
+      const perTradeBudget = Math.round((req.monthlyBudget / tradesPerMonth) * 100) / 100;
+      const perStockAllocation = Math.round((perTradeBudget / 3) * 100) / 100; // Always 3 stocks per trade
 
       const strategyData = {
         id,
@@ -201,13 +306,12 @@ export const strategyServiceImpl = {
         risk_level: riskLevelToProtoName(req.riskLevel), // Convert enum to proto name string
         unique_stocks_count: 0,
         max_unique_stocks: req.maxUniqueStocks || 20,
-        n8n_workflow_id: null, // Will be set after workflow creation
+        n8n_workflow_id: workflowId, // Use the workflow ID we just created
         status: "STRATEGY_STATUS_PAUSED",
+        privacy: "STRATEGY_PRIVACY_PRIVATE", // Default to private
         created_at: now,
         updated_at: now,
       };
-
-      console.log("💾 Inserting strategy data:", strategyData);
 
       // Prepare parameters array
       const params = [
@@ -229,6 +333,7 @@ export const strategyServiceImpl = {
         strategyData.max_unique_stocks,
         strategyData.n8n_workflow_id,
         strategyData.status,
+        strategyData.privacy,
         strategyData.created_at,
         strategyData.updated_at,
       ];
@@ -239,125 +344,93 @@ export const strategyServiceImpl = {
           current_month_start, time_horizon, target_return_pct, frequency,
           trades_per_month, per_trade_budget, per_stock_allocation, risk_level,
           unique_stocks_count, max_unique_stocks, n8n_workflow_id, status,
-          created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          privacy, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `;
 
-      // Debug logging
-      const placeholderCount = (sql.match(/\?/g) || []).length;
-      const paramCount = params.length;
-      console.log("🔍 DEBUG: SQL placeholder count:", placeholderCount);
-      console.log("🔍 DEBUG: Parameter array length:", paramCount);
-      console.log(
-        "🔍 DEBUG: Parameters:",
-        params.map((p, i) => `[${i}]: ${JSON.stringify(p)} (${typeof p})`).join("\n")
-      );
-
-      // Count columns in INSERT
-      const columnMatch = sql.match(/INSERT INTO strategies\s*\(([^)]+)\)/);
-      const columns = columnMatch ? columnMatch[1].split(",").map((c) => c.trim()) : [];
-      console.log("🔍 DEBUG: Column count in INSERT:", columns.length);
-      console.log("🔍 DEBUG: Columns:", columns);
-
-      // Check actual table schema
+      // Use transaction to ensure atomicity
       try {
-        const tableInfo = await db.all("PRAGMA table_info(strategies)");
-        console.log("🔍 DEBUG: Actual table column count:", tableInfo.length);
-        interface TableColumnInfo {
-          cid: number;
-          name: string;
-          type: string;
-        }
-        console.log(
-          "🔍 DEBUG: Table columns:",
-          (tableInfo as TableColumnInfo[])
-            .map((col) => `${col.cid}: ${col.name} (${col.type})`)
-            .join(", ")
-        );
-      } catch (err) {
-        console.log("🔍 DEBUG: Could not get table info:", err);
-      }
+        // Begin transaction
+        await db.run("BEGIN TRANSACTION");
 
-      try {
+        // Insert strategy
         await db.run(sql, params);
-        console.log("✅ DEBUG: INSERT executed successfully");
+        console.log("✅ Strategy inserted into database");
+
+        // Commit transaction
+        await db.run("COMMIT");
+        console.log("✅ Transaction committed successfully");
       } catch (dbError: unknown) {
-        console.error("❌ DEBUG: Database error details:");
+        // Rollback on any database error
+        try {
+          await db.run("ROLLBACK");
+          console.log("🔄 Transaction rolled back due to database error");
+        } catch (rollbackError) {
+          console.error("❌ Failed to rollback transaction:", rollbackError);
+        }
+
+        // Clean up n8n workflow if database insert failed
+        if (workflowId) {
+          try {
+            console.log(`🧹 Cleaning up n8n workflow after database error:`, { workflowId });
+            await n8nClient.deleteWorkflow(workflowId);
+            console.log(`✅ n8n workflow deleted successfully after rollback`);
+          } catch (cleanupError) {
+            console.error("⚠️ Failed to delete n8n workflow during cleanup:", {
+              workflowId,
+              error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
+            });
+          }
+        }
+
+        console.error("❌ Database error details:");
         if (dbError && typeof dbError === "object") {
           const error = dbError as { code?: unknown; errno?: unknown; message?: unknown };
           console.error("  - Error code:", error.code);
           console.error("  - Error errno:", error.errno);
           console.error("  - Error message:", error.message);
         }
-        console.error("  - SQL:", sql);
-        console.error("  - Params length:", params.length);
-        console.error("  - First 5 params:", params.slice(0, 5));
-        console.error("  - Last 5 params:", params.slice(-5));
         throw dbError;
       }
 
-      // Create n8n workflow for this strategy
-      try {
-        // Use internal Docker service name for n8n workflows to call back to API
-        const apiUrl = appConfig.n8n.apiServerUrl;
-        console.log(`📝 Creating n8n workflow for new strategy:`, {
-          strategyId: id,
-          strategyName: req.name,
-          apiUrl,
-        });
-        
-        const workflow = await n8nClient.createStrategyWorkflow(
-          id,
-          req.name,
-          req.frequency,
-          apiUrl
-        );
-
-        // Store workflow ID in database - use direct query to avoid prepared statement issues
-        const now = new Date().toISOString();
-        console.log("💾 Linking workflow to strategy:", {
-          strategyId: id,
-          workflowId: workflow.id,
-        });
-        await db.run("UPDATE strategies SET n8n_workflow_id = ?, updated_at = ? WHERE id = ?", [
-          workflow.id,
-          now,
-          id,
-        ]);
-
-        console.log(`✅ n8n workflow created and linked successfully:`, {
-          strategyId: id,
-          workflowId: workflow.id,
-          workflowName: workflow.name,
-        });
-      } catch (error) {
-        console.error("⚠️ Failed to create n8n workflow (strategy still created):", {
-          strategyId: id,
-          strategyName: req.name,
-          error: error instanceof Error ? error.message : String(error),
-          stack: error instanceof Error ? error.stack : undefined,
-        });
-        // Continue - strategy is created, workflow can be created later
-      }
-
-      // Fetch the created strategy - use direct query to avoid prepared statement issues
-      console.log("🔍 DEBUG: Fetching created strategy with id:", id);
-      let row: StrategyRow;
-      try {
-        row = (await db.get("SELECT * FROM strategies WHERE id = ?", [id])) as StrategyRow;
-        console.log("🔍 DEBUG: Strategy fetched successfully, columns:", Object.keys(row || {}));
-      } catch (fetchError: unknown) {
-        console.error("❌ DEBUG: Error fetching strategy:", fetchError);
-        if (fetchError && typeof fetchError === "object") {
-          const error = fetchError as { code?: unknown; message?: unknown };
-          console.error("  - Error code:", error.code);
-          console.error("  - Error message:", error.message);
+      // Step 3: Sync workflow active state with strategy status (optional, non-critical)
+      if (strategyData.status === "STRATEGY_STATUS_ACTIVE" && workflowId) {
+        try {
+          console.log(`▶️ Activating workflow to match active strategy status:`, {
+            strategyId: id,
+            workflowId: workflowId,
+          });
+          await n8nClient.activateWorkflow(workflowId);
+          console.log(`✅ Workflow activated to match strategy status:`, {
+            strategyId: id,
+            workflowId: workflowId,
+          });
+        } catch (activateError) {
+          console.error("⚠️ Failed to activate workflow during creation (non-critical):", {
+            strategyId: id,
+            workflowId: workflowId,
+            error: activateError instanceof Error ? activateError.message : String(activateError),
+          });
+          // Continue - workflow is created, activation can be retried later
         }
-        throw fetchError;
+      } else if (workflowId) {
+        console.log(
+          `ℹ️ Workflow remains inactive (matches strategy status ${strategyData.status}):`,
+          {
+            strategyId: id,
+            workflowId: workflowId,
+          }
+        );
       }
+
+      // Fetch the created strategy
+      const row = (await db.get("SELECT * FROM strategies WHERE id = ?", [id])) as StrategyRow;
 
       const strategy = dbRowToProtoStrategy(row);
-      console.log("✅ Strategy created successfully:", id);
+      console.log("✅ Strategy created successfully with workflow:", {
+        strategyId: id,
+        workflowId: workflowId,
+      });
 
       return new CreateStrategyResponse({ strategy });
     } catch (error) {
@@ -524,17 +597,53 @@ export const strategyServiceImpl = {
             workflowId: row.n8n_workflow_id,
           });
           await n8nClient.activateWorkflow(row.n8n_workflow_id);
-          console.log(`✅ n8n workflow activated successfully:`, {
+
+          // Verify workflow is actually active
+          const workflow = await n8nClient.getWorkflow(row.n8n_workflow_id);
+          if (!workflow.active) {
+            console.error(
+              "⚠️ Workflow activation reported success but workflow is still inactive:",
+              {
+                strategyId: req.id,
+                workflowId: row.n8n_workflow_id,
+              }
+            );
+            // Revert strategy status to match workflow state
+            await db.run("UPDATE strategies SET status = ?, updated_at = ? WHERE id = ?", [
+              "STRATEGY_STATUS_PAUSED",
+              now,
+              req.id,
+            ]);
+            throw new Error("Workflow activation failed - strategy status reverted to PAUSED");
+          }
+
+          console.log(`✅ n8n workflow activated successfully and verified:`, {
             strategyId: req.id,
             workflowId: row.n8n_workflow_id,
+            workflowActive: workflow.active,
           });
         } catch (error) {
-          console.error("⚠️ Failed to activate n8n workflow (strategy is still started):", {
+          console.error("⚠️ Failed to activate n8n workflow:", {
             strategyId: req.id,
             workflowId: row.n8n_workflow_id,
             error: error instanceof Error ? error.message : String(error),
           });
-          // Continue - strategy is started, workflow activation can be retried
+          // Revert strategy status to match workflow state (inactive)
+          try {
+            await db.run("UPDATE strategies SET status = ?, updated_at = ? WHERE id = ?", [
+              "STRATEGY_STATUS_PAUSED",
+              now,
+              req.id,
+            ]);
+            console.log(`⚠️ Strategy status reverted to PAUSED to match workflow state:`, {
+              strategyId: req.id,
+            });
+          } catch (revertError) {
+            console.error("❌ Failed to revert strategy status:", revertError);
+          }
+          throw new Error(
+            `Failed to activate workflow: ${error instanceof Error ? error.message : String(error)}`
+          );
         }
       } else {
         console.log(`⚠️ No n8n workflow found for strategy:`, { strategyId: req.id });
@@ -578,9 +687,32 @@ export const strategyServiceImpl = {
             workflowId: row.n8n_workflow_id,
           });
           await n8nClient.deactivateWorkflow(row.n8n_workflow_id);
-          console.log(`✅ n8n workflow deactivated successfully:`, {
+
+          // Verify workflow is actually inactive
+          const workflow = await n8nClient.getWorkflow(row.n8n_workflow_id);
+          if (workflow.active) {
+            console.error(
+              "⚠️ Workflow deactivation reported success but workflow is still active:",
+              {
+                strategyId: req.id,
+                workflowId: row.n8n_workflow_id,
+              }
+            );
+            // Retry deactivation once
+            await n8nClient.deactivateWorkflow(row.n8n_workflow_id);
+            const retryWorkflow = await n8nClient.getWorkflow(row.n8n_workflow_id);
+            if (retryWorkflow.active) {
+              console.error("❌ Workflow still active after retry:", {
+                strategyId: req.id,
+                workflowId: row.n8n_workflow_id,
+              });
+            }
+          }
+
+          console.log(`✅ n8n workflow deactivated successfully and verified:`, {
             strategyId: req.id,
             workflowId: row.n8n_workflow_id,
+            workflowActive: workflow.active,
           });
         } catch (error) {
           console.error("⚠️ Failed to deactivate n8n workflow (strategy is still paused):", {
@@ -631,9 +763,25 @@ export const strategyServiceImpl = {
             workflowId: row.n8n_workflow_id,
           });
           await n8nClient.deactivateWorkflow(row.n8n_workflow_id);
-          console.log(`✅ n8n workflow deactivated successfully:`, {
+
+          // Verify workflow is actually inactive
+          const workflow = await n8nClient.getWorkflow(row.n8n_workflow_id);
+          if (workflow.active) {
+            console.error(
+              "⚠️ Workflow deactivation reported success but workflow is still active:",
+              {
+                strategyId: req.id,
+                workflowId: row.n8n_workflow_id,
+              }
+            );
+            // Retry deactivation once
+            await n8nClient.deactivateWorkflow(row.n8n_workflow_id);
+          }
+
+          console.log(`✅ n8n workflow deactivated successfully and verified:`, {
             strategyId: req.id,
             workflowId: row.n8n_workflow_id,
+            workflowActive: workflow.active,
           });
         } catch (error) {
           console.error("⚠️ Failed to deactivate n8n workflow (strategy is still stopped):", {
@@ -657,5 +805,80 @@ export const strategyServiceImpl = {
       console.error("❌ Error stopping strategy:", error);
       throw error;
     }
+  },
+
+  async triggerPredictions(req: TriggerPredictionsRequest): Promise<TriggerPredictionsResponse> {
+    try {
+      console.log("🎯 Triggering predictions for strategy:", req.id);
+
+      // Get strategy from database
+      const row = (await db.get("SELECT * FROM strategies WHERE id = ?", [req.id])) as
+        | StrategyRow
+        | undefined;
+
+      if (!row) {
+        throw new Error(`Strategy not found: ${req.id}`);
+      }
+
+      // Validate strategy is active
+      if (row.status !== "STRATEGY_STATUS_ACTIVE") {
+        throw new Error(
+          `Cannot trigger predictions for inactive strategy. Current status: ${row.status}`
+        );
+      }
+
+      // Validate workflow exists
+      if (!row.n8n_workflow_id) {
+        throw new Error(
+          `No workflow found for strategy ${req.id}. Strategy may not have been started properly.`
+        );
+      }
+
+      // Execute the n8n workflow manually
+      console.log(`▶️ Executing n8n workflow:`, {
+        strategyId: req.id,
+        workflowId: row.n8n_workflow_id,
+      });
+
+      await n8nClient.executeWorkflow(row.n8n_workflow_id);
+
+      console.log(`✅ Predictions triggered successfully:`, {
+        strategyId: req.id,
+        workflowId: row.n8n_workflow_id,
+      });
+
+      return new TriggerPredictionsResponse({
+        success: true,
+        message: "Prediction generation triggered successfully. Check back in a few moments.",
+      });
+    } catch (error) {
+      console.error("❌ Error triggering predictions:", error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      return new TriggerPredictionsResponse({
+        success: false,
+        message: `Failed to trigger predictions: ${errorMessage}`,
+      });
+    }
+  },
+
+  async updateStrategyPrivacy(
+    req: UpdateStrategyPrivacyRequest
+  ): Promise<UpdateStrategyPrivacyResponse> {
+    const privacyStr = mapPrivacyToDb(req.privacy);
+    await db.run("UPDATE strategies SET privacy = ?, updated_at = ? WHERE id = ?", [
+      privacyStr,
+      new Date().toISOString(),
+      req.id,
+    ]);
+
+    const row = (await db.get("SELECT * FROM strategies WHERE id = ?", [req.id])) as
+      | StrategyRow
+      | undefined;
+    if (!row) {
+      throw new Error(`Strategy not found: ${req.id}`);
+    }
+
+    const strategy = dbRowToProtoStrategy(row);
+    return new UpdateStrategyPrivacyResponse({ strategy });
   },
 };

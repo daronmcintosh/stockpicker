@@ -1,7 +1,7 @@
-import { appConfig } from "./config.js";
 import { createServer } from "node:http";
 import type { ConnectRouter } from "@connectrpc/connect";
 import { connectNodeAdapter } from "@connectrpc/connect-node";
+import { appConfig } from "./config.js";
 import { PredictionService, StrategyService } from "./gen/stockpicker/v1/strategy_connect.js";
 import { predictionServiceImpl } from "./services/predictionService.js";
 import { strategyServiceImpl } from "./services/strategyService.js";
