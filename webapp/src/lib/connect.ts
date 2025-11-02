@@ -47,7 +47,6 @@ function createTransportWithAuth(token?: string) {
     ],
   });
 }
-
 // Create authenticated clients (preferred)
 // Returns both strategy and prediction clients
 export function createClient(token?: string) {

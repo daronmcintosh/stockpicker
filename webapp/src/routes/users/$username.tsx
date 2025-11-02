@@ -4,15 +4,7 @@ import type { User } from "@/gen/stockpicker/v1/strategy_pb";
 import { useAuth } from "@/lib/auth";
 import { createClient } from "@/lib/connect";
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
-import {
-  BarChart3,
-  Edit2,
-  Mail,
-  TrendingUp,
-  UserCheck,
-  UserPlus,
-  Users,
-} from "lucide-react";
+import { BarChart3, Edit2, Mail, TrendingUp, UserCheck, UserPlus, Users } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import toast from "react-hot-toast";
 

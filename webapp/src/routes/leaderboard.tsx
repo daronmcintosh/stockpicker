@@ -176,7 +176,7 @@ function LeaderboardPage() {
       </div>
 
       {/* Current User's Position Banner */}
-      {currentUserEntry && currentUserEntry.user?.username && (
+      {currentUserEntry?.user?.username && (
         <div
           className={`mb-6 p-4 rounded-lg border-2 ${
             isCurrentUser(currentUserEntry.user?.id)
@@ -328,7 +328,9 @@ function LeaderboardPage() {
                     <td className="px-6 py-4 whitespace-nowrap text-center">
                       <span
                         className={`font-semibold ${
-                          (entry.performance?.avgReturn ?? 0) >= 0 ? "text-green-600" : "text-red-600"
+                          (entry.performance?.avgReturn ?? 0) >= 0
+                            ? "text-green-600"
+                            : "text-red-600"
                         }`}
                       >
                         {(entry.performance?.avgReturn ?? 0) >= 0 ? "+" : ""}
