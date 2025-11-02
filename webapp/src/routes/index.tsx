@@ -178,9 +178,9 @@ function Home() {
                 </p>
               </div>
             </div>
-            <div className="mx-auto grid max-w-5xl items-start gap-8 py-12 sm:grid-cols-1 lg:grid-cols-2">
+            <div className="mx-auto grid max-w-5xl items-stretch gap-8 py-12 sm:grid-cols-1 lg:grid-cols-2">
               {/* Free Plan */}
-              <div className="flex flex-col p-6 bg-white rounded-lg shadow-lg transition-shadow hover:shadow-xl border-2 border-transparent hover:border-blue-500">
+              <div className="flex flex-col p-6 bg-white rounded-lg shadow-lg transition-shadow hover:shadow-xl border-2 border-transparent hover:border-blue-500 h-full">
                 <h3 className="text-2xl font-bold">Free</h3>
                 <p className="text-gray-500 mt-2">Perfect for getting started</p>
                 <div className="mt-4 text-4xl font-bold">
@@ -204,14 +204,14 @@ function Home() {
                 </ul>
                 <Link
                   to="/login"
-                  className="mt-8 inline-flex h-10 items-center justify-center rounded-md bg-gray-900 px-8 text-sm font-medium text-gray-50 shadow transition-colors hover:bg-gray-900/90 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gray-950 disabled:pointer-events-none disabled:opacity-50 dark:bg-gray-50 dark:text-gray-900 dark:hover:bg-gray-50/90 dark:focus-visible:ring-gray-300"
+                  className="mt-auto inline-flex h-10 items-center justify-center rounded-md bg-gray-900 px-8 text-sm font-medium text-gray-50 shadow transition-colors hover:bg-gray-900/90 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gray-950 disabled:pointer-events-none disabled:opacity-50 dark:bg-gray-50 dark:text-gray-900 dark:hover:bg-gray-50/90 dark:focus-visible:ring-gray-300"
                 >
                   Sign Up for Free
                 </Link>
               </div>
 
               {/* Paid Plan */}
-              <div className="flex flex-col p-6 bg-white rounded-lg shadow-lg transition-shadow hover:shadow-xl border-2 border-blue-500 relative">
+              <div className="flex flex-col p-6 bg-white rounded-lg shadow-lg transition-shadow hover:shadow-xl border-2 border-blue-500 relative h-full">
                 <h3 className="text-2xl font-bold">Paid</h3>
                 <p className="text-gray-500 mt-2">Unlock full potential</p>
                 <div className="mt-4 text-4xl font-bold">
@@ -241,7 +241,7 @@ function Home() {
                 </ul>
                 <Link
                   to="/login"
-                  className="mt-8 inline-flex h-10 items-center justify-center rounded-md bg-blue-600 px-8 text-sm font-medium text-white shadow transition-colors hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-blue-500 disabled:pointer-events-none disabled:opacity-50"
+                  className="mt-auto inline-flex h-10 items-center justify-center rounded-md bg-blue-600 px-8 text-sm font-medium text-white shadow transition-colors hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-blue-500 disabled:pointer-events-none disabled:opacity-50"
                 >
                   Get Started
                 </Link>

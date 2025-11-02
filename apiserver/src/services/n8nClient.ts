@@ -428,6 +428,42 @@ class N8nClient {
           typeVersion: 2,
           position: [1250, 300],
         },
+        // Budget Exhausted - Log why workflow stopped
+        {
+          parameters: {
+            mode: "runOnceForEachItem",
+            jsCode: `// Log budget exhaustion details
+const strategy = $node['Get Strategy'].json.strategy;
+const currentMonthSpent = strategy.currentMonthSpent || 0;
+const monthlyBudget = strategy.monthlyBudget || 0;
+const remaining = monthlyBudget - currentMonthSpent;
+
+console.log('⚠️ Budget Exhausted:', {
+  strategyId: strategy.id,
+  strategyName: strategy.name,
+  currentMonthSpent: currentMonthSpent,
+  monthlyBudget: monthlyBudget,
+  remaining: remaining,
+  message: remaining <= 0 ? 'No budget remaining' : 'Budget limit reached'
+});
+
+return [{
+  json: {
+    message: 'Budget exhausted - workflow stopped',
+    currentMonthSpent,
+    monthlyBudget,
+    remaining,
+    strategyId: strategy.id,
+    strategyName: strategy.name
+  }
+}];`,
+          },
+          id: "budget-exhausted",
+          name: "Budget Exhausted",
+          type: "n8n-nodes-base.code",
+          typeVersion: 2,
+          position: [1250, 500],
+        },
         // Get Top Stocks from Alpha Vantage
         {
           parameters: {
@@ -650,7 +686,7 @@ return recommendations.map(rec => ({ json: rec }));`,
         "Check Budget": {
           main: [
             [{ node: "Get Top Stocks (Alpha Vantage)", type: "main", index: 0 }],
-            [], // False path - workflow ends
+            [{ node: "Budget Exhausted", type: "main", index: 0 }], // False path - log budget details
           ],
         },
         "Get Top Stocks (Alpha Vantage)": {
