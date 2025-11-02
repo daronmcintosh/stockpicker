@@ -250,18 +250,15 @@ export const strategyServiceImpl = {
       // Step 1: Create n8n workflow first (external resource)
       // If this fails, we won't create the strategy at all
       try {
-        const apiUrl = appConfig.n8n.apiServerUrl;
         console.log(`📝 Creating n8n workflow for new strategy:`, {
           strategyId: id,
           strategyName: req.name,
-          apiUrl,
         });
 
         const workflow = await n8nClient.createStrategyWorkflow(
           id,
           req.name,
-          req.frequency,
-          apiUrl
+          req.frequency
         );
         workflowId = workflow.id;
 

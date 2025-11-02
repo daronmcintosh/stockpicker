@@ -337,64 +337,118 @@ function StrategiesPage() {
           {strategies.map((strategy) => (
             <div
               key={strategy.id}
-              className="bg-white border border-gray-200 rounded-lg p-6 shadow-sm hover:shadow-md transition-shadow cursor-pointer"
+              className="bg-white border border-gray-200 rounded-lg px-5 py-3.5 hover:shadow-md hover:border-gray-300 transition-all cursor-pointer group"
               onClick={() => openDetailDialog(strategy)}
             >
-              <div className="flex justify-between items-start mb-4">
-                <div>
-                  <h2 className="text-xl font-bold mb-2">{strategy.name}</h2>
-                  {strategy.description && (
-                    <p className="text-gray-600 mb-2">{strategy.description}</p>
-                  )}
-                  <div className="flex items-center gap-2">
-                    <StatusBadge status={strategy.status} />
-                    <span className="text-sm text-gray-600">
-                      {predictionCounts[strategy.id] ?? 0} prediction
-                      {predictionCounts[strategy.id] !== 1 ? "s" : ""}
-                    </span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handlePrivacyToggle(strategy.id, strategy.privacy);
-                    }}
-                    disabled={updatingPrivacy === strategy.id}
-                    className="mt-2 inline-flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-full transition-colors border disabled:opacity-50 disabled:cursor-not-allowed"
-                    title={
-                      strategy.privacy === StrategyPrivacy.PUBLIC
-                        ? "Public - Click to make private"
-                        : "Private - Click to make public"
-                    }
-                  >
-                    {updatingPrivacy === strategy.id ? (
-                      <>
-                        <div className="animate-spin rounded-full h-3.5 w-3.5 border-b-2 border-gray-600" />
-                        Updating...
-                      </>
-                    ) : strategy.privacy === StrategyPrivacy.PUBLIC ? (
-                      <>
-                        <Globe className="w-3.5 h-3.5" />
-                        Public
-                      </>
-                    ) : (
-                      <>
-                        <Lock className="w-3.5 h-3.5" />
-                        Private
-                      </>
+              <div className="flex items-center gap-6">
+                {/* Name, Status, and Privacy */}
+                <div className="flex items-center gap-3 min-w-[200px]">
+                  <div className="flex flex-col gap-1">
+                    <div className="flex items-center gap-2">
+                      <h2 className="text-xl font-bold text-gray-900">{strategy.name}</h2>
+                      <StatusBadge status={strategy.status} />
+                    </div>
+                    {strategy.description && (
+                      <p className="text-sm text-gray-600 line-clamp-1">{strategy.description}</p>
                     )}
-                  </button>
+                    <div className="flex items-center gap-2 mt-1">
+                      <span className="text-xs text-gray-600">
+                        {predictionCounts[strategy.id] ?? 0} prediction
+                        {predictionCounts[strategy.id] !== 1 ? "s" : ""}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handlePrivacyToggle(strategy.id, strategy.privacy);
+                        }}
+                        disabled={updatingPrivacy === strategy.id}
+                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors border disabled:opacity-50 disabled:cursor-not-allowed ${
+                          strategy.privacy === StrategyPrivacy.PUBLIC
+                            ? "bg-green-50 text-green-700 border-green-200 hover:bg-green-100"
+                            : "bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100"
+                        }`}
+                        title={
+                          strategy.privacy === StrategyPrivacy.PUBLIC
+                            ? "Public - Click to make private"
+                            : "Private - Click to make public"
+                        }
+                      >
+                        {updatingPrivacy === strategy.id ? (
+                          <>
+                            <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-gray-600" />
+                            Updating...
+                          </>
+                        ) : strategy.privacy === StrategyPrivacy.PUBLIC ? (
+                          <>
+                            <Globe className="w-3 h-3" />
+                            Public
+                          </>
+                        ) : (
+                          <>
+                            <Lock className="w-3 h-3" />
+                            Private
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
                 </div>
-                <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
+
+                {/* Vertical Divider */}
+                <div className="h-12 w-px bg-gray-200" />
+
+                {/* Key Metrics */}
+                <div className="flex items-center gap-8 flex-1">
+                  <div className="min-w-[100px]">
+                    <div className="text-xs text-gray-500 mb-0.5">Monthly Budget</div>
+                    <div className="text-sm font-semibold text-gray-900">
+                      $
+                      {Number(strategy.monthlyBudget).toLocaleString("en-US", {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
+                    </div>
+                  </div>
+                  <div className="min-w-[100px]">
+                    <div className="text-xs text-gray-500 mb-0.5">Spent This Month</div>
+                    <div className="text-sm font-semibold text-gray-900">
+                      $
+                      {Number(strategy.currentMonthSpent).toLocaleString("en-US", {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
+                    </div>
+                  </div>
+                  <div className="min-w-[90px]">
+                    <div className="text-xs text-gray-500 mb-0.5">Time Horizon</div>
+                    <div className="text-sm font-semibold text-gray-900">{strategy.timeHorizon}</div>
+                  </div>
+                  <div className="min-w-[90px]">
+                    <div className="text-xs text-gray-500 mb-0.5">Target Return</div>
+                    <div className="text-sm font-semibold text-green-600">
+                      {Number(strategy.targetReturnPct).toFixed(2)}%
+                    </div>
+                  </div>
+                </div>
+
+                {/* Vertical Divider */}
+                <div className="h-12 w-px bg-gray-200" />
+
+                {/* Action Buttons - Compact Grouped Layout */}
+                <div
+                  className="flex items-center gap-1.5 bg-gray-50 rounded-lg p-1"
+                  onClick={(e) => e.stopPropagation()}
+                >
                   {(strategy.status === StrategyStatus.PAUSED ||
                     strategy.status === StrategyStatus.STOPPED) && (
                     <button
                       type="button"
                       onClick={() => startStrategy(strategy.id)}
-                      className="inline-flex items-center gap-1 px-3 py-1.5 bg-green-600 text-white rounded hover:bg-green-700 transition-colors"
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-medium bg-green-500 text-white hover:bg-green-600 transition-colors"
                       title={strategy.status === StrategyStatus.STOPPED ? "Restart" : "Start"}
                     >
-                      <Play className="w-4 h-4" />
+                      <Play className="w-3.5 h-3.5" />
                       {strategy.status === StrategyStatus.STOPPED ? "Restart" : "Start"}
                     </button>
                   )}
@@ -404,28 +458,28 @@ function StrategiesPage() {
                         type="button"
                         onClick={() => triggerPredictions(strategy.id)}
                         disabled={triggeringStrategy === strategy.id}
-                        className="inline-flex items-center gap-1 px-3 py-1.5 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                        title="Run Predictions Now"
+                        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-medium bg-blue-500 text-white hover:bg-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        title="Generate Predictions"
                       >
                         {triggeringStrategy === strategy.id ? (
                           <>
-                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />
+                            <div className="animate-spin rounded-full h-3.5 w-3.5 border-b-2 border-white" />
                             Generating...
                           </>
                         ) : (
                           <>
-                            <Sparkles className="w-4 h-4" />
-                            Generate Predictions
+                            <Sparkles className="w-3.5 h-3.5" />
+                            Generate
                           </>
                         )}
                       </button>
                       <button
                         type="button"
                         onClick={() => pauseStrategy(strategy.id)}
-                        className="inline-flex items-center gap-1 px-3 py-1.5 bg-yellow-600 text-white rounded hover:bg-yellow-700 transition-colors"
+                        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-medium bg-yellow-500 text-white hover:bg-yellow-600 transition-colors"
                         title="Pause"
                       >
-                        <Pause className="w-4 h-4" />
+                        <Pause className="w-3.5 h-3.5" />
                         Pause
                       </button>
                     </>
@@ -434,10 +488,10 @@ function StrategiesPage() {
                     <button
                       type="button"
                       onClick={() => stopStrategy(strategy.id)}
-                      className="inline-flex items-center gap-1 px-3 py-1.5 bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-medium bg-red-500 text-white hover:bg-red-600 transition-colors"
                       title="Stop"
                     >
-                      <StopCircle className="w-4 h-4" />
+                      <StopCircle className="w-3.5 h-3.5" />
                       Stop
                     </button>
                   )}
@@ -447,65 +501,33 @@ function StrategiesPage() {
                       e.stopPropagation();
                       openEditDialog(strategy);
                     }}
-                    className="inline-flex items-center gap-1 px-3 py-1.5 bg-gray-600 text-white rounded hover:bg-gray-700 transition-colors"
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-medium bg-gray-500 text-white hover:bg-gray-600 transition-colors"
                     title="Edit Strategy"
                   >
-                    <Edit className="w-4 h-4" />
+                    <Edit className="w-3.5 h-3.5" />
                     Edit
                   </button>
                   {strategy.status === StrategyStatus.STOPPED && (
                     <button
                       type="button"
                       onClick={() => openDeleteDialog(strategy.id)}
-                      className="inline-flex items-center gap-1 px-3 py-1.5 bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-medium bg-red-500 text-white hover:bg-red-600 transition-colors"
                       title="Delete"
                     >
-                      <Trash2 className="w-4 h-4" />
+                      <Trash2 className="w-3.5 h-3.5" />
                       Delete
                     </button>
                   )}
                   <Link
                     to="/predictions"
                     search={{ strategy: strategy.id, status: undefined, action: undefined }}
-                    className="inline-flex items-center gap-1 px-3 py-1.5 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-medium bg-blue-500 text-white hover:bg-blue-600 transition-colors"
                     title="View Predictions"
+                    onClick={(e) => e.stopPropagation()}
                   >
-                    <BarChart3 className="w-4 h-4" />
+                    <BarChart3 className="w-3.5 h-3.5" />
                     Predictions
                   </Link>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                <div>
-                  <div className="text-gray-500">Monthly Budget</div>
-                  <div className="font-semibold">
-                    $
-                    {Number(strategy.monthlyBudget).toLocaleString("en-US", {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    })}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-gray-500">Spent This Month</div>
-                  <div className="font-semibold">
-                    $
-                    {Number(strategy.currentMonthSpent).toLocaleString("en-US", {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    })}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-gray-500">Time Horizon</div>
-                  <div className="font-semibold">{strategy.timeHorizon}</div>
-                </div>
-                <div>
-                  <div className="text-gray-500">Target Return</div>
-                  <div className="font-semibold">
-                    {Number(strategy.targetReturnPct).toFixed(2)}%
-                  </div>
                 </div>
               </div>
             </div>
@@ -702,8 +724,10 @@ function StrategiesPage() {
           </div>
         )}
         <DialogFooter>
+          <DialogButton variant="outline" onClick={closeDetailDialog}>
+            Close
+          </DialogButton>
           <DialogButton
-            variant="outline"
             onClick={() => {
               if (selectedStrategyForDetail) {
                 openEditDialog(selectedStrategyForDetail);
@@ -713,9 +737,6 @@ function StrategiesPage() {
           >
             <Edit className="w-4 h-4 mr-2" />
             Edit
-          </DialogButton>
-          <DialogButton variant="outline" onClick={closeDetailDialog}>
-            Close
           </DialogButton>
         </DialogFooter>
       </Dialog>
@@ -893,7 +914,7 @@ function StatusBadge({ status }: { status: StrategyStatus }) {
   const config = statusConfig[status] || statusConfig[StrategyStatus.UNSPECIFIED];
 
   return (
-    <span className={`px-2 py-1 rounded-full text-xs font-semibold ${config.className}`}>
+    <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${config.className}`}>
       {config.label}
     </span>
   );

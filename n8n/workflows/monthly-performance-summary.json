@@ -148,14 +148,15 @@
     },
     {
       "parameters": {
-        "operation": "aggregate",
+        "operation": "concatenateItems",
         "aggregate": "aggregateAllItemData",
-        "options": {}
+        "options": {},
+        "destinationFieldName": "allItems"
       },
       "id": "aggregate-reports",
       "name": "Aggregate Reports",
       "type": "n8n-nodes-base.itemLists",
-      "typeVersion": 3.5,
+      "typeVersion": 3.1,
       "position": [1650, 300]
     },
     {

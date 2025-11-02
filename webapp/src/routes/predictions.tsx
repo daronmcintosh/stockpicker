@@ -88,6 +88,7 @@ function PredictionsPage() {
   });
   const [predictions, setPredictions] = useState<Prediction[]>([]);
   const [loading, setLoading] = useState(true);
+  // Default to "all" unless there's a strategy in the URL
   const [selectedStrategy, setSelectedStrategy] = useState<string>(strategyFromUrl || "all");
   const [strategies, setStrategies] = useState<
     Array<{ id: string; name: string; privacy?: StrategyPrivacy }>
@@ -137,6 +138,9 @@ function PredictionsPage() {
   useEffect(() => {
     if (strategyFromUrl) {
       setSelectedStrategy(strategyFromUrl);
+    } else {
+      // If no strategy in URL, default to "all"
+      setSelectedStrategy("all");
     }
     if (statusFromUrl) {
       setStatusFilter(statusFromUrl);
@@ -159,15 +163,14 @@ function PredictionsPage() {
       }));
       setStrategies(strategiesList);
 
-      // Determine which strategy to use: auto-select first if "all" is selected and no URL param
+      // Auto-select first strategy if only one exists and none is currently selected
       let strategyToUse = selectedStrategy;
-      if (selectedStrategy === "all" && strategiesList.length > 0 && !strategyFromUrl) {
+      if (strategiesList.length === 1 && selectedStrategy === "all" && !strategyFromUrl) {
         strategyToUse = strategiesList[0].id;
-        // Update state and URL
-        setSelectedStrategy(strategyToUse);
+        setSelectedStrategy(strategiesList[0].id);
         navigate({
           search: {
-            strategy: strategyToUse,
+            strategy: strategiesList[0].id,
             status: statusFilter === "all" ? undefined : statusFilter,
             action: actionFilter === "all" ? undefined : actionFilter,
           },
@@ -1512,8 +1515,8 @@ function PredictionCard({
             disabled={isUpdatingAction || prediction.action === PredictionAction.PENDING}
             className={`px-3 py-1.5 rounded text-xs font-medium transition-all ${
               prediction.action === PredictionAction.PENDING
-                ? "bg-yellow-500 text-white shadow-sm font-semibold"
-                : "text-yellow-700 hover:bg-yellow-100"
+                ? "bg-yellow-500 text-white shadow-lg font-bold border-2 border-yellow-600 ring-2 ring-yellow-400 ring-offset-1 scale-105"
+                : "text-yellow-700 hover:bg-yellow-100 border border-transparent"
             } disabled:opacity-50 disabled:cursor-not-allowed`}
             title="Mark as Pending"
           >
@@ -1525,8 +1528,8 @@ function PredictionCard({
             disabled={isUpdatingAction || prediction.action === PredictionAction.ENTERED}
             className={`flex items-center gap-1 px-3 py-1.5 rounded text-xs font-medium transition-all ${
               prediction.action === PredictionAction.ENTERED
-                ? "bg-green-500 text-white shadow-sm font-semibold"
-                : "text-green-700 hover:bg-green-100"
+                ? "bg-green-600 text-white shadow-lg font-bold border-2 border-green-700 ring-2 ring-green-400 ring-offset-1 scale-105"
+                : "text-green-700 hover:bg-green-100 border border-transparent"
             } disabled:opacity-50 disabled:cursor-not-allowed`}
             title="Mark as Entered"
           >
@@ -1539,8 +1542,8 @@ function PredictionCard({
             disabled={isUpdatingAction || prediction.action === PredictionAction.DISMISSED}
             className={`flex items-center gap-1 px-3 py-1.5 rounded text-xs font-medium transition-all ${
               prediction.action === PredictionAction.DISMISSED
-                ? "bg-gray-500 text-white shadow-sm font-semibold"
-                : "text-gray-700 hover:bg-gray-100"
+                ? "bg-gray-600 text-white shadow-lg font-bold border-2 border-gray-700 ring-2 ring-gray-400 ring-offset-1 scale-105"
+                : "text-gray-700 hover:bg-gray-100 border border-transparent"
             } disabled:opacity-50 disabled:cursor-not-allowed`}
             title="Mark as Dismissed"
           >
@@ -1557,7 +1560,7 @@ function PredictionCard({
             handlePrivacyToggle();
           }}
           disabled={isUpdatingPrivacy}
-          className={`p-2 rounded-lg transition-colors border ${
+          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg transition-colors border text-xs font-medium ${
             prediction.privacy === PredictionPrivacy.PUBLIC
               ? "bg-green-50 text-green-700 border-green-200 hover:bg-green-100"
               : "bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100"
@@ -1569,9 +1572,15 @@ function PredictionCard({
           }
         >
           {prediction.privacy === PredictionPrivacy.PUBLIC ? (
-            <Globe className="w-4 h-4" />
+            <>
+              <Globe className="w-3.5 h-3.5" />
+              Public
+            </>
           ) : (
-            <Lock className="w-4 h-4" />
+            <>
+              <Lock className="w-3.5 h-3.5" />
+              Private
+            </>
           )}
         </button>
 
@@ -1583,10 +1592,11 @@ function PredictionCard({
             setDeleteDialogOpen(true);
           }}
           disabled={isDeleting}
-          className="p-2 rounded-lg transition-colors border bg-red-50 text-red-700 border-red-200 hover:bg-red-100 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg transition-colors border bg-red-50 text-red-700 border-red-200 hover:bg-red-100 disabled:opacity-50 disabled:cursor-not-allowed text-xs font-medium"
           title="Delete prediction"
         >
-          <Trash2 className="w-4 h-4" />
+          <Trash2 className="w-3.5 h-3.5" />
+          Delete
         </button>
       </div>
 
@@ -1624,100 +1634,101 @@ function PredictionCard({
         size="lg"
       >
         <div className="space-y-6">
-          {/* Header Section with Status, Privacy, and Source */}
-          <div className="flex items-center gap-4 flex-wrap">
-            <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Status</label>
-              <span
-                className={`inline-block px-3 py-1 rounded-full text-xs font-semibold ${getStatusColor(prediction.status)}`}
-              >
-                {getStatusLabel(prediction.status)}
-              </span>
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Privacy</label>
-              <span
-                className={`inline-block px-3 py-1 rounded-full text-xs font-semibold ${
-                  prediction.privacy === PredictionPrivacy.PUBLIC
-                    ? "bg-green-100 text-green-800"
-                    : "bg-gray-100 text-gray-800"
-                }`}
-              >
-                {prediction.privacy === PredictionPrivacy.PUBLIC ? "Public" : "Private"}
-              </span>
-            </div>
-          </div>
-
-          {strategyName && prediction.strategyId && (
-            <div>
-              <label className="block text-sm font-medium text-gray-500 mb-1">Strategy</label>
-              {strategyPrivacy === StrategyPrivacy.PUBLIC || isStrategyOwned ? (
-                <Link
-                  to="/strategies"
-                  search={{ id: prediction.strategyId }}
-                  onClick={(e) => e.stopPropagation()}
-                  className="inline-flex items-center gap-2 text-sm text-blue-600 hover:text-blue-700 hover:underline"
+          {/* Header Section with Status, Privacy, Action Buttons */}
+          <div className="flex items-center justify-between gap-4 flex-wrap">
+            <div className="flex items-center gap-4 flex-wrap">
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Status</label>
+                <span
+                  className={`inline-block px-3 py-1 rounded-full text-xs font-semibold ${getStatusColor(prediction.status)}`}
                 >
-                  <TrendingUp className="w-4 h-4" />
-                  {strategyName}
-                </Link>
-              ) : (
-                <div className="inline-flex items-center gap-2 text-sm text-gray-500">
-                  <Lock className="w-4 h-4" />
-                  {strategyName} (Private)
+                  {getStatusLabel(prediction.status)}
+                </span>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Privacy</label>
+                <span
+                  className={`inline-block px-3 py-1 rounded-full text-xs font-semibold ${
+                    prediction.privacy === PredictionPrivacy.PUBLIC
+                      ? "bg-green-100 text-green-800"
+                      : "bg-gray-100 text-gray-800"
+                  }`}
+                >
+                  {prediction.privacy === PredictionPrivacy.PUBLIC ? "Public" : "Private"}
+                </span>
+              </div>
+              {strategyName && prediction.strategyId && (
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Strategy</label>
+                  {strategyPrivacy === StrategyPrivacy.PUBLIC || isStrategyOwned ? (
+                    <Link
+                      to="/strategies"
+                      search={{ id: prediction.strategyId }}
+                      onClick={(e) => e.stopPropagation()}
+                      className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 hover:underline"
+                    >
+                      <TrendingUp className="w-3 h-3" />
+                      {strategyName}
+                    </Link>
+                  ) : (
+                    <div className="inline-flex items-center gap-1 text-xs text-gray-500">
+                      <Lock className="w-3 h-3" />
+                      Private
+                    </div>
+                  )}
                 </div>
               )}
             </div>
-          )}
 
-          {/* Compact Action Buttons - Top Right */}
-          <div className="flex items-center justify-end gap-2 -mt-4">
-            <button
-              type="button"
-              onClick={() => handleActionChange(PredictionAction.PENDING)}
-              disabled={isUpdatingAction || prediction.action === PredictionAction.PENDING}
-              className={`flex items-center gap-1 px-2.5 py-1 rounded text-xs font-medium transition-colors ${
-                prediction.action === PredictionAction.PENDING
-                  ? "bg-yellow-500 text-white shadow-sm font-semibold"
-                  : "bg-yellow-50 text-yellow-700 hover:bg-yellow-100"
-              } disabled:opacity-50 disabled:cursor-not-allowed`}
-            >
-              Pending
-            </button>
-            <button
-              type="button"
-              onClick={() => handleActionChange(PredictionAction.ENTERED)}
-              disabled={isUpdatingAction || prediction.action === PredictionAction.ENTERED}
-              className={`flex items-center gap-1 px-2.5 py-1 rounded text-xs font-medium transition-colors ${
-                prediction.action === PredictionAction.ENTERED
-                  ? "bg-green-500 text-white shadow-sm font-semibold"
-                  : "bg-green-50 text-green-700 hover:bg-green-100"
-              } disabled:opacity-50 disabled:cursor-not-allowed`}
-            >
-              <CheckCircle2 className="w-3 h-3" />
-              Entered
-            </button>
-            <button
-              type="button"
-              onClick={() => handleActionChange(PredictionAction.DISMISSED)}
-              disabled={isUpdatingAction || prediction.action === PredictionAction.DISMISSED}
-              className={`flex items-center gap-1 px-2.5 py-1 rounded text-xs font-medium transition-colors ${
-                prediction.action === PredictionAction.DISMISSED
-                  ? "bg-gray-500 text-white shadow-sm font-semibold"
-                  : "bg-gray-50 text-gray-700 hover:bg-gray-100"
-              } disabled:opacity-50 disabled:cursor-not-allowed`}
-            >
-              <XCircle className="w-3 h-3" />
-              Dismissed
-            </button>
+            {/* Action Buttons */}
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => handleActionChange(PredictionAction.PENDING)}
+                disabled={isUpdatingAction || prediction.action === PredictionAction.PENDING}
+                className={`flex items-center gap-1 px-2.5 py-1 rounded text-xs font-medium transition-all ${
+                  prediction.action === PredictionAction.PENDING
+                    ? "bg-yellow-500 text-white shadow-lg font-bold border-2 border-yellow-600 ring-2 ring-yellow-400 ring-offset-1 scale-105"
+                    : "bg-yellow-50 text-yellow-700 hover:bg-yellow-100 border border-transparent"
+                } disabled:opacity-50 disabled:cursor-not-allowed`}
+              >
+                Pending
+              </button>
+              <button
+                type="button"
+                onClick={() => handleActionChange(PredictionAction.ENTERED)}
+                disabled={isUpdatingAction || prediction.action === PredictionAction.ENTERED}
+                className={`flex items-center gap-1 px-2.5 py-1 rounded text-xs font-medium transition-all ${
+                  prediction.action === PredictionAction.ENTERED
+                    ? "bg-green-600 text-white shadow-lg font-bold border-2 border-green-700 ring-2 ring-green-400 ring-offset-1 scale-105"
+                    : "bg-green-50 text-green-700 hover:bg-green-100 border border-transparent"
+                } disabled:opacity-50 disabled:cursor-not-allowed`}
+              >
+                <CheckCircle2 className="w-3 h-3" />
+                Entered
+              </button>
+              <button
+                type="button"
+                onClick={() => handleActionChange(PredictionAction.DISMISSED)}
+                disabled={isUpdatingAction || prediction.action === PredictionAction.DISMISSED}
+                className={`flex items-center gap-1 px-2.5 py-1 rounded text-xs font-medium transition-all ${
+                  prediction.action === PredictionAction.DISMISSED
+                    ? "bg-gray-600 text-white shadow-lg font-bold border-2 border-gray-700 ring-2 ring-gray-400 ring-offset-1 scale-105"
+                    : "bg-gray-50 text-gray-700 hover:bg-gray-100 border border-transparent"
+                } disabled:opacity-50 disabled:cursor-not-allowed`}
+              >
+                <XCircle className="w-3 h-3" />
+                Dismissed
+              </button>
+            </div>
           </div>
 
-          {/* Price Zones Visualization */}
+          {/* Price Levels */}
           <div className="bg-gray-50 rounded-lg p-4 space-y-3">
             <h4 className="text-sm font-semibold text-gray-900 mb-3">Price Levels</h4>
             <div className="space-y-2">
               {/* Target Zone */}
-              <div className="flex items-center justify-between bg-green-50 border-l-4 border-green-500 p-2 rounded">
+              <div className="flex items-center justify-between bg-green-50 border-l-4 border-green-500 p-3 rounded">
                 <div>
                   <div className="text-xs text-gray-600">Target</div>
                   <div className="text-sm font-semibold text-green-700">
@@ -1729,20 +1740,18 @@ function PredictionCard({
                   </div>
                 </div>
                 <div className="text-right">
-                  <div className="text-xs text-gray-600">Gain</div>
+                  <div className="text-xs text-gray-600">Potential Gain</div>
                   <div className="text-sm font-semibold text-green-700">
-                    +$
-                    {((targetPrice - entryPrice) * (allocatedAmount / entryPrice)).toLocaleString(
+                    +${((targetPrice - entryPrice) * (allocatedAmount / entryPrice)).toLocaleString(
                       "en-US",
                       { minimumFractionDigits: 2, maximumFractionDigits: 2 }
-                    )}
+                    )} ({targetReturn.toFixed(2)}%)
                   </div>
-                  <div className="text-xs text-green-600">{targetReturn.toFixed(2)}%</div>
                 </div>
               </div>
 
               {/* Entry Zone */}
-              <div className="flex items-center justify-between bg-yellow-50 border-l-4 border-yellow-500 p-2 rounded">
+              <div className="flex items-center justify-between bg-yellow-50 border-l-4 border-yellow-500 p-3 rounded">
                 <div>
                   <div className="text-xs text-gray-600">Entry</div>
                   <div className="text-sm font-semibold text-yellow-700">
@@ -1780,7 +1789,7 @@ function PredictionCard({
               </div>
 
               {/* Stop Loss Zone */}
-              <div className="flex items-center justify-between bg-red-50 border-l-4 border-red-500 p-2 rounded">
+              <div className="flex items-center justify-between bg-red-50 border-l-4 border-red-500 p-3 rounded">
                 <div>
                   <div className="text-xs text-gray-600">Stop Loss</div>
                   <div className="text-sm font-semibold text-red-700">
@@ -1792,86 +1801,66 @@ function PredictionCard({
                   </div>
                 </div>
                 <div className="text-right">
-                  <div className="text-xs text-gray-600">Loss</div>
+                  <div className="text-xs text-gray-600">Potential Loss</div>
                   <div className="text-sm font-semibold text-red-700">
-                    -$
-                    {stopLossDollarImpact.toLocaleString("en-US", {
+                    -${stopLossDollarImpact.toLocaleString("en-US", {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })} ({stopLossPct.toFixed(2)}%)
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Position & Scores */}
+          <div className="grid grid-cols-2 gap-4">
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <h4 className="text-sm font-semibold text-blue-900 mb-3">Position</h4>
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-blue-600">Shares:</span>
+                  <span className="font-semibold text-blue-900">
+                    {(allocatedAmount / entryPrice).toFixed(2)}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-blue-600">Allocated:</span>
+                  <span className="font-semibold text-blue-900">
+                    $
+                    {allocatedAmount.toLocaleString("en-US", {
                       minimumFractionDigits: 2,
                       maximumFractionDigits: 2,
                     })}
-                  </div>
-                  <div className="text-xs text-red-600">{stopLossPct.toFixed(2)}%</div>
+                  </span>
+                </div>
+              </div>
+            </div>
+            <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+              <h4 className="text-sm font-semibold text-gray-900 mb-3">Scores</h4>
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Sentiment:</span>
+                  <span className="font-semibold text-gray-900">
+                    {sentimentScore.toFixed(1)} / 10
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Overall:</span>
+                  <span className="font-semibold text-gray-900">{overallScore.toFixed(1)} / 10</span>
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Position Sizing */}
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-            <h4 className="text-sm font-semibold text-blue-900 mb-3">Position Details</h4>
-            <div className="grid grid-cols-2 gap-4 text-sm">
-              <div>
-                <div className="text-blue-600 mb-1">Shares</div>
-                <div className="font-semibold text-blue-900">
-                  {(allocatedAmount / entryPrice).toFixed(2)}
-                </div>
-              </div>
-              <div>
-                <div className="text-blue-600 mb-1">Allocated</div>
-                <div className="font-semibold text-blue-900">
-                  $
-                  {allocatedAmount.toLocaleString("en-US", {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2,
-                  })}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-500 mb-1">Time Horizon</label>
-              <div className="text-sm">
-                {prediction.timeHorizonDays && prediction.timeHorizonDays > 0
-                  ? `${prediction.timeHorizonDays} days`
-                  : "N/A"}
-              </div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-500 mb-1">Risk Level</label>
-              <div className="text-sm">
-                {prediction.riskLevel === RiskLevel.LOW
-                  ? "Low"
-                  : prediction.riskLevel === RiskLevel.MEDIUM
-                    ? "Medium"
-                    : prediction.riskLevel === RiskLevel.HIGH
-                      ? "High"
-                      : "Unspecified"}
-              </div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-500 mb-1">
-                Sentiment Score
-              </label>
-              <div className="text-sm">{sentimentScore.toFixed(2)} / 10</div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-500 mb-1">Overall Score</label>
-              <div className="text-sm">{overallScore.toFixed(2)} / 10</div>
-            </div>
-          </div>
-
+          {/* Analysis Notes */}
           {prediction.technicalAnalysis &&
             (() => {
               const source = getPredictionSource(prediction);
               return (
                 <div>
-                  <label className="block text-sm font-medium text-gray-500 mb-1">
-                    {source === "Manual" ? "Your Analysis Notes" : "AI Technical Analysis"}
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    {source === "Manual" ? "Analysis Notes" : "Technical Analysis"}
                   </label>
                   <div
                     className={`text-sm p-3 rounded border max-h-40 overflow-y-auto whitespace-pre-wrap ${
@@ -1885,41 +1874,6 @@ function PredictionCard({
                 </div>
               );
             })()}
-
-          {prediction.evaluationDate && (
-            <div>
-              <label className="block text-sm font-medium text-gray-500 mb-1">
-                Evaluation Date
-              </label>
-              <div className="text-sm">
-                {new Date(Number(prediction.evaluationDate.seconds) * 1000).toLocaleDateString()}
-              </div>
-            </div>
-          )}
-
-          {prediction.closedAt && (
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-500 mb-1">Closed At</label>
-                <div className="text-sm">
-                  {new Date(Number(prediction.closedAt.seconds) * 1000).toLocaleString()}
-                </div>
-              </div>
-              {prediction.closedReason && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-500 mb-1">
-                    Closed Reason
-                  </label>
-                  <div className="text-sm">{prediction.closedReason}</div>
-                </div>
-              )}
-            </div>
-          )}
-
-          <div>
-            <label className="block text-sm font-medium text-gray-500 mb-1">Stop Loss Impact</label>
-            <div className="text-sm text-red-600">${stopLossDollarImpact.toFixed(2)}</div>
-          </div>
         </div>
 
         <DialogFooter>
@@ -1927,7 +1881,6 @@ function PredictionCard({
             Close
           </DialogButton>
           <DialogButton
-            variant="outline"
             onClick={() => {
               if (prediction && onEdit) {
                 onEdit(prediction);
@@ -1939,12 +1892,11 @@ function PredictionCard({
             Edit
           </DialogButton>
           <DialogButton
-            variant="outline"
+            variant="destructive"
             onClick={() => {
               setDetailDialogOpen(false);
               setDeleteDialogOpen(true);
             }}
-            className="bg-red-50 text-red-700 border-red-200 hover:bg-red-100"
           >
             <Trash2 className="w-4 h-4 mr-2" />
             Delete

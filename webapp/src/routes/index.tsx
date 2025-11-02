@@ -3,8 +3,10 @@ import type { Prediction, Strategy } from "@/gen/stockpicker/v1/strategy_pb";
 import {
   Frequency,
   PredictionAction,
+  PredictionPrivacy,
   PredictionStatus,
   RiskLevel,
+  StrategyPrivacy,
   StrategyStatus,
 } from "@/gen/stockpicker/v1/strategy_pb";
 import { predictionClient, strategyClient } from "@/lib/connect";
@@ -16,8 +18,13 @@ import {
   Bot,
   CheckCircle2,
   DollarSign,
+  Edit,
+  Eye,
+  Globe,
+  Lock,
   Pencil,
   Sparkles,
+  Trash2,
   TrendingDown,
   TrendingUp,
   XCircle,
@@ -74,6 +81,65 @@ function toNumber(value: unknown): number {
   return 0;
 }
 
+// Helper to determine prediction source
+function getPredictionSource(prediction: Prediction): "AI" | "Manual" {
+  const source = (prediction as any).source;
+  if (source === 2) return "Manual"; // PREDICTION_SOURCE_MANUAL = 2
+  if (source === 1) return "AI"; // PREDICTION_SOURCE_AI = 1
+  // Fallback: try to detect from technical analysis content
+  if (
+    prediction.technicalAnalysis &&
+    prediction.technicalAnalysis !== "Manual prediction" &&
+    prediction.technicalAnalysis.length > 50
+  ) {
+    return "Manual";
+  }
+  return "AI"; // Default to AI for now
+}
+
+function getStatusColor(status: PredictionStatus) {
+  switch (status) {
+    case PredictionStatus.ACTIVE:
+      return "bg-blue-100 text-blue-800";
+    case PredictionStatus.HIT_TARGET:
+      return "bg-green-100 text-green-800";
+    case PredictionStatus.HIT_STOP:
+      return "bg-red-100 text-red-800";
+    case PredictionStatus.EXPIRED:
+      return "bg-gray-100 text-gray-800";
+    default:
+      return "bg-gray-100 text-gray-800";
+  }
+}
+
+function getStatusLabel(status: PredictionStatus) {
+  switch (status) {
+    case PredictionStatus.ACTIVE:
+      return "Active";
+    case PredictionStatus.HIT_TARGET:
+      return "Hit Target";
+    case PredictionStatus.HIT_STOP:
+      return "Hit Stop Loss";
+    case PredictionStatus.EXPIRED:
+      return "Expired";
+    default:
+      return "Unknown";
+  }
+}
+
+function getActionLabel(action: PredictionAction) {
+  switch (action) {
+    case PredictionAction.PENDING:
+      return "Pending";
+    case PredictionAction.ENTERED:
+      return "Entered";
+    case PredictionAction.DISMISSED:
+      return "Dismissed";
+    default:
+      return "Unspecified";
+  }
+}
+
 function App() {
   const navigate = useNavigate();
   const [activeStrategiesCount, setActiveStrategiesCount] = useState(0);
@@ -93,6 +159,11 @@ function App() {
   const [selectedPrediction, setSelectedPrediction] = useState<Prediction | null>(null);
   const [predictionCounts, setPredictionCounts] = useState<Record<string, number>>({});
   const [currentPrices, setCurrentPrices] = useState<Record<string, number>>({});
+  const [isUpdatingPrivacy, setIsUpdatingPrivacy] = useState(false);
+  const [isUpdatingAction, setIsUpdatingAction] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [loadingPrices, setLoadingPrices] = useState(false);
   const [predictionStats, setPredictionStats] = useState({
     hitTarget: 0,
     hitStop: 0,
@@ -229,12 +300,90 @@ function App() {
     setPredictionDialogOpen(true);
   }
 
+  const handlePrivacyToggle = async () => {
+    if (!selectedPrediction) return;
+    setIsUpdatingPrivacy(true);
+    try {
+      const newPrivacy =
+        selectedPrediction.privacy === PredictionPrivacy.PUBLIC
+          ? PredictionPrivacy.PRIVATE
+          : PredictionPrivacy.PUBLIC;
+
+      await predictionClient.updatePredictionPrivacy({
+        id: selectedPrediction.id,
+        privacy: newPrivacy,
+      });
+
+      toast.success(
+        `Prediction is now ${newPrivacy === PredictionPrivacy.PUBLIC ? "public" : "private"}`
+      );
+
+      // Update selectedPrediction immediately so the dialog reflects the change
+      setSelectedPrediction({
+        ...selectedPrediction,
+        privacy: newPrivacy,
+      });
+
+      // Reload dashboard data to refresh
+      await loadDashboardData();
+    } catch (error) {
+      console.error("Failed to update privacy:", error);
+      toast.error("Failed to update privacy setting");
+    } finally {
+      setIsUpdatingPrivacy(false);
+    }
+  };
+
+  const handleActionChange = async (newAction: PredictionAction) => {
+    if (!selectedPrediction || selectedPrediction.action === newAction) return;
+
+    setIsUpdatingAction(true);
+    try {
+      await predictionClient.updatePredictionAction({
+        id: selectedPrediction.id,
+        action: newAction,
+      });
+
+      toast.success(`Action changed to ${getActionLabel(newAction)}`);
+
+      // Update selectedPrediction immediately so the dialog reflects the change
+      setSelectedPrediction({
+        ...selectedPrediction,
+        action: newAction,
+      });
+
+      // Reload dashboard data to refresh
+      await loadDashboardData();
+    } catch (error) {
+      console.error("Failed to update action:", error);
+      toast.error("Failed to update action");
+    } finally {
+      setIsUpdatingAction(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!selectedPrediction) return;
+    setIsDeleting(true);
+    try {
+      await predictionClient.deletePrediction({ id: selectedPrediction.id });
+      toast.success("Prediction deleted successfully");
+      setDeleteDialogOpen(false);
+      setPredictionDialogOpen(false);
+      // Reload dashboard data to refresh
+      await loadDashboardData();
+    } catch (error) {
+      console.error("Failed to delete prediction:", error);
+      toast.error("Failed to delete prediction");
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  const closedPredictions = predictionStats.hitTarget + predictionStats.hitStop;
   const hitRate =
-    predictionStats.total > 0
-      ? (
-          (predictionStats.hitTarget / (predictionStats.hitTarget + predictionStats.hitStop)) *
-          100
-        ).toFixed(1)
+    closedPredictions > 0
+      ? ((predictionStats.hitTarget / closedPredictions) * 100).toFixed(1)
       : "0.0";
   const budgetRemaining = totalBudget - totalSpent;
   const budgetUtilization = totalBudget > 0 ? ((totalSpent / totalBudget) * 100).toFixed(1) : "0.0";
@@ -755,23 +904,22 @@ function App() {
             <div className="flex items-center gap-2">
               <span>{selectedPrediction.symbol} - Prediction Details</span>
               {(() => {
-                const source = (selectedPrediction as any).source;
-                const isManual = source === 2;
+                const source = getPredictionSource(selectedPrediction);
                 return (
                   <span
                     className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-semibold ${
-                      isManual ? "bg-blue-100 text-blue-800" : "bg-purple-100 text-purple-800"
+                      source === "AI" ? "bg-purple-100 text-purple-800" : "bg-blue-100 text-blue-800"
                     }`}
                   >
-                    {isManual ? (
-                      <>
-                        <Pencil className="w-3 h-3" />
-                        Manual
-                      </>
-                    ) : (
+                    {source === "AI" ? (
                       <>
                         <Bot className="w-3 h-3" />
                         AI Generated
+                      </>
+                    ) : (
+                      <>
+                        <Pencil className="w-3 h-3" />
+                        Manual
                       </>
                     )}
                   </span>
@@ -794,10 +942,14 @@ function App() {
             const entryPrice = toNumber(selectedPrediction.entryPrice);
             const targetPrice = toNumber(selectedPrediction.targetPrice);
             const stopLossPrice = toNumber(selectedPrediction.stopLossPrice);
-            const currentPrice =
-              currentPrices[selectedPrediction.symbol] ??
-              toNumber(selectedPrediction.currentPrice ?? selectedPrediction.entryPrice);
-            const returnPct = ((currentPrice - entryPrice) / entryPrice) * 100;
+            const displayCurrentPrice =
+              currentPrices[selectedPrediction.symbol] !== undefined
+                ? currentPrices[selectedPrediction.symbol]
+                : toNumber(selectedPrediction.currentPrice ?? selectedPrediction.entryPrice);
+            const currentReturn =
+              currentPrices[selectedPrediction.symbol] !== undefined
+                ? ((currentPrices[selectedPrediction.symbol] - entryPrice) / entryPrice) * 100
+                : toNumber(selectedPrediction.currentReturnPct ?? 0);
             const targetReturn = toNumber(selectedPrediction.targetReturnPct);
             const allocatedAmount = toNumber(selectedPrediction.allocatedAmount);
             const sentimentScore = toNumber(selectedPrediction.sentimentScore);
@@ -805,56 +957,110 @@ function App() {
             const stopLossDollarImpact = toNumber(selectedPrediction.stopLossDollarImpact);
             const stopLossPct = toNumber(selectedPrediction.stopLossPct);
             const strategy = allStrategies.find((s) => s.id === selectedPrediction.strategyId);
+            const isStrategyOwned = !!strategy;
+            const strategyPrivacy = strategy?.privacy;
 
             return (
               <div className="space-y-6">
-                {/* Header Section with Status */}
-                <div className="flex items-center gap-4 flex-wrap">
-                  <div>
-                    <label className="block text-xs font-medium text-gray-500 mb-1">Status</label>
-                    <span
-                      className={`inline-block px-3 py-1 rounded-full text-xs font-semibold ${
-                        selectedPrediction.status === PredictionStatus.ACTIVE
-                          ? "bg-blue-100 text-blue-800"
-                          : selectedPrediction.status === PredictionStatus.HIT_TARGET
+                {/* Header Section with Status, Privacy, Action Buttons */}
+                <div className="flex items-center justify-between gap-4 flex-wrap">
+                  <div className="flex items-center gap-4 flex-wrap">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-500 mb-1">Status</label>
+                      <span
+                        className={`inline-block px-3 py-1 rounded-full text-xs font-semibold ${getStatusColor(selectedPrediction.status)}`}
+                      >
+                        {getStatusLabel(selectedPrediction.status)}
+                      </span>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-500 mb-1">Privacy</label>
+                      <span
+                        className={`inline-block px-3 py-1 rounded-full text-xs font-semibold ${
+                          selectedPrediction.privacy === PredictionPrivacy.PUBLIC
                             ? "bg-green-100 text-green-800"
-                            : selectedPrediction.status === PredictionStatus.HIT_STOP
-                              ? "bg-red-100 text-red-800"
-                              : "bg-gray-100 text-gray-800"
-                      }`}
+                            : "bg-gray-100 text-gray-800"
+                        }`}
+                      >
+                        {selectedPrediction.privacy === PredictionPrivacy.PUBLIC ? "Public" : "Private"}
+                      </span>
+                    </div>
+                    {strategy && selectedPrediction.strategyId && (
+                      <div>
+                        <label className="block text-xs font-medium text-gray-500 mb-1">Strategy</label>
+                        {strategyPrivacy === StrategyPrivacy.PUBLIC || isStrategyOwned ? (
+                          <Link
+                            to="/strategies"
+                            search={{ id: selectedPrediction.strategyId }}
+                            onClick={(e) => e.stopPropagation()}
+                            className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 hover:underline"
+                          >
+                            <TrendingUp className="w-3 h-3" />
+                            {strategy.name}
+                          </Link>
+                        ) : (
+                          <div className="inline-flex items-center gap-1 text-xs text-gray-500">
+                            <Lock className="w-3 h-3" />
+                            Private
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Action Buttons */}
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleActionChange(PredictionAction.PENDING)}
+                      disabled={isUpdatingAction || selectedPrediction.action === PredictionAction.PENDING}
+                      className={`flex items-center gap-1 px-2.5 py-1 rounded text-xs font-medium transition-all ${
+                        selectedPrediction.action === PredictionAction.PENDING
+                          ? "bg-yellow-500 text-white shadow-lg font-bold border-2 border-yellow-600 ring-2 ring-yellow-400 ring-offset-1 scale-105"
+                          : "bg-yellow-50 text-yellow-700 hover:bg-yellow-100 border border-transparent"
+                      } disabled:opacity-50 disabled:cursor-not-allowed`}
                     >
-                      {selectedPrediction.status === PredictionStatus.ACTIVE
-                        ? "Active"
-                        : selectedPrediction.status === PredictionStatus.HIT_TARGET
-                          ? "Hit Target"
-                          : selectedPrediction.status === PredictionStatus.HIT_STOP
-                            ? "Hit Stop"
-                            : "Expired"}
-                    </span>
+                      Pending
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleActionChange(PredictionAction.ENTERED)}
+                      disabled={
+                        isUpdatingAction || selectedPrediction.action === PredictionAction.ENTERED
+                      }
+                      className={`flex items-center gap-1 px-2.5 py-1 rounded text-xs font-medium transition-all ${
+                        selectedPrediction.action === PredictionAction.ENTERED
+                          ? "bg-green-600 text-white shadow-lg font-bold border-2 border-green-700 ring-2 ring-green-400 ring-offset-1 scale-105"
+                          : "bg-green-50 text-green-700 hover:bg-green-100 border border-transparent"
+                      } disabled:opacity-50 disabled:cursor-not-allowed`}
+                    >
+                      <CheckCircle2 className="w-3 h-3" />
+                      Entered
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleActionChange(PredictionAction.DISMISSED)}
+                      disabled={
+                        isUpdatingAction || selectedPrediction.action === PredictionAction.DISMISSED
+                      }
+                      className={`flex items-center gap-1 px-2.5 py-1 rounded text-xs font-medium transition-all ${
+                        selectedPrediction.action === PredictionAction.DISMISSED
+                          ? "bg-gray-600 text-white shadow-lg font-bold border-2 border-gray-700 ring-2 ring-gray-400 ring-offset-1 scale-105"
+                          : "bg-gray-50 text-gray-700 hover:bg-gray-100 border border-transparent"
+                      } disabled:opacity-50 disabled:cursor-not-allowed`}
+                    >
+                      <XCircle className="w-3 h-3" />
+                      Dismissed
+                    </button>
                   </div>
                 </div>
 
-                {strategy && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-500 mb-1">Strategy</label>
-                    <Link
-                      to="/strategies"
-                      search={{ id: selectedPrediction.strategyId }}
-                      onClick={(e) => e.stopPropagation()}
-                      className="inline-flex items-center gap-2 text-sm text-blue-600 hover:text-blue-700 hover:underline"
-                    >
-                      <TrendingUp className="w-4 h-4" />
-                      {strategy.name}
-                    </Link>
-                  </div>
-                )}
-
-                {/* Price Zones Visualization */}
+                {/* Price Levels */}
                 <div className="bg-gray-50 rounded-lg p-4 space-y-3">
                   <h4 className="text-sm font-semibold text-gray-900 mb-3">Price Levels</h4>
                   <div className="space-y-2">
                     {/* Target Zone */}
-                    <div className="flex items-center justify-between bg-green-50 border-l-4 border-green-500 p-2 rounded">
+                    <div className="flex items-center justify-between bg-green-50 border-l-4 border-green-500 p-3 rounded">
                       <div>
                         <div className="text-xs text-gray-600">Target</div>
                         <div className="text-sm font-semibold text-green-700">
@@ -866,23 +1072,18 @@ function App() {
                         </div>
                       </div>
                       <div className="text-right">
-                        <div className="text-xs text-gray-600">Gain</div>
+                        <div className="text-xs text-gray-600">Potential Gain</div>
                         <div className="text-sm font-semibold text-green-700">
-                          +$
-                          {(
-                            (targetPrice - entryPrice) *
-                            (allocatedAmount / entryPrice)
-                          ).toLocaleString("en-US", {
-                            minimumFractionDigits: 2,
-                            maximumFractionDigits: 2,
-                          })}
+                          +${((targetPrice - entryPrice) * (allocatedAmount / entryPrice)).toLocaleString(
+                            "en-US",
+                            { minimumFractionDigits: 2, maximumFractionDigits: 2 }
+                          )} ({targetReturn.toFixed(2)}%)
                         </div>
-                        <div className="text-xs text-green-600">{targetReturn.toFixed(2)}%</div>
                       </div>
                     </div>
 
                     {/* Entry Zone */}
-                    <div className="flex items-center justify-between bg-yellow-50 border-l-4 border-yellow-500 p-2 rounded">
+                    <div className="flex items-center justify-between bg-yellow-50 border-l-4 border-yellow-500 p-3 rounded">
                       <div>
                         <div className="text-xs text-gray-600">Entry</div>
                         <div className="text-sm font-semibold text-yellow-700">
@@ -897,26 +1098,30 @@ function App() {
                         <div className="text-xs text-gray-600">Current</div>
                         <div
                           className={`text-sm font-semibold ${
-                            returnPct >= 0 ? "text-green-600" : "text-red-600"
+                            loadingPrices
+                              ? "text-gray-400"
+                              : currentReturn >= 0
+                                ? "text-green-600"
+                                : "text-red-600"
                           }`}
                         >
-                          $
-                          {currentPrice.toLocaleString("en-US", {
-                            minimumFractionDigits: 2,
-                            maximumFractionDigits: 2,
-                          })}
+                          {loadingPrices
+                            ? "Loading..."
+                            : `$${displayCurrentPrice.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
                         </div>
-                        <div
-                          className={`text-xs ${returnPct >= 0 ? "text-green-600" : "text-red-600"}`}
-                        >
-                          {returnPct >= 0 ? "+" : ""}
-                          {returnPct.toFixed(2)}%
-                        </div>
+                        {!loadingPrices && (
+                          <div
+                            className={`text-xs ${currentReturn >= 0 ? "text-green-600" : "text-red-600"}`}
+                          >
+                            {currentReturn >= 0 ? "+" : ""}
+                            {currentReturn.toFixed(2)}%
+                          </div>
+                        )}
                       </div>
                     </div>
 
                     {/* Stop Loss Zone */}
-                    <div className="flex items-center justify-between bg-red-50 border-l-4 border-red-500 p-2 rounded">
+                    <div className="flex items-center justify-between bg-red-50 border-l-4 border-red-500 p-3 rounded">
                       <div>
                         <div className="text-xs text-gray-600">Stop Loss</div>
                         <div className="text-sm font-semibold text-red-700">
@@ -928,118 +1133,79 @@ function App() {
                         </div>
                       </div>
                       <div className="text-right">
-                        <div className="text-xs text-gray-600">Loss</div>
+                        <div className="text-xs text-gray-600">Potential Loss</div>
                         <div className="text-sm font-semibold text-red-700">
-                          -$
-                          {stopLossDollarImpact.toLocaleString("en-US", {
+                          -${stopLossDollarImpact.toLocaleString("en-US", {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                          })} ({stopLossPct.toFixed(2)}%)
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Position & Scores */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                    <h4 className="text-sm font-semibold text-blue-900 mb-3">Position</h4>
+                    <div className="space-y-2 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-blue-600">Shares:</span>
+                        <span className="font-semibold text-blue-900">
+                          {(allocatedAmount / entryPrice).toFixed(2)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-blue-600">Allocated:</span>
+                        <span className="font-semibold text-blue-900">
+                          $
+                          {allocatedAmount.toLocaleString("en-US", {
                             minimumFractionDigits: 2,
                             maximumFractionDigits: 2,
                           })}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                    <h4 className="text-sm font-semibold text-gray-900 mb-3">Scores</h4>
+                    <div className="space-y-2 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Sentiment:</span>
+                        <span className="font-semibold text-gray-900">
+                          {sentimentScore.toFixed(1)} / 10
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Overall:</span>
+                        <span className="font-semibold text-gray-900">{overallScore.toFixed(1)} / 10</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Analysis Notes */}
+                {selectedPrediction.technicalAnalysis &&
+                  (() => {
+                    const source = getPredictionSource(selectedPrediction);
+                    return (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          {source === "Manual" ? "Analysis Notes" : "Technical Analysis"}
+                        </label>
+                        <div
+                          className={`text-sm p-3 rounded border max-h-40 overflow-y-auto whitespace-pre-wrap ${
+                            source === "Manual"
+                              ? "bg-blue-50 border-blue-200"
+                              : "bg-gray-50 border-gray-200"
+                          }`}
+                        >
+                          {selectedPrediction.technicalAnalysis}
                         </div>
-                        <div className="text-xs text-red-600">{stopLossPct.toFixed(2)}%</div>
                       </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Position Sizing */}
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                  <h4 className="text-sm font-semibold text-blue-900 mb-3">Position Details</h4>
-                  <div className="grid grid-cols-2 gap-4 text-sm">
-                    <div>
-                      <div className="text-blue-600 mb-1">Shares</div>
-                      <div className="font-semibold text-blue-900">
-                        {(allocatedAmount / entryPrice).toFixed(2)}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-blue-600 mb-1">Allocated</div>
-                      <div className="font-semibold text-blue-900">
-                        $
-                        {allocatedAmount.toLocaleString("en-US", {
-                          minimumFractionDigits: 2,
-                          maximumFractionDigits: 2,
-                        })}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-500 mb-1">
-                      Time Horizon
-                    </label>
-                    <div className="text-sm">
-                      {selectedPrediction.timeHorizonDays && selectedPrediction.timeHorizonDays > 0
-                        ? `${selectedPrediction.timeHorizonDays} days`
-                        : "N/A"}
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-500 mb-1">
-                      Risk Level
-                    </label>
-                    <div className="text-sm">
-                      {selectedPrediction.riskLevel === RiskLevel.LOW
-                        ? "Low"
-                        : selectedPrediction.riskLevel === RiskLevel.MEDIUM
-                          ? "Medium"
-                          : selectedPrediction.riskLevel === RiskLevel.HIGH
-                            ? "High"
-                            : "Unspecified"}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-500 mb-1">
-                      Sentiment Score
-                    </label>
-                    <div className="text-sm">{sentimentScore.toFixed(2)} / 10</div>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-500 mb-1">
-                      Overall Score
-                    </label>
-                    <div className="text-sm">{overallScore.toFixed(2)} / 10</div>
-                  </div>
-                </div>
-
-                {selectedPrediction.technicalAnalysis && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-500 mb-1">
-                      {(() => {
-                        const source = (selectedPrediction as any).source;
-                        return source === 2 ? "Your Analysis Notes" : "AI Technical Analysis";
-                      })()}
-                    </label>
-                    <div
-                      className={`text-sm p-3 rounded border max-h-40 overflow-y-auto whitespace-pre-wrap ${(() => {
-                        const source = (selectedPrediction as any).source;
-                        return source === 2
-                          ? "bg-blue-50 border-blue-200"
-                          : "bg-gray-50 border-gray-200";
-                      })()}`}
-                    >
-                      {selectedPrediction.technicalAnalysis}
-                    </div>
-                  </div>
-                )}
-
-                {selectedPrediction.evaluationDate && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-500 mb-1">
-                      Evaluation Date
-                    </label>
-                    <div className="text-sm">
-                      {new Date(
-                        Number(selectedPrediction.evaluationDate.seconds) * 1000
-                      ).toLocaleDateString()}
-                    </div>
-                  </div>
-                )}
+                    );
+                  })()}
               </div>
             );
           })()}
@@ -1048,13 +1214,53 @@ function App() {
             Close
           </DialogButton>
           <DialogButton
-            variant="default"
             onClick={() => {
-              setPredictionDialogOpen(false);
-              navigate({ to: "/predictions" });
+              if (selectedPrediction) {
+                navigate({
+                  to: "/predictions",
+                  search: { strategy: selectedPrediction.strategyId },
+                });
+                setPredictionDialogOpen(false);
+              }
             }}
           >
+            <Eye className="w-4 h-4 mr-2" />
             View Full Details
+          </DialogButton>
+          <DialogButton
+            variant="destructive"
+            onClick={() => {
+              setPredictionDialogOpen(false);
+              setDeleteDialogOpen(true);
+            }}
+          >
+            <Trash2 className="w-4 h-4 mr-2" />
+            Delete
+          </DialogButton>
+        </DialogFooter>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog
+        open={deleteDialogOpen}
+        onOpenChange={setDeleteDialogOpen}
+        title="Delete Prediction"
+        description={
+          selectedPrediction
+            ? `Are you sure you want to delete the prediction for ${selectedPrediction.symbol}? This action cannot be undone.`
+            : "Are you sure you want to delete this prediction? This action cannot be undone."
+        }
+      >
+        <DialogFooter>
+          <DialogButton variant="outline" onClick={() => setDeleteDialogOpen(false)}>
+            Cancel
+          </DialogButton>
+          <DialogButton
+            onClick={handleDelete}
+            disabled={isDeleting}
+            className="bg-red-600 text-white hover:bg-red-700"
+          >
+            {isDeleting ? "Deleting..." : "Delete"}
           </DialogButton>
         </DialogFooter>
       </Dialog>

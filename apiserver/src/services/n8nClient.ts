@@ -1,6 +1,40 @@
 import { appConfig } from "../config.js";
 import { Frequency } from "../gen/stockpicker/v1/strategy_pb.js";
 
+/**
+ * Replace $env.API_URL placeholders with actual API URL
+ * Since n8n env vars aren't reliable, we inject the URL directly into the workflow
+ */
+function injectApiUrl(workflow: N8nWorkflow): N8nWorkflow {
+  const apiUrl = appConfig.n8n.apiServerUrl || "http://apiserver:3000";
+  
+  // Deep clone to avoid mutating original
+  const processed = JSON.parse(JSON.stringify(workflow));
+  
+  // Recursively replace $env.API_URL expressions with actual URL
+  function replaceEnvVars(obj: unknown): unknown {
+    if (typeof obj === "string") {
+      // Replace n8n expression syntax: {{ $env.API_URL }} or ={{ $env.API_URL }}
+      // Replace with just the URL value (no expression, since we're hardcoding it)
+      return obj.replace(/\{\{\s*\$env\.API_URL\s*\}\}/g, apiUrl)
+                .replace(/=\{\{\s*\$env\.API_URL\s*\}\}/g, apiUrl);
+    }
+    if (Array.isArray(obj)) {
+      return obj.map(replaceEnvVars);
+    }
+    if (obj !== null && typeof obj === "object") {
+      const result: Record<string, unknown> = {};
+      for (const [key, value] of Object.entries(obj)) {
+        result[key] = replaceEnvVars(value);
+      }
+      return result;
+    }
+    return obj;
+  }
+  
+  return replaceEnvVars(processed) as N8nWorkflow;
+}
+
 // Helper to get auth headers (n8n API requires X-N8N-API-KEY header)
 // See: https://docs.n8n.io/api/authentication/
 function getAuthHeaders(): Record<string, string> {
@@ -69,6 +103,10 @@ interface N8nWorkflowResponse {
   id: string;
   name: string;
   active: boolean;
+}
+
+interface N8nFullWorkflow extends N8nWorkflow {
+  id: string;
 }
 
 class N8nClient {
@@ -147,8 +185,7 @@ class N8nClient {
   async createStrategyWorkflow(
     strategyId: string,
     strategyName: string,
-    frequency: Frequency,
-    apiUrl: string
+    frequency: Frequency
   ): Promise<N8nWorkflowResponse> {
     const cronExpression = frequencyToCron(frequency);
     const frequencyName = frequencyToName(frequency);
@@ -188,7 +225,7 @@ class N8nClient {
         // Get Strategy - uses hardcoded strategyId (each workflow is 1:1 with a strategy)
         {
           parameters: {
-            url: `${apiUrl}/stockpicker.v1.StrategyService/GetStrategy`,
+            url: "={{ $env.API_URL }}/stockpicker.v1.StrategyService/GetStrategy",
             method: "POST",
             sendHeaders: true,
             headerParameters: {
@@ -253,7 +290,7 @@ class N8nClient {
         // Get Active Predictions for budget check
         {
           parameters: {
-            url: `${apiUrl}/stockpicker.v1.PredictionService/ListPredictions`,
+            url: "={{ $env.API_URL }}/stockpicker.v1.PredictionService/ListPredictions",
             method: "POST",
             sendHeaders: true,
             headerParameters: {
@@ -453,7 +490,7 @@ return recommendations.map(rec => ({ json: rec }));`,
           id: "sort-by-score",
           name: "Sort by Score",
           type: "n8n-nodes-base.itemLists",
-          typeVersion: 3.5,
+          typeVersion: 3.1,
           position: [2050, 300],
         },
         // Take Top 3 for predictions (but workflow output includes all 10)
@@ -465,13 +502,13 @@ return recommendations.map(rec => ({ json: rec }));`,
           id: "take-top-3",
           name: "Take Top 3",
           type: "n8n-nodes-base.itemLists",
-          typeVersion: 3.5,
+          typeVersion: 3.1,
           position: [2250, 300],
         },
         // Prepare Prediction
         {
           parameters: {
-            mode: "iterate",
+            mode: "raw",
             assignments: {
               assignments: [
                 {
@@ -492,7 +529,7 @@ return recommendations.map(rec => ({ json: rec }));`,
         // Create Prediction
         {
           parameters: {
-            url: `${apiUrl}/stockpicker.v1.PredictionService/CreatePrediction`,
+            url: "={{ $env.API_URL }}/stockpicker.v1.PredictionService/CreatePrediction",
             method: "POST",
             sendHeaders: true,
             headerParameters: {
@@ -572,6 +609,9 @@ return recommendations.map(rec => ({ json: rec }));`,
     };
 
     try {
+      // Inject API URL directly instead of relying on $env.API_URL
+      const workflowWithApiUrl = injectApiUrl(workflow);
+      
       console.log(`📝 Creating n8n workflow for strategy:`, {
         strategyId,
         strategyName,
@@ -579,8 +619,9 @@ return recommendations.map(rec => ({ json: rec }));`,
         cronExpression: frequencyToCron(frequency),
         workflowName: workflow.name,
         nodeCount: workflow.nodes.length,
+        apiUrl: appConfig.n8n.apiServerUrl,
       });
-      const response = await this.request<N8nWorkflowResponse>("POST", "/workflows", workflow);
+      const response = await this.request<N8nWorkflowResponse>("POST", "/workflows", workflowWithApiUrl);
       console.log(`✅ n8n workflow created successfully:`, {
         workflowId: response.id,
         workflowName: response.name,
@@ -643,8 +684,7 @@ return recommendations.map(rec => ({ json: rec }));`,
     workflowId: string,
     strategyId: string,
     strategyName: string,
-    frequency: Frequency,
-    _apiUrl: string
+    frequency: Frequency
   ): Promise<N8nWorkflowResponse> {
     const frequencyName = frequencyToName(frequency);
 
@@ -739,7 +779,30 @@ return recommendations.map(rec => ({ json: rec }));`,
   }
 
   /**
-   * Get a workflow by ID
+   * List all workflows
+   */
+  async listWorkflows(silent = false): Promise<N8nWorkflowResponse[]> {
+    try {
+      if (!silent) {
+        console.log(`🔍 Listing all n8n workflows`);
+      }
+      const response = await this.request<{ data: N8nWorkflowResponse[] }>("GET", `/workflows`);
+      if (!silent) {
+        console.log(`✅ Retrieved ${response.data.length} workflows`);
+      }
+      return response.data;
+    } catch (error) {
+      console.error(`❌ Error listing n8n workflows:`, {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw new Error(
+        `Failed to list n8n workflows: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
+
+  /**
+   * Get a workflow by ID (returns minimal info)
    */
   async getWorkflow(workflowId: string): Promise<N8nWorkflowResponse> {
     try {
@@ -758,6 +821,98 @@ return recommendations.map(rec => ({ json: rec }));`,
       });
       throw new Error(
         `Failed to get n8n workflow: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
+
+  /**
+   * Get full workflow details including nodes and connections
+   */
+  async getFullWorkflow(workflowId: string): Promise<N8nFullWorkflow> {
+    try {
+      console.log(`🔍 Getting full n8n workflow:`, { workflowId });
+      const response = await this.request<N8nFullWorkflow>("GET", `/workflows/${workflowId}`);
+      console.log(`✅ Retrieved full n8n workflow:`, {
+        workflowId: response.id,
+        workflowName: response.name,
+        active: response.active,
+        nodeCount: Array.isArray(response.nodes) ? response.nodes.length : 0,
+      });
+      return response;
+    } catch (error) {
+      console.error(`❌ Error getting full n8n workflow:`, {
+        workflowId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw new Error(
+        `Failed to get full n8n workflow: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
+
+  /**
+   * Create a workflow from a full workflow object (used for syncing from JSON files)
+   */
+  async createWorkflow(workflow: N8nWorkflow): Promise<N8nWorkflowResponse> {
+    try {
+      // Inject API URL directly instead of relying on $env.API_URL
+      const workflowWithApiUrl = injectApiUrl(workflow);
+      
+      console.log(`📝 Creating n8n workflow from JSON:`, {
+        name: workflow.name,
+        nodeCount: Array.isArray(workflow.nodes) ? workflow.nodes.length : 0,
+        apiUrl: appConfig.n8n.apiServerUrl,
+      });
+      const response = await this.request<N8nWorkflowResponse>("POST", "/workflows", workflowWithApiUrl);
+      console.log(`✅ n8n workflow created successfully:`, {
+        workflowId: response.id,
+        workflowName: response.name,
+        active: response.active,
+      });
+      return response;
+    } catch (error) {
+      console.error("❌ Error creating n8n workflow:", {
+        name: workflow.name,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw new Error(
+        `Failed to create n8n workflow: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
+
+  /**
+   * Update a full workflow (replaces entire workflow with new content)
+   */
+  async updateFullWorkflow(
+    workflowId: string,
+    workflow: Partial<N8nWorkflow> & { id: string }
+  ): Promise<N8nWorkflowResponse> {
+    try {
+      console.log(`📝 Updating full n8n workflow:`, {
+        workflowId,
+        name: workflow.name,
+        nodeCount: Array.isArray(workflow.nodes) ? workflow.nodes.length : undefined,
+      });
+      // Use PUT to replace the entire workflow
+      const response = await this.request<N8nWorkflowResponse>(
+        "PUT",
+        `/workflows/${workflowId}`,
+        workflow
+      );
+      console.log(`✅ n8n workflow updated successfully:`, {
+        workflowId: response.id,
+        workflowName: response.name,
+        active: response.active,
+      });
+      return response;
+    } catch (error) {
+      console.error(`❌ Error updating full n8n workflow:`, {
+        workflowId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw new Error(
+        `Failed to update full n8n workflow: ${error instanceof Error ? error.message : String(error)}`
       );
     }
   }
