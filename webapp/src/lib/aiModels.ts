@@ -4,94 +4,58 @@
 export interface AIModel {
   id: string;
   name: string;
-  provider: "openai" | "anthropic" | "google" | "xai" | "deepseek" | "ollama";
+  provider: "openai" | "anthropic" | "google" | "xai" | "deepseek" | "qwen";
   description: string;
 }
 
 export const AVAILABLE_AI_MODELS: AIModel[] = [
   {
-    id: "gpt-4o",
-    name: "GPT-4o",
+    id: "gpt-5",
+    name: "GPT 5",
     provider: "openai",
-    description: "OpenAI's most advanced model",
+    description: "OpenAI's latest advanced model",
   },
   {
-    id: "gpt-4o-mini",
-    name: "GPT-4o Mini",
-    provider: "openai",
-    description: "Fast and efficient OpenAI model",
-  },
-  {
-    id: "gpt-4-turbo",
-    name: "GPT-4 Turbo",
-    provider: "openai",
-    description: "Previous generation OpenAI model",
-  },
-  {
-    id: "claude-3-opus",
-    name: "Claude 3 Opus",
+    id: "claude-sonnet-4.5",
+    name: "Claude Sonnet 4.5",
     provider: "anthropic",
-    description: "Anthropic's most capable model",
+    description: "Anthropic's Claude Sonnet 4.5 model",
   },
   {
-    id: "claude-3-sonnet",
-    name: "Claude 3 Sonnet",
+    id: "claude-haiku-4.5",
+    name: "Haiku 4.5",
     provider: "anthropic",
-    description: "Anthropic's balanced model",
+    description: "Anthropic's Claude Haiku 4.5 model",
   },
   {
-    id: "claude-3-haiku",
-    name: "Claude 3 Haiku",
-    provider: "anthropic",
-    description: "Anthropic's fastest model",
-  },
-  {
-    id: "claude-3-5-sonnet",
-    name: "Claude 3.5 Sonnet",
-    provider: "anthropic",
-    description: "Anthropic's latest advanced model",
-  },
-  {
-    id: "deepseek-chat",
-    name: "DeepSeek Chat",
-    provider: "deepseek",
-    description: "DeepSeek's advanced language model",
-  },
-  {
-    id: "deepseek-coder",
-    name: "DeepSeek Coder",
-    provider: "deepseek",
-    description: "DeepSeek's code-specialized model",
-  },
-  {
-    id: "ollama-llama3",
-    name: "Ollama Llama 3",
-    provider: "ollama",
-    description: "Meta's Llama 3 via Ollama",
-  },
-  {
-    id: "ollama-mistral",
-    name: "Ollama Mistral",
-    provider: "ollama",
-    description: "Mistral AI model via Ollama",
-  },
-  {
-    id: "gemini-pro",
-    name: "Gemini Pro",
+    id: "gemini-2.5-pro",
+    name: "Gemini 2.5 Pro",
     provider: "google",
-    description: "Google's Gemini Pro model",
+    description: "Google's Gemini 2.5 Pro model",
   },
   {
-    id: "gemini-ultra",
-    name: "Gemini Ultra",
+    id: "gemini-2.5-flash",
+    name: "Gemini 2.5 Flash",
     provider: "google",
-    description: "Google's most advanced Gemini model",
+    description: "Google's Gemini 2.5 Flash model",
   },
   {
-    id: "grok-beta",
-    name: "Grok Beta",
+    id: "grok-4",
+    name: "Grok 4",
     provider: "xai",
-    description: "xAI's Grok model",
+    description: "xAI's Grok 4 model",
+  },
+  {
+    id: "deepseek-chat-v3.1",
+    name: "DeepSeek Chat V3.1",
+    provider: "deepseek",
+    description: "DeepSeek's Chat V3.1 model",
+  },
+  {
+    id: "qwen3-max",
+    name: "Qwen3 Max",
+    provider: "qwen",
+    description: "Qwen3 Max model",
   },
 ];
 

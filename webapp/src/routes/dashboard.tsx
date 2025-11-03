@@ -3,6 +3,7 @@ import {
   DashboardPredictionDetailDialog,
   DashboardStats,
   RecentPredictions,
+  StrategyAccountValueChart,
 } from "@/components/dashboard";
 import { toNumber } from "@/components/dashboard";
 import { DeletePredictionDialog } from "@/components/prediction/DeletePredictionDialog";
@@ -567,6 +568,16 @@ function App() {
               </div>
             )}
           </div>
+        </div>
+
+        {/* Strategy Account Value Chart */}
+        <div className="mb-6">
+          <StrategyAccountValueChart
+            strategies={allStrategies}
+            predictions={allPredictions}
+            currentPrices={currentPrices}
+            loading={loading}
+          />
         </div>
       </div>
 

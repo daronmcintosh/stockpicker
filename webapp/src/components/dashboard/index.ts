@@ -13,3 +13,4 @@ export {
 export { PredictionPerformanceBreakdown } from "./PredictionPerformanceBreakdown";
 export { RecentPredictions } from "./RecentPredictions";
 export { StatusBadge } from "./StatusBadge";
+export { StrategyAccountValueChart } from "./StrategyAccountValueChart";
