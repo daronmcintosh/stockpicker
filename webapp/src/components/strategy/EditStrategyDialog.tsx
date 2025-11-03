@@ -2,6 +2,7 @@ import { Dialog, DialogButton, DialogFooter } from "@/components/ui/Dialog";
 import type { Strategy } from "@/gen/stockpicker/v1/strategy_pb";
 import { RiskLevel } from "@/gen/stockpicker/v1/strategy_pb";
 import { useEffect, useState } from "react";
+import { DEFAULT_SOURCE_CONFIG, type SourceConfig, SourceConfigEditor } from "./SourceConfigEditor";
 
 interface EditStrategyDialogProps {
   open: boolean;
@@ -9,6 +10,7 @@ interface EditStrategyDialogProps {
   strategy: Strategy | null;
   onUpdate: (strategy: Strategy, formData: EditFormData) => Promise<void>;
   updating: boolean;
+  sourceConfig?: SourceConfig; // Optional source config from backend
 }
 
 export interface EditFormData {
@@ -19,6 +21,7 @@ export interface EditFormData {
   targetReturnPct: string;
   riskLevel: RiskLevel;
   maxUniqueStocks: string;
+  sourceConfig?: SourceConfig;
 }
 
 export function EditStrategyDialog({
@@ -27,6 +30,7 @@ export function EditStrategyDialog({
   strategy,
   onUpdate,
   updating,
+  sourceConfig: initialSourceConfig,
 }: EditStrategyDialogProps) {
   const [editFormData, setEditFormData] = useState<EditFormData>({
     name: "",
@@ -36,6 +40,7 @@ export function EditStrategyDialog({
     targetReturnPct: "",
     riskLevel: RiskLevel.MEDIUM,
     maxUniqueStocks: "",
+    sourceConfig: DEFAULT_SOURCE_CONFIG,
   });
 
   useEffect(() => {
@@ -48,9 +53,10 @@ export function EditStrategyDialog({
         targetReturnPct: strategy.targetReturnPct.toString(),
         riskLevel: strategy.riskLevel,
         maxUniqueStocks: strategy.maxUniqueStocks.toString(),
+        sourceConfig: initialSourceConfig || DEFAULT_SOURCE_CONFIG,
       });
     }
-  }, [strategy]);
+  }, [strategy, initialSourceConfig]);
 
   if (!strategy) {
     return null;
@@ -165,6 +171,15 @@ export function EditStrategyDialog({
               />
             </div>
           </div>
+        </section>
+
+        {/* Data Sources */}
+        <section className="space-y-4">
+          <h3 className="text-sm font-semibold text-gray-900 border-b pb-2">Data Sources</h3>
+          <SourceConfigEditor
+            config={editFormData.sourceConfig || DEFAULT_SOURCE_CONFIG}
+            onChange={(config) => setEditFormData({ ...editFormData, sourceConfig: config })}
+          />
         </section>
 
         {/* Advanced Settings */}

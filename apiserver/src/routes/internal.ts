@@ -1,8 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { db } from "../db.js";
+import { type PredictionRow, type StrategyRow, db } from "../db.js";
 import { dbRowToProtoStrategy } from "../services/strategy/strategyHelpers.js";
-import type { StrategyRow } from "../services/strategyService.js";
 
 interface InternalRequest extends IncomingMessage {
   body?: string;
@@ -20,7 +19,7 @@ async function parseBody(req: InternalRequest): Promise<Record<string, unknown>>
     req.on("end", () => {
       try {
         resolve(body ? JSON.parse(body) : {});
-      } catch (error) {
+      } catch (_error) {
         reject(new Error("Invalid JSON in request body"));
       }
     });
@@ -34,17 +33,6 @@ async function parseBody(req: InternalRequest): Promise<Record<string, unknown>>
 function sendJson(res: ServerResponse, status: number, data: unknown): void {
   res.writeHead(status, { "Content-Type": "application/json" });
   res.end(JSON.stringify(data));
-}
-
-/**
- * Extract authorization token from request
- */
-function getAuthToken(req: IncomingMessage): string | null {
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    return null;
-  }
-  return authHeader.substring(7);
 }
 
 /**
@@ -89,7 +77,7 @@ export async function handlePrepareData(req: InternalRequest, res: ServerRespons
        AND status = 'PREDICTION_STATUS_ACTIVE'
        AND action = 'entered'`,
       [strategyId]
-    )) as Array<Record<string, unknown>>;
+    )) as PredictionRow[];
 
     const { dbRowToProtoPrediction } = await import("../services/prediction/predictionHelpers.js");
     const activePredictions = await Promise.all(
@@ -101,30 +89,75 @@ export async function handlePrepareData(req: InternalRequest, res: ServerRespons
     const monthlyBudget = Number(row.monthly_budget || 0);
     const hasBudget = currentMonthSpent < monthlyBudget;
 
-    // TODO: Aggregate multi-source stock data
-    // For now, return structure with placeholder sources
-    // This will be implemented with stockDataAggregator service
-    const sources = {
-      alpha_vantage: {
-        top_gainers: [], // Will be populated by stockDataAggregator
-        top_losers: [],
-      },
-      polymarket: {
-        stocks: [], // Will be populated by stockDataAggregator
+    // Parse source configuration from strategy
+    let sourceConfig: {
+      enabled: Record<string, boolean>;
+      reddit?: { subreddits: string[] };
+      news?: { sources: string[] };
+    } = {
+      enabled: {
+        alpha_vantage: true,
+        polymarket: true,
+        reddit: true,
+        news: true,
+        earnings: true,
+        politics: true,
       },
       reddit: {
-        stocks: [], // Will be populated by stockDataAggregator
-      },
-      news: {
-        articles: [], // Will be populated by stockDataAggregator
-      },
-      earnings: {
-        upcoming: [], // Will be populated by stockDataAggregator
-      },
-      politics: {
-        impacts: [], // Will be populated by stockDataAggregator
+        subreddits: ["wallstreetbets", "stocks", "investing"],
       },
     };
+
+    if (row.source_config) {
+      try {
+        sourceConfig = JSON.parse(row.source_config as string);
+      } catch (error) {
+        console.warn("⚠️ Failed to parse source_config, using defaults:", error);
+      }
+    }
+
+    // TODO: Aggregate multi-source stock data based on sourceConfig
+    // For now, return structure with placeholder sources
+    // This will be implemented with stockDataAggregator service
+    const sources: Record<string, unknown> = {};
+
+    if (sourceConfig.enabled.alpha_vantage) {
+      sources.alpha_vantage = {
+        top_gainers: [], // Will be populated by stockDataAggregator
+        top_losers: [],
+      };
+    }
+
+    if (sourceConfig.enabled.polymarket) {
+      sources.polymarket = {
+        stocks: [], // Will be populated by stockDataAggregator
+      };
+    }
+
+    if (sourceConfig.enabled.reddit) {
+      sources.reddit = {
+        stocks: [], // Will be populated by stockDataAggregator
+        subreddits: sourceConfig.reddit?.subreddits || ["wallstreetbets", "stocks", "investing"],
+      };
+    }
+
+    if (sourceConfig.enabled.news) {
+      sources.news = {
+        articles: [], // Will be populated by stockDataAggregator
+      };
+    }
+
+    if (sourceConfig.enabled.earnings) {
+      sources.earnings = {
+        upcoming: [], // Will be populated by stockDataAggregator
+      };
+    }
+
+    if (sourceConfig.enabled.politics) {
+      sources.politics = {
+        impacts: [], // Will be populated by stockDataAggregator
+      };
+    }
 
     // Return prepared data
     sendJson(res, 200, {
@@ -201,7 +234,8 @@ export async function handleCreatePredictions(
     }
 
     // Extract recommendations from JSON output
-    const recommendations = (json_output.recommendations as Array<Record<string, unknown>>) || [];
+    const jsonOutputObj = json_output as { recommendations?: Array<Record<string, unknown>> };
+    const recommendations = jsonOutputObj.recommendations || [];
 
     if (recommendations.length === 0) {
       sendJson(res, 400, { error: "No recommendations found in json_output" });
@@ -248,12 +282,12 @@ export async function handleCreatePredictions(
         entryPrice > 0 ? (entryPrice - stopLossPrice) * (allocatedAmount / entryPrice) : 0;
 
       // Calculate evaluation date based on time horizon
-      const timeHorizonDays =
-        {
-          TIME_HORIZON_SHORT: 7,
-          TIME_HORIZON_MEDIUM: 30,
-          TIME_HORIZON_LONG: 90,
-        }[row.time_horizon] || 30;
+      const timeHorizonMap: Record<string, number> = {
+        TIME_HORIZON_SHORT: 7,
+        TIME_HORIZON_MEDIUM: 30,
+        TIME_HORIZON_LONG: 90,
+      };
+      const timeHorizonDays = timeHorizonMap[row.time_horizon] || 30;
 
       const evaluationDate = new Date();
       evaluationDate.setDate(evaluationDate.getDate() + timeHorizonDays);
@@ -318,7 +352,7 @@ export async function handleCreatePredictions(
     }
 
     // Update strategy's current_month_spent
-    const totalSpent = top3.reduce((sum, rec) => {
+    const totalSpent = top3.reduce((sum, _rec) => {
       return sum + Number(row.per_stock_allocation || 0);
     }, 0);
     const newSpent = Number(row.current_month_spent || 0) + totalSpent;

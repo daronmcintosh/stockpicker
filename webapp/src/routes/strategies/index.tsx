@@ -207,9 +207,23 @@ function StrategiesPage() {
     }
   }
 
-  function openEditDialog(strategy: Strategy) {
+  const [editingSourceConfig, setEditingSourceConfig] =
+    useState<Awaited<ReturnType<typeof fetchSourceConfig>>>(null);
+
+  async function fetchSourceConfig(_strategyId: string) {
+    // Fetch source_config from backend
+    // Since it's not in the proto, we'll need to fetch it separately or extend the proto
+    // For now, return null and use defaults
+    // TODO: Add endpoint or extend getStrategy to return source_config
+    return null;
+  }
+
+  async function openEditDialog(strategy: Strategy) {
     setEditingStrategy(strategy);
     setEditDialogOpen(true);
+    // Try to fetch source config if available
+    // For now, we'll use defaults and save on update
+    setEditingSourceConfig(null);
   }
 
   async function handleUpdateStrategy(strategy: Strategy, formData: EditFormData) {
@@ -237,7 +251,8 @@ function StrategiesPage() {
           Number.parseInt(formData.maxUniqueStocks) !== strategy.maxUniqueStocks
             ? Number.parseInt(formData.maxUniqueStocks)
             : undefined,
-      });
+        sourceConfig: formData.sourceConfig ? JSON.stringify(formData.sourceConfig) : undefined,
+      } as never);
 
       toast.success("Strategy updated successfully!");
       setEditDialogOpen(false);
@@ -377,11 +392,13 @@ function StrategiesPage() {
           if (!open) {
             setEditDialogOpen(false);
             setEditingStrategy(null);
+            setEditingSourceConfig(null);
           }
         }}
         strategy={editingStrategy}
         onUpdate={handleUpdateStrategy}
         updating={updatingStrategy}
+        sourceConfig={editingSourceConfig || undefined}
       />
     </div>
   );

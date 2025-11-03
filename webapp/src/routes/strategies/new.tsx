@@ -1,3 +1,8 @@
+import {
+  DEFAULT_SOURCE_CONFIG,
+  type SourceConfig,
+  SourceConfigEditor,
+} from "@/components/strategy/SourceConfigEditor";
 import { Frequency, RiskLevel } from "@/gen/stockpicker/v1/strategy_pb";
 import { useAuth } from "@/lib/auth";
 import { createClient } from "@/lib/connect";
@@ -38,6 +43,7 @@ function NewStrategyPage() {
   const [monthlyBudget, setMonthlyBudget] = useState(1000);
   const [frequency, setFrequency] = useState(Frequency.TWICE_WEEKLY);
   const [maxUniqueStocks, setMaxUniqueStocks] = useState(20);
+  const [sourceConfig, setSourceConfig] = useState<SourceConfig>(DEFAULT_SOURCE_CONFIG);
 
   // Calculate derived values
   const calculatedValues = useMemo(() => {
@@ -76,6 +82,7 @@ function NewStrategyPage() {
         frequency: Number(formData.get("frequency")) as Frequency,
         riskLevel: Number(formData.get("riskLevel")) as RiskLevel,
         maxUniqueStocks: Number(formData.get("maxUniqueStocks")),
+        sourceConfig: JSON.stringify(sourceConfig),
       });
 
       toast.success("Strategy created successfully!");
@@ -298,6 +305,12 @@ function NewStrategyPage() {
               </p>
             </div>
           </div>
+        </section>
+
+        {/* Data Sources */}
+        <section className="space-y-4">
+          <h2 className="text-lg font-semibold text-gray-900 border-b pb-2">Data Sources</h2>
+          <SourceConfigEditor config={sourceConfig} onChange={setSourceConfig} />
         </section>
 
         {/* Advanced Settings - Collapsible */}

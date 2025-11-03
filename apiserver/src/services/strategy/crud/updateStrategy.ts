@@ -69,6 +69,13 @@ export async function updateStrategy(
       params.push(req.maxUniqueStocks);
     }
 
+    // Handle source_config if provided
+    const sourceConfig = (req as unknown as { sourceConfig?: string }).sourceConfig;
+    if (sourceConfig !== undefined) {
+      updates.push("source_config = ?");
+      params.push(sourceConfig || null);
+    }
+
     // Track if name changed for workflow update
     const nameChanged = req.name && req.name !== existingRow.name;
     const oldName = existingRow.name;

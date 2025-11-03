@@ -134,6 +134,7 @@ export async function createStrategy(
       status: "STRATEGY_STATUS_PAUSED",
       privacy: "STRATEGY_PRIVACY_PRIVATE", // Default to private
       user_id: userId, // Add user_id
+      source_config: (req as unknown as { sourceConfig?: string }).sourceConfig || null, // Store as JSON string
       created_at: now,
       updated_at: now,
     };
@@ -160,6 +161,7 @@ export async function createStrategy(
       strategyData.status,
       strategyData.privacy,
       strategyData.user_id, // Add user_id to params
+      strategyData.source_config, // Add source_config
       strategyData.created_at,
       strategyData.updated_at,
     ];
@@ -170,8 +172,8 @@ export async function createStrategy(
         current_month_start, time_horizon, target_return_pct, frequency,
         trades_per_month, per_trade_budget, per_stock_allocation, risk_level,
         unique_stocks_count, max_unique_stocks, n8n_workflow_id, status,
-        privacy, user_id, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        privacy, user_id, source_config, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
     // Use transaction to ensure atomicity

@@ -244,6 +244,7 @@ export interface StrategyRow {
   updated_at: string;
   privacy: string;
   user_id: string;
+  source_config: string | null;
 }
 
 export interface PredictionRow {
