@@ -8,8 +8,7 @@ import type {
   CreateStrategyResponse,
 } from "../../../gen/stockpicker/v1/strategy_pb.js";
 import { CreateStrategyResponseSchema } from "../../../gen/stockpicker/v1/strategy_pb.js";
-import { getCurrentUserId, getRawToken } from "../../authHelpers.js";
-import { n8nClient } from "../../n8nClient.js";
+import { getCurrentUserId } from "../../authHelpers.js";
 import {
   dbRowToProtoStrategy,
   frequencyToProtoName,
@@ -30,7 +29,6 @@ export async function createStrategy(
   const _authHeader = context.requestHeader.get("authorization");
 
   const id = randomUUID();
-  let workflowId: string | null = null;
 
   // Require authentication
   console.log("🔐 Checking authentication for strategy creation...");
@@ -64,49 +62,7 @@ export async function createStrategy(
       userId,
     });
 
-    // Step 1: Create n8n workflow first (external resource)
-    // If this fails, we won't create the strategy at all
-    try {
-      console.log(`📝 Creating n8n workflow for new strategy:`, {
-        strategyId: id,
-        strategyName: req.name,
-      });
-
-      // Extract user token from Authorization header for n8n workflow authentication
-      const userToken = getRawToken(context);
-      if (!userToken) {
-        throw new ConnectError(
-          "Authentication required: User token must be provided in Authorization header",
-          Code.Unauthenticated
-        );
-      }
-
-      const workflow = await n8nClient.createStrategyWorkflow(
-        id,
-        req.name,
-        req.frequency,
-        userToken
-      );
-      workflowId = workflow.id;
-
-      console.log(`✅ n8n workflow created successfully:`, {
-        strategyId: id,
-        workflowId: workflow.id,
-        workflowName: workflow.name,
-      });
-    } catch (error) {
-      console.error("❌ Failed to create n8n workflow - aborting strategy creation:", {
-        strategyId: id,
-        strategyName: req.name,
-        error: error instanceof Error ? error.message : String(error),
-        stack: error instanceof Error ? error.stack : undefined,
-      });
-      throw new Error(
-        `Failed to create n8n workflow: ${error instanceof Error ? error.message : String(error)}`
-      );
-    }
-
-    // Step 2: Now create strategy in database with workflow ID in a transaction
+    // Create strategy in database (workflow will be scheduled when strategy is started)
     const now = new Date().toISOString();
     const tradesPerMonth = getTradesPerMonth(req.frequency);
     // Round to 2 decimal places for monetary values
@@ -129,7 +85,6 @@ export async function createStrategy(
       risk_level: riskLevelToProtoName(req.riskLevel), // Convert enum to proto name string
       unique_stocks_count: 0,
       max_unique_stocks: req.maxUniqueStocks || 20,
-      n8n_workflow_id: workflowId, // Use the workflow ID we just created
       status: "STRATEGY_STATUS_PAUSED",
       privacy: "STRATEGY_PRIVACY_PRIVATE", // Default to private
       user_id: userId, // Add user_id
@@ -155,7 +110,6 @@ export async function createStrategy(
       strategyData.risk_level,
       strategyData.unique_stocks_count,
       strategyData.max_unique_stocks,
-      strategyData.n8n_workflow_id,
       strategyData.status,
       strategyData.privacy,
       strategyData.user_id, // Add user_id to params
@@ -169,9 +123,9 @@ export async function createStrategy(
         id, name, description, custom_prompt, monthly_budget,
         current_month_start, time_horizon, target_return_pct, frequency,
         trades_per_month, per_trade_budget, per_stock_allocation, risk_level,
-        unique_stocks_count, max_unique_stocks, n8n_workflow_id, status,
+        unique_stocks_count, max_unique_stocks, status,
         privacy, user_id, source_config, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
     // Use transaction to ensure atomicity
@@ -200,19 +154,6 @@ export async function createStrategy(
         console.error("❌ Failed to rollback transaction:", rollbackError);
       }
 
-      // Clean up n8n workflow if database insert failed
-      if (workflowId) {
-        try {
-          console.log(`🧹 Cleaning up n8n workflow after database error:`, { workflowId });
-          await n8nClient.deleteWorkflow(workflowId);
-          console.log(`✅ n8n workflow deleted successfully after rollback`);
-        } catch (cleanupError) {
-          console.error("⚠️ Failed to delete n8n workflow during cleanup:", {
-            workflowId,
-            error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
-          });
-        }
-      }
 
       console.error("❌ Database error details:");
       if (dbError && typeof dbError === "object") {
@@ -224,32 +165,6 @@ export async function createStrategy(
       throw dbError;
     }
 
-    // Step 3: Sync workflow active state with strategy status (optional, non-critical)
-    if (strategyData.status === "STRATEGY_STATUS_ACTIVE" && workflowId) {
-      try {
-        console.log(`▶️ Activating workflow to match active strategy status:`, {
-          strategyId: id,
-          workflowId: workflowId,
-        });
-        await n8nClient.activateWorkflow(workflowId);
-        console.log(`✅ Workflow activated to match strategy status:`, {
-          strategyId: id,
-          workflowId: workflowId,
-        });
-      } catch (activateError) {
-        console.error("⚠️ Failed to activate workflow during creation (non-critical):", {
-          strategyId: id,
-          workflowId: workflowId,
-          error: activateError instanceof Error ? activateError.message : String(activateError),
-        });
-        // Continue - workflow is created, activation can be retried later
-      }
-    } else if (workflowId) {
-      console.log(`ℹ️ Workflow remains inactive (matches strategy status ${strategyData.status}):`, {
-        strategyId: id,
-        workflowId: workflowId,
-      });
-    }
 
     // Fetch the created strategy
     console.log(`📖 Fetching created strategy from database:`, { strategyId: id });
@@ -265,14 +180,12 @@ export async function createStrategy(
     console.log(`📖 Converting strategy row to proto:`, {
       strategyId: id,
       userId: row.user_id,
-      hasWorkflow: !!row.n8n_workflow_id,
     });
 
     const strategy = await dbRowToProtoStrategy(row);
 
-    console.log("✅ Strategy created successfully with workflow:", {
+    console.log("✅ Strategy created successfully:", {
       strategyId: id,
-      workflowId: workflowId,
       hasUser: !!strategy.user,
     });
 

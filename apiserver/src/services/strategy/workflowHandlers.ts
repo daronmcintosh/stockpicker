@@ -20,8 +20,8 @@ import {
 import { dbRowToProtoStrategy } from "./strategyHelpers.js";
 
 /**
- * Prepare data for n8n workflow execution
- * Internal endpoint called by n8n workflows to get strategy data and sources
+ * Prepare data for workflow execution
+ * Internal endpoint called by workflow executor to get strategy data and sources
  */
 export async function prepareDataForWorkflow(
   req: PrepareDataForWorkflowRequest,
@@ -31,8 +31,8 @@ export async function prepareDataForWorkflow(
   try {
     const strategyId = req.id;
 
-    // Get execution ID from headers if available (n8n may send this)
-    const executionId = context.requestHeader.get("x-n8n-execution-id") || null;
+    // Get execution ID from headers if available (workflow executor may send this)
+    const executionId = context.requestHeader.get("x-execution-id") || null;
 
     // Create or update workflow run record at workflow start
     // Check if there's an existing pending workflow run for this execution
@@ -276,7 +276,7 @@ export async function prepareDataForWorkflow(
 
 /**
  * Create predictions from workflow output
- * Internal endpoint called by n8n workflows to create predictions after AI analysis
+ * Internal endpoint called by workflow executor to create predictions after AI analysis
  */
 export async function createPredictionsFromWorkflow(
   req: CreatePredictionsFromWorkflowRequest,
@@ -323,7 +323,7 @@ export async function createPredictionsFromWorkflow(
     }
 
     // Update existing workflow run or create new one if not found
-    const executionIdFromHeader = context.requestHeader.get("x-n8n-execution-id") || executionId;
+    const executionIdFromHeader = context.requestHeader.get("x-execution-id") || executionId;
 
     // Try to find existing workflow run by execution ID
     let workflowRunId: string;
@@ -494,7 +494,7 @@ export async function createPredictionsFromWorkflow(
     // Try to update workflow run status to failed
     try {
       const executionIdFromHeader =
-        context.requestHeader.get("x-n8n-execution-id") || req.executionId || null;
+        context.requestHeader.get("x-execution-id") || req.executionId || null;
       const strategyIdForError = req.strategyId;
       if (executionIdFromHeader && strategyIdForError) {
         const existingRun = (await db.get(

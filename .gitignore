@@ -44,4 +44,3 @@ terraform/*.tfstate.*
 # Backups
 *.bak*
 *.backup*
-

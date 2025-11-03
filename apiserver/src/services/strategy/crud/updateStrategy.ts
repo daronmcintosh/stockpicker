@@ -7,8 +7,7 @@ import type {
   UpdateStrategyResponse,
 } from "../../../gen/stockpicker/v1/strategy_pb.js";
 import { UpdateStrategyResponseSchema } from "../../../gen/stockpicker/v1/strategy_pb.js";
-import { getCurrentUserId, getRawToken } from "../../authHelpers.js";
-import { n8nClient } from "../../n8nClient.js";
+import { getCurrentUserId } from "../../authHelpers.js";
 import {
   dbRowToProtoStrategy,
   protoNameToFrequency,
@@ -92,8 +91,6 @@ export async function updateStrategy(
       currentName: existingRow.name,
       newName: req.name,
       nameChanged,
-      hasWorkflow: !!existingRow.n8n_workflow_id,
-      workflowId: existingRow.n8n_workflow_id,
     });
 
     // Use transaction to ensure atomicity: DB update and workflow update must both succeed
@@ -110,79 +107,8 @@ export async function updateStrategy(
         console.log(`✅ Strategy database updated`);
       }
 
-      // Step 2: Update n8n workflow if name changed (must succeed or rollback DB)
-      if (nameChanged && existingRow.n8n_workflow_id) {
-        console.log(`🔄 Updating n8n workflow name:`, {
-          strategyId: req.id,
-          workflowId: existingRow.n8n_workflow_id,
-          oldName,
-          newName: req.name,
-        });
-
-        const frequency = protoNameToFrequency(existingRow.frequency);
-        if (req.name) {
-          // Extract user token from Authorization header for workflow update
-          const userToken = getRawToken(context);
-          if (userToken) {
-            // Rebuild workflow from latest template to propagate code changes
-            try {
-              console.log(`🔄 Rebuilding workflow from latest template when updating strategy:`, {
-                strategyId: req.id,
-                workflowId: existingRow.n8n_workflow_id,
-              });
-              const rebuiltWorkflow = await n8nClient.rebuildWorkflowFromTemplate(
-                existingRow.n8n_workflow_id,
-                req.id,
-                req.name,
-                frequency,
-                userToken
-              );
-
-              // Update database with new workflow ID if it changed
-              if (rebuiltWorkflow.id !== existingRow.n8n_workflow_id) {
-                await db.run(
-                  "UPDATE strategies SET n8n_workflow_id = ?, updated_at = ? WHERE id = ?",
-                  [rebuiltWorkflow.id, new Date().toISOString(), req.id]
-                );
-                console.log(`✅ Updated workflow ID in database:`, {
-                  strategyId: req.id,
-                  oldWorkflowId: existingRow.n8n_workflow_id,
-                  newWorkflowId: rebuiltWorkflow.id,
-                });
-              }
-            } catch (rebuildError) {
-              console.warn(`⚠️ Failed to rebuild workflow, falling back to name-only update:`, {
-                strategyId: req.id,
-                error: rebuildError instanceof Error ? rebuildError.message : String(rebuildError),
-              });
-              // Fall back to simple name update
-              await n8nClient.updateStrategyWorkflow(
-                existingRow.n8n_workflow_id,
-                req.id,
-                req.name,
-                frequency,
-                userToken
-              );
-            }
-          } else {
-            console.warn(`⚠️ No user token available for workflow update, skipping`);
-          }
-        }
-
-        console.log(`✅ n8n workflow name updated successfully:`, {
-          strategyId: req.id,
-          oldName,
-          newName: req.name,
-          workflowId: existingRow.n8n_workflow_id,
-        });
-      } else {
-        if (!nameChanged) {
-          console.log(`ℹ️ Strategy name unchanged, skipping workflow update`);
-        }
-        if (!existingRow.n8n_workflow_id) {
-          console.log(`ℹ️ Strategy has no workflow ID, skipping workflow update`);
-        }
-      }
+      // Note: Workflow scheduling is handled automatically when strategy is started/paused
+      // No need to update workflow here - scheduler will use latest strategy data on execution
 
       // Commit transaction if all operations succeeded
       await db.run("COMMIT");

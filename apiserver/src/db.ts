@@ -89,7 +89,6 @@ let statements: {
   selectStrategiesByStatus: PreparedStatement;
   updateStrategy: PreparedStatement;
   updateStrategyStatus: PreparedStatement;
-  updateStrategyWorkflowId: PreparedStatement;
   deleteStrategy: PreparedStatement;
   insertPrediction: PreparedStatement;
   selectPredictionById: PreparedStatement;
@@ -106,13 +105,13 @@ try {
       id, name, description, custom_prompt, monthly_budget,
       current_month_start, time_horizon, target_return_pct, frequency,
       trades_per_month, per_trade_budget, per_stock_allocation, risk_level,
-      unique_stocks_count, max_unique_stocks, n8n_workflow_id, status,
+      unique_stocks_count, max_unique_stocks, status,
       privacy, created_at, updated_at
     ) VALUES (
       $id, $name, $description, $custom_prompt, $monthly_budget,
       $current_month_start, $time_horizon, $target_return_pct, $frequency,
       $trades_per_month, $per_trade_budget, $per_stock_allocation, $risk_level,
-      $unique_stocks_count, $max_unique_stocks, $n8n_workflow_id, $status,
+      $unique_stocks_count, $max_unique_stocks, $status,
       $privacy, $created_at, $updated_at
     )
   `),
@@ -151,12 +150,6 @@ try {
     WHERE id = :id
   `),
 
-    updateStrategyWorkflowId: await db.prepare(`
-    UPDATE strategies
-    SET n8n_workflow_id = :n8n_workflow_id,
-        updated_at = :updated_at
-    WHERE id = :id
-  `),
 
     deleteStrategy: await db.prepare(`
     DELETE FROM strategies WHERE id = :id
@@ -237,7 +230,6 @@ export interface StrategyRow {
   unique_stocks_count: number;
   max_unique_stocks: number;
   status: string;
-  n8n_workflow_id: string | null;
   next_trade_scheduled: string | null;
   last_trade_executed: string | null;
   created_at: string;

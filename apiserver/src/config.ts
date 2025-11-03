@@ -23,16 +23,6 @@ export const appConfig = {
     path: process.env.DB_PATH || process.env.DATABASE_PATH || "./db/stockpicker.db",
   },
 
-  // n8n API configuration
-  n8n: {
-    apiUrl: process.env.N8N_API_URL || "http://localhost:5678/api/v1",
-    apiKey: process.env.N8N_API_KEY || "",
-    apiServerUrl: process.env.N8N_API_SERVER_URL || "http://apiserver:3000",
-    webhookUrl:
-      process.env.N8N_WEBHOOK_URL ||
-      "http://localhost:5678/webhook/8264775e-e2c0-4ae1-a176-4866dbf09d58",
-  },
-
   // Node environment
   nodeEnv: process.env.NODE_ENV || "development",
 
@@ -41,10 +31,6 @@ export const appConfig = {
    * Throws error if critical config is missing
    */
   validate(): void {
-    if (!this.n8n.apiKey) {
-      throw new Error(
-        "N8N_API_KEY environment variable is required. Get your API key from n8n: Settings > n8n API"
-      );
-    }
+    // No validation needed - n8n removed
   },
 };

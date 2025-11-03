@@ -49,6 +49,24 @@ export function frequencyToName(frequency: Frequency): string {
   }
 }
 
+// Helper to convert frequency enum to cron expression
+export function frequencyToCron(frequency: Frequency): string {
+  switch (frequency) {
+    case Frequency.DAILY:
+      return "0 10 * * *"; // Daily at 10am
+    case Frequency.TWICE_WEEKLY:
+      return "0 10 * * 1,4"; // Monday and Thursday at 10am
+    case Frequency.WEEKLY:
+      return "0 10 * * 1"; // Monday at 10am
+    case Frequency.BIWEEKLY:
+      return "0 10 1,15 * *"; // 1st and 15th of month at 10am
+    case Frequency.MONTHLY:
+      return "0 10 1 * *"; // 1st of month at 10am
+    default:
+      return "0 10 * * 1,4"; // Default to twice weekly
+  }
+}
+
 // Helper to convert enum numeric value to proto enum name string for database storage
 export function riskLevelToProtoName(riskLevel: RiskLevel): string {
   switch (riskLevel) {

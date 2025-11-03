@@ -13,7 +13,6 @@ export {
   triggerPredictions,
 } from "./strategyLifecycle.js";
 export { updateStrategyPrivacy } from "./strategyPrivacy.js";
-export { syncStrategiesWithWorkflows } from "./workflowSync.js";
 export {
   prepareDataForWorkflow,
   createPredictionsFromWorkflow,

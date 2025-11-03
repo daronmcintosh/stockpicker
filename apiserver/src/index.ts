@@ -20,7 +20,6 @@ import {
   prepareDataForWorkflow,
   startStrategy,
   stopStrategy,
-  syncStrategiesWithWorkflows,
   triggerPredictions,
   updateStrategy,
   updateStrategyPrivacy,
@@ -46,7 +45,7 @@ const strategyServiceImpl = {
   // Migrated privacy operations
   updateStrategyPrivacy,
 
-  // Workflow handlers (internal - called by n8n workflows)
+  // Workflow handlers (internal - called by workflow executor)
   prepareDataForWorkflow,
   createPredictionsFromWorkflow,
 
@@ -189,26 +188,11 @@ server.listen(Number(PORT), HOST, async () => {
   console.log(`📡 Connect RPC endpoint ready`);
   await listAvailableEndpoints();
 
-  // Sync n8n workflows after server starts (non-blocking, non-critical)
-  // This ensures workflows from JSON files are synced without creating duplicates
-  // Note: Workflow sync failures are non-critical and won't prevent server startup
-  syncWorkflowsOnStartup().catch((error) => {
-    console.error("⚠️  Failed to sync workflows on startup (non-critical):", error);
-    console.error("   Server will continue running - workflows can be synced manually");
+  // Initialize scheduler with active strategies after server starts (non-blocking, non-critical)
+  initializeSchedulerOnStartup().catch((error) => {
+    console.error("⚠️  Failed to initialize scheduler on startup (non-critical):", error);
+    console.error("   Server will continue running - workflows will be scheduled on-demand");
   });
-
-  // Sync strategies with n8n workflows after server starts (non-blocking, non-critical)
-  // This ensures all strategies have corresponding workflows in n8n
-  // Handles cases where workflows were deleted or n8n instance was reset
-  if (appConfig.n8n.apiKey) {
-    // Wait a bit longer for n8n to be fully ready after workflow file sync
-    setTimeout(() => {
-      syncStrategiesWithWorkflows().catch((error) => {
-        console.error("⚠️  Failed to sync strategies with workflows (non-critical):", error);
-        console.error("   Server will continue running - workflows will be synced on-demand");
-      });
-    }, 10000); // Wait 10 seconds after startup to allow n8n to be ready
-  }
 
   // Start stale workflow run cleanup task
   // This marks workflow runs that have been running for too long as failed
@@ -235,54 +219,46 @@ server.on("error", (error: NodeJS.ErrnoException) => {
 });
 
 /**
- * Sync workflows from JSON files on startup
+ * Initialize scheduler with active strategies on startup
  * This runs in the background and won't block server startup
  */
-async function syncWorkflowsOnStartup(): Promise<void> {
-  // Only sync if N8N_API_KEY is configured (means n8n integration is enabled)
-  if (!appConfig.n8n.apiKey) {
-    console.log("ℹ️  N8N_API_KEY not configured, skipping workflow sync");
-    return;
-  }
-
-  // Wait a bit for n8n to be fully ready
-  await new Promise((resolve) => setTimeout(resolve, 5000));
-
+async function initializeSchedulerOnStartup(): Promise<void> {
   try {
-    console.log("🔄 Syncing n8n workflows from JSON files...");
-    const { syncWorkflows } = await import("./scripts/sync-workflows.js");
+    console.log("🔄 Initializing scheduler with active strategies...");
+    const { schedulerService } = await import("./services/scheduler/schedulerService.js");
+    const { executeStrategyWorkflow } = await import("./services/workflow/workflowExecutor.js");
+    const { db } = await import("./db.js");
+    const { protoNameToFrequency } = await import("./services/strategy/strategyHelpers.js");
 
-    // Resolve workflows directory path
-    // In Docker: N8N_WORKFLOWS_DIR=/app/workflows (from docker-compose volume mount)
-    // Locally: Resolve relative to project root (two levels up from apiserver/src)
-    let workflowsDir: string;
-    if (process.env.N8N_WORKFLOWS_DIR) {
-      workflowsDir = process.env.N8N_WORKFLOWS_DIR;
-    } else {
-      // Resolve relative to project root (same approach as config.ts)
-      const __dirname = dirname(fileURLToPath(import.meta.url));
-      const projectRoot = resolve(__dirname, "../..");
-      workflowsDir = resolve(projectRoot, "n8n/workflows");
+    // Get all active strategies
+    const rows = (await db.all(
+      "SELECT * FROM strategies WHERE status = 'STRATEGY_STATUS_ACTIVE'"
+    )) as Array<{ id: string; frequency: string }>;
+
+    console.log(`📋 Found ${rows.length} active strategy(ies) to schedule`);
+
+    for (const row of rows) {
+      try {
+        const frequency = protoNameToFrequency(row.frequency);
+        schedulerService.scheduleStrategy(row.id, frequency, async () => {
+          await executeStrategyWorkflow(row.id, frequency);
+        });
+        schedulerService.startStrategy(row.id);
+        console.log(`✅ Scheduled and started job for strategy:`, { strategyId: row.id });
+      } catch (error) {
+        console.error(`❌ Failed to schedule strategy ${row.id}:`, {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
     }
 
-    // Verify directory exists before syncing
-    if (!existsSync(workflowsDir)) {
-      console.warn(
-        `⚠️  Workflows directory not found: ${workflowsDir}\n   This is expected if running locally and workflows haven't been created yet.\n   The directory will be created automatically when needed.`
-      );
-      return;
-    }
-
-    await syncWorkflows(workflowsDir);
-    // Note: syncWorkflows() logs its own completion message
+    console.log("✅ Scheduler initialization completed");
   } catch (error) {
     console.error(
-      "❌ Could not sync workflows:",
+      "❌ Could not initialize scheduler:",
       error instanceof Error ? error.message : String(error)
     );
-    console.error("   Stack:", error instanceof Error ? error.stack : "N/A");
-    // Don't fail the server if workflow sync fails, but log it clearly
-    console.error("   ⚠️  Workflow sync failed - duplicates may appear. Run sync manually.");
+    // Don't fail the server if scheduler init fails, but log it clearly
   }
 }
 

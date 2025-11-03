@@ -17,6 +17,10 @@ const SIDEBAR_VISIBILITY_KEY = "strategy_detail_sidebar_visible";
 
 function useSidebarVisibility() {
   const [isVisible, setIsVisible] = useState(() => {
+    // Check if we're in the browser before accessing localStorage
+    if (typeof window === "undefined") {
+      return true; // Default to visible on server
+    }
     const stored = localStorage.getItem(SIDEBAR_VISIBILITY_KEY);
     return stored !== null ? stored === "true" : true; // Default to visible
   });
@@ -24,7 +28,10 @@ function useSidebarVisibility() {
   const toggle = () => {
     const newValue = !isVisible;
     setIsVisible(newValue);
-    localStorage.setItem(SIDEBAR_VISIBILITY_KEY, String(newValue));
+    // Only update localStorage in the browser
+    if (typeof window !== "undefined") {
+      localStorage.setItem(SIDEBAR_VISIBILITY_KEY, String(newValue));
+    }
   };
 
   return [isVisible, toggle] as const;
@@ -261,7 +268,7 @@ function StrategyDetailPage() {
                   <span className="text-sm text-gray-600">
                     {predictionCount} prediction{predictionCount !== 1 ? "s" : ""}
                   </span>
-                  <span className="text-sm text-gray-400">•</span>
+                  <span className="text-sm text-gray-400">?</span>
                   <span className="text-sm text-gray-600">
                     {strategy.createdAt
                       ? new Date(Number(strategy.createdAt.seconds) * 1000).toLocaleDateString()
@@ -357,7 +364,7 @@ function StrategyDetailPage() {
                           search={{ strategy: strategy.id, status: undefined, action: undefined }}
                           className="text-sm text-blue-600 hover:text-blue-700 font-medium"
                         >
-                          View {predictions.length - 10} more predictions →
+                          View {predictions.length - 10} more predictions ?
                         </Link>
                       </div>
                     )}

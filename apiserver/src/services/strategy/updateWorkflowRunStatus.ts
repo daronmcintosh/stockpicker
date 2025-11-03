@@ -10,7 +10,7 @@ import {
 } from "../../gen/stockpicker/v1/strategy_pb.js";
 
 /**
- * Update workflow run status (Internal - called by n8n workflows on error)
+ * Update workflow run status (Internal - called by workflow executor on error)
  * This allows the workflow to report failures at any step and update the status
  */
 export async function updateWorkflowRunStatus(
@@ -19,7 +19,7 @@ export async function updateWorkflowRunStatus(
 ): Promise<UpdateWorkflowRunStatusResponse> {
   try {
     const strategyId = req.strategyId;
-    const executionId = context.requestHeader.get("x-n8n-execution-id") || req.executionId || null;
+    const executionId = context.requestHeader.get("x-execution-id") || req.executionId || null;
     const status = req.status; // 'failed' or 'completed'
     const errorMessage = req.errorMessage || null;
 
