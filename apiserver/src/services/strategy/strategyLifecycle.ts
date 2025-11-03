@@ -457,55 +457,31 @@ export async function triggerPredictions(
     }
 
     // Trigger the workflow via webhook
-    // Get the webhook URL dynamically from the workflow's webhook trigger node
-    const fullWorkflow = await n8nClient.getFullWorkflow(workflowId);
+    // Use webhook URL from environment variable (N8N_WEBHOOK_URL)
+    const webhookUrl = appConfig.n8n.webhookUrl;
 
-    // Find the webhook trigger node
-    const webhookNode = Array.isArray(fullWorkflow.nodes)
-      ? fullWorkflow.nodes.find(
-          (n) => n.type === "n8n-nodes-base.webhook" && n.name === "Webhook Trigger"
-        )
-      : null;
-
-    if (!webhookNode) {
+    if (!webhookUrl) {
       throw new ConnectError(
-        `Workflow ${workflowId} does not have a Webhook Trigger node configured.`,
+        `Webhook URL not configured. Please set N8N_WEBHOOK_URL environment variable.`,
         Code.FailedPrecondition
       );
     }
 
-    // Get webhook path from node parameters or webhookId
-    // n8n uses the path parameter if set, otherwise uses webhookId
-    const webhookPath = String(webhookNode.parameters?.path || webhookNode.webhookId || "");
-
-    if (!webhookPath) {
-      throw new ConnectError(
-        `Webhook Trigger node in workflow ${workflowId} does not have a path or webhookId configured.`,
-        Code.FailedPrecondition
-      );
-    }
-
-    // Construct webhook URL
-    // For active workflows, use /webhook/ prefix (production mode)
-    // n8n generates webhookId automatically when workflow is saved
-    const baseURL = appConfig.n8n.apiUrl.replace("/api/v1", ""); // Remove /api/v1 to get base URL
-    const webhookUrl = `${baseURL}/webhook/${webhookPath}`;
-
-    console.log(`▶️ Triggering workflow via webhook:`, {
-      strategyId: req.id,
-      workflowId,
-      webhookPath,
-      webhookUrl,
-      workflowActive: fullWorkflow.active,
-    });
-
-    // Verify workflow is active
-    if (!fullWorkflow.active) {
+    // Verify workflow is active (webhooks only work for active workflows)
+    const workflow = await n8nClient.getWorkflow(workflowId);
+    if (!workflow.active) {
       throw new ConnectError(
         `Workflow ${workflowId} is not active. Webhooks only work for active workflows.`,
         Code.FailedPrecondition
       );
     }
+
+    console.log(`▶️ Triggering workflow via webhook:`, {
+      strategyId: req.id,
+      workflowId,
+      webhookUrl,
+      workflowActive: workflow.active,
+    });
 
     const response = await fetch(webhookUrl, {
       method: "POST",
