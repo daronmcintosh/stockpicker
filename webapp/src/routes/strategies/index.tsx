@@ -1,26 +1,20 @@
-import { EditStrategyDialog, StrategyCard, StrategyDetailDialog } from "@/components/strategy";
+import { EditStrategyDialog, StrategyCard } from "@/components/strategy";
 import type { EditFormData } from "@/components/strategy/EditStrategyDialog";
 import { Dialog, DialogButton, DialogFooter } from "@/components/ui/Dialog";
 import type { Strategy } from "@/gen/stockpicker/v1/strategy_pb";
 import { StrategyPrivacy } from "@/gen/stockpicker/v1/strategy_pb";
 import { useAuth } from "@/lib/auth";
 import { createClient } from "@/lib/connect";
-import { createFileRoute, useSearch } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { Plus } from "lucide-react";
 import { useEffect, useState } from "react";
 import toast from "react-hot-toast";
 
 export const Route = createFileRoute("/strategies/")({
   component: StrategiesPage,
-  validateSearch: (search: Record<string, unknown>) => {
-    return {
-      id: (search.id as string) || undefined,
-    };
-  },
 });
 
 function StrategiesPage() {
-  const { id: strategyIdFromUrl } = useSearch({ from: "/strategies/" });
   const { token, isLoading: authLoading } = useAuth();
   const [strategies, setStrategies] = useState<Strategy[]>([]);
   const [predictionCounts, setPredictionCounts] = useState<Record<string, number>>({});
@@ -29,8 +23,6 @@ function StrategiesPage() {
   const [strategyToDelete, setStrategyToDelete] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [triggeringStrategy, setTriggeringStrategy] = useState<string | null>(null);
-  const [detailDialogOpen, setDetailDialogOpen] = useState(false);
-  const [selectedStrategyForDetail, setSelectedStrategyForDetail] = useState<Strategy | null>(null);
   const [updatingPrivacy, setUpdatingPrivacy] = useState<string | null>(null);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [editingStrategy, setEditingStrategy] = useState<Strategy | null>(null);
@@ -42,16 +34,6 @@ function StrategiesPage() {
       loadStrategies();
     }
   }, [authLoading]);
-
-  // Open detail dialog if id is in URL
-  useEffect(() => {
-    if (strategyIdFromUrl && strategies.length > 0) {
-      const strategy = strategies.find((s) => s.id === strategyIdFromUrl);
-      if (strategy) {
-        openDetailDialog(strategy);
-      }
-    }
-  }, [strategyIdFromUrl, strategies]);
 
   async function loadStrategies() {
     try {
@@ -178,7 +160,7 @@ function StrategiesPage() {
   }
 
   async function shareStrategy(id: string, _name: string) {
-    const url = `${window.location.origin}/strategies?id=${id}`;
+    const url = `${window.location.origin}/strategies/${id}`;
     try {
       await navigator.clipboard.writeText(url);
       toast.success("Link copied to clipboard!");
@@ -191,20 +173,6 @@ function StrategiesPage() {
   function openDeleteDialog(id: string) {
     setStrategyToDelete(id);
     setDeleteDialogOpen(true);
-  }
-
-  function openDetailDialog(strategy: Strategy) {
-    setSelectedStrategyForDetail(strategy);
-    setDetailDialogOpen(true);
-  }
-
-  function closeDetailDialog() {
-    setDetailDialogOpen(false);
-    setSelectedStrategyForDetail(null);
-    // Remove id from URL when closing
-    if (strategyIdFromUrl) {
-      window.history.replaceState({}, "", "/strategies");
-    }
   }
 
   const [editingSourceConfig, setEditingSourceConfig] =
@@ -258,11 +226,6 @@ function StrategiesPage() {
       setEditDialogOpen(false);
       setEditingStrategy(null);
       await loadStrategies();
-      // If detail dialog is open, refresh it too
-      if (detailDialogOpen && selectedStrategyForDetail?.id === strategy.id) {
-        const updated = await getClients().strategy.getStrategy({ id: strategy.id });
-        setSelectedStrategyForDetail(updated.strategy || null);
-      }
     } catch (error) {
       console.error("Failed to update strategy:", error);
       toast.error("Failed to update strategy");
@@ -339,7 +302,6 @@ function StrategiesPage() {
               onTriggerPredictions={triggerPredictions}
               onEdit={openEditDialog}
               onDelete={openDeleteDialog}
-              onDetail={openDetailDialog}
               onCopy={copyStrategy}
               onShare={shareStrategy}
             />
@@ -369,22 +331,6 @@ function StrategiesPage() {
           </DialogButton>
         </DialogFooter>
       </Dialog>
-
-      <StrategyDetailDialog
-        open={detailDialogOpen}
-        onOpenChange={(open) => {
-          if (!open) {
-            closeDetailDialog();
-          } else {
-            setDetailDialogOpen(true);
-          }
-        }}
-        strategy={selectedStrategyForDetail}
-        predictionCount={
-          selectedStrategyForDetail ? (predictionCounts[selectedStrategyForDetail.id] ?? 0) : 0
-        }
-        onEdit={openEditDialog}
-      />
 
       <EditStrategyDialog
         open={editDialogOpen}

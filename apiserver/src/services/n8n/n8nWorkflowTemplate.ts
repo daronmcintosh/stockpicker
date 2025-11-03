@@ -58,8 +58,12 @@ export function createStrategyWorkflowTemplate(
             ],
           },
           sendBody: true,
-          bodyContentType: "json",
-          jsonBody: `={"id": "${strategyId}"}`,
+          contentType: "json",
+          specifyBody: "json",
+          // Strategy ID is embedded directly in the workflow template (1-to-1 relationship)
+          // Use jsonBody with n8n expression - matching format from n8n MCP examples
+          // The expression creates a JavaScript object that n8n will stringify
+          jsonBody: `={{ { id: "${strategyId}" } }}`,
           options: {},
           authentication: "genericCredentialType",
           genericAuthType: "httpHeaderAuth",
@@ -130,11 +134,11 @@ return [{
             "messages": [
               {
                 "role": "system",
-                "content": "You are a professional financial AI analyst. Analyze stock data from multiple sources and provide your top 10 stock recommendations with detailed analysis, source tracing, and risk assessment. Always ensure your analysis is thorough and well-reasoned."
+                "content": "You are a professional financial AI analyst specializing in technical analysis. Analyze stock data from multiple sources and provide your top 10 stock recommendations with detailed technical analysis, source tracing, and risk assessment. Your technical analysis should be based on available data sources (price data, volume, sentiment, etc.) and include actionable chart points."
               },
               {
                 "role": "user",
-                "content": "Analyze the following multi-source stock data and provide your top 10 stock recommendations:\\n\\n" +
+                "content": "Analyze the following multi-source stock data and provide your top 10 stock recommendations with comprehensive technical analysis:\\n\\n" +
                   "Strategy Parameters:\\n" +
                   "- Strategy: " + $json.strategy.name + "\\n" +
                   "- Time Horizon: " + $json.strategy.timeHorizon + "\\n" +
@@ -164,13 +168,56 @@ return [{
                   "      ],\\n" +
                   '      "technical_analysis": {\\n' +
                   '        "trend": "bullish",\\n' +
+                  '        "trend_strength": "strong",\\n' +
                   '        "support_level": 148.00,\\n' +
-                  '        "resistance_level": 168.00\\n' +
+                  '        "resistance_level": 168.00,\\n' +
+                  '        "current_price": 150.25,\\n' +
+                  '        "price_change_pct": 2.5,\\n' +
+                  '        "volume_analysis": "increasing",\\n' +
+                  '        "volume_data": {\\n' +
+                  '          "recent_volume": 1000000,\\n' +
+                  '          "average_volume": 800000,\\n' +
+                  '          "volume_trend": "above_average"\\n' +
+                  '        },\\n' +
+                  '        "price_levels": [\\n' +
+                  '          {"level": 148.00, "type": "support", "strength": "strong"},\\n' +
+                  '          {"level": 152.00, "type": "minor_resistance", "strength": "weak"},\\n' +
+                  '          {"level": 168.00, "type": "resistance", "strength": "strong"}\\n' +
+                  '        ],\\n' +
+                  '        "indicators": {\\n' +
+                  '          "rsi": 65.5,\\n' +
+                  '          "rsi_signal": "neutral_to_bullish",\\n' +
+                  '          "moving_average": {\\n' +
+                  '            "sma_20": 148.50,\\n' +
+                  '            "sma_50": 145.00,\\n' +
+                  '            "position_vs_ma": "above_both"\\n' +
+                  '          },\\n' +
+                  '          "momentum": "positive"\\n' +
+                  '        },\\n' +
+                  '        "chart_pattern": "uptrend_continuation",\\n' +
+                  '        "chart_points": [\\n' +
+                  '          {"price": 148.00, "label": "Support", "type": "horizontal_line"},\\n' +
+                  '          {"price": 152.00, "label": "Entry Zone", "type": "area"},\\n' +
+                  '          {"price": 168.00, "label": "Target", "type": "horizontal_line"}\\n' +
+                  '        ],\\n' +
+                  '        "timeframe_analysis": {\\n' +
+                  '          "short_term": "bullish",\\n' +
+                  '          "medium_term": "bullish",\\n' +
+                  '          "long_term": "neutral"\\n' +
+                  '        },\\n' +
+                  '        "data_sources_used": ["alpha_vantage", "reddit"],\\n' +
+                  '        "analysis_notes": "Technical analysis based on price data from Alpha Vantage and sentiment from Reddit discussions"\\n' +
                   "      },\\n" +
                   '      "sentiment_score": 7.5,\\n' +
                   '      "overall_score": 8.2,\\n' +
+                  '      "confidence_level": 0.75,\\n' +
+                  '      "confidence_pct": 75,\\n' +
+                  '      "risk_level": "medium",\\n' +
+                  '      "risk_score": 5.5,\\n' +
+                  '      "success_probability": 0.72,\\n' +
+                  '      "hit_probability_pct": 72,\\n' +
                   '      "analysis": "Comprehensive analysis text...",\\n' +
-                  '      "risk_assessment": "Medium risk..."\\n' +
+                  '      "risk_assessment": "Medium risk with moderate confidence..."\\n' +
                   "    }\\n" +
                   "  ],\\n" +
                   '  "metadata": {\\n' +
@@ -179,7 +226,25 @@ return [{
                   '    "stocks_considered": 50\\n' +
                   "  }\\n" +
                   "}\\n\\n" +
-                  "IMPORTANT: Return ONLY valid JSON, no markdown formatting. Ensure all prices are numbers, not strings."
+                  "IMPORTANT TECHNICAL ANALYSIS REQUIREMENTS:\\n" +
+                  "1. Base technical analysis on actual data from sources (price, volume, change percentages)\\n" +
+                  "2. Calculate support/resistance levels from price data where available\\n" +
+                  "3. Include chart_points array with specific price levels for chart generation\\n" +
+                  "4. Extract volume analysis from source data (if available)\\n" +
+                  "5. Calculate or estimate RSI, moving averages, momentum based on price movements\\n" +
+                  "6. Identify chart patterns (uptrend, downtrend, consolidation, breakout, etc.)\\n" +
+                  "7. Trace technical indicators back to source data in source_tracing\\n" +
+                  "8. Ensure all price values are numbers, not strings\\n" +
+                  "9. Technical analysis should be actionable for chart generation\\n\\n" +
+                  "CONFIDENCE & RISK ASSESSMENT REQUIREMENTS:\\n" +
+                  "1. confidence_level: decimal 0.0-1.0 representing confidence in recommendation (based on data quality, signal strength, source agreement)\\n" +
+                  "2. confidence_pct: percentage 0-100 (same as confidence_level * 100)\\n" +
+                  "3. risk_level: string - one of 'low', 'medium', 'high' based on volatility, stop loss distance, price stability\\n" +
+                  "4. risk_score: number 1-10 where 1=very low risk, 10=very high risk\\n" +
+                  "5. success_probability: decimal 0.0-1.0 representing probability of hitting target price based on technical analysis and signals\\n" +
+                  "6. hit_probability_pct: percentage 0-100 (same as success_probability * 100)\\n" +
+                  "7. Consider: data source agreement, signal strength, volume confirmation, price stability, stop loss distance\\n\\n" +
+                  "Return ONLY valid JSON, no markdown formatting. Ensure all prices are numbers, not strings."
               }
             ],
             "temperature": 0.7,
@@ -255,6 +320,12 @@ const jsonOutput = {
     technical_analysis: stock.technical_analysis || {},
     sentiment_score: Number(stock.sentiment_score) || 0,
     overall_score: Number(stock.overall_score) || 0,
+    confidence_level: Number(stock.confidence_level) || 0,
+    confidence_pct: Number(stock.confidence_pct) || 0,
+    risk_level: stock.risk_level || "medium",
+    risk_score: Number(stock.risk_score) || 5,
+    success_probability: Number(stock.success_probability) || 0,
+    hit_probability_pct: Number(stock.hit_probability_pct) || 0,
     analysis: stock.analysis || "",
     risk_assessment: stock.risk_assessment || ""
   })),
@@ -301,6 +372,28 @@ markdown += \`**Generated:** \${new Date().toISOString()}\\n\\n\`;
 markdown += '## Executive Summary\\n\\n';
 markdown += \`This analysis identified \${top10.length} top stock recommendations based on multi-source data analysis.\\n\\n\`;
 
+// Quick metrics summary for all recommendations
+const avgConfidence = top10.length > 0
+  ? top10.reduce((sum, s) => sum + (Number(s.confidence_pct) || Number(s.confidence_level) * 100 || 0), 0) / top10.length
+  : 0;
+const avgHitProb = top10.length > 0
+  ? top10.reduce((sum, s) => sum + (Number(s.hit_probability_pct) || Number(s.success_probability) * 100 || 0), 0) / top10.length
+  : 0;
+const avgRiskScore = top10.length > 0
+  ? top10.reduce((sum, s) => sum + (Number(s.risk_score) || 5), 0) / top10.length
+  : 5;
+const riskBreakdown = top10.reduce((acc, s) => {
+  const risk = s.risk_level || "medium";
+  acc[risk] = (acc[risk] || 0) + 1;
+  return acc;
+}, {});
+
+markdown += '**Summary Metrics:**\\n';
+markdown += \`- Average Confidence: \${avgConfidence.toFixed(0)}%\\n\`;
+markdown += \`- Average Success Probability: \${avgHitProb.toFixed(0)}%\\n\`;
+markdown += \`- Average Risk Score: \${avgRiskScore.toFixed(1)}/10\\n\`;
+markdown += \`- Risk Breakdown: \${Object.entries(riskBreakdown).map(([level, count]) => \`\${level.toUpperCase()}: \${count}\`).join(', ') || 'N/A'}\\n\\n\`;
+
 markdown += '## Top Stock Recommendations\\n\\n';
 
 top10.forEach((stock, index) => {
@@ -310,13 +403,43 @@ top10.forEach((stock, index) => {
   const stopLossPrice = Number(stock.stop_loss_price) || 0;
   const overallScore = Number(stock.overall_score) || 0;
 
-  markdown += \`### \${index + 1}. \${symbol}\\n\\n\`;
-  markdown += \`**Entry Price:** $\${entryPrice.toFixed(2)}\\n\`;
+  // Confidence and risk metrics
+  const confidencePct = Number(stock.confidence_pct) || (Number(stock.confidence_level) * 100) || 0;
+  const hitProbPct = Number(stock.hit_probability_pct) || (Number(stock.success_probability) * 100) || 0;
+  const riskLevel = stock.risk_level || "medium";
+  const riskScore = Number(stock.risk_score) || 5;
+
+  // Helper function to get confidence label
+  function getConfidenceLabel(pct) {
+    if (pct >= 80) return "Very High";
+    if (pct >= 65) return "High";
+    if (pct >= 50) return "Moderate";
+    if (pct >= 35) return "Low";
+    return "Very Low";
+  }
+
+  // Helper to get risk emoji/indicator
+  function getRiskIndicator(level, score) {
+    if (level === "low" || score <= 3) return "🟢";
+    if (level === "medium" || score <= 6) return "🟡";
+    return "🔴";
+  }
+
+  markdown += \`### \${index + 1}. \${symbol} \${getRiskIndicator(riskLevel, riskScore)}\\n\\n\`;
+
+  // Quick glance metrics - prominently displayed
+  markdown += '**Quick Metrics** *(Quick Glance)*:\\n';
+  markdown += \`- 🎯 **Confidence:** \${confidencePct.toFixed(0)}% (\${getConfidenceLabel(confidencePct)})\\n\`;
+  markdown += \`- ✅ **Success Probability:** \${hitProbPct.toFixed(0)}%\\n\`;
+  markdown += \`- ⚠️ **Risk Level:** \${riskLevel.toUpperCase()} (Score: \${riskScore.toFixed(1)}/10)\\n\`;
+  markdown += \`- ⭐ **Overall Score:** \${overallScore.toFixed(1)}/10\\n\\n\`;
+
+  markdown += '**Price Points:**\\n';
+  markdown += \`- Entry Price: $\${entryPrice.toFixed(2)}\\n\`;
   const targetReturnPct = ((targetPrice - entryPrice) / entryPrice) * 100;
   const stopLossPct = ((entryPrice - stopLossPrice) / entryPrice) * 100;
-  markdown += \`**Target Price:** $\${targetPrice.toFixed(2)} (+\${targetReturnPct.toFixed(2)}%)\\n\`;
-  markdown += \`**Stop Loss:** $\${stopLossPrice.toFixed(2)} (-\${stopLossPct.toFixed(2)}%)\\n\`;
-  markdown += \`**Overall Score:** \${overallScore.toFixed(1)}/10\\n\\n\`;
+  markdown += \`- Target Price: $\${targetPrice.toFixed(2)} (+\${targetReturnPct.toFixed(2)}%)\\n\`;
+  markdown += \`- Stop Loss: $\${stopLossPrice.toFixed(2)} (-\${stopLossPct.toFixed(2)}%)\\n\\n\`;
 
   if (stock.reasoning) {
     markdown += \`**Reasoning:** \${stock.reasoning}\\n\\n\`;
@@ -335,18 +458,116 @@ top10.forEach((stock, index) => {
     markdown += '\\n';
   }
 
-  // Technical analysis
+  // Technical analysis - detailed and traceable
   if (stock.technical_analysis) {
+    const ta = stock.technical_analysis;
     markdown += '**Technical Analysis:**\\n';
-    if (stock.technical_analysis.trend) {
-      markdown += \`- Trend: \${stock.technical_analysis.trend}\\n\`;
+
+    if (ta.trend) {
+      markdown += \`- Trend: \${ta.trend}\`;
+      if (ta.trend_strength) {
+        markdown += \` (\${ta.trend_strength})\`;
+      }
+      markdown += '\\n';
     }
-    if (stock.technical_analysis.support_level) {
-      markdown += \`- Support Level: $\${stock.technical_analysis.support_level}\\n\`;
+
+    if (ta.current_price) {
+      markdown += \`- Current Price: $\${ta.current_price.toFixed(2)}\`;
+      if (ta.price_change_pct) {
+        markdown += \` (\${ta.price_change_pct > 0 ? '+' : ''}\${ta.price_change_pct.toFixed(2)}%)\`;
+      }
+      markdown += '\\n';
     }
-    if (stock.technical_analysis.resistance_level) {
-      markdown += \`- Resistance Level: $\${stock.technical_analysis.resistance_level}\\n\`;
+
+    // Price levels
+    if (ta.price_levels && ta.price_levels.length > 0) {
+      markdown += '- Price Levels:\\n';
+      ta.price_levels.forEach(level => {
+        markdown += \`  - $\${level.level.toFixed(2)}: \${level.type} (\${level.strength || 'N/A'})\\n\`;
+      });
+    } else {
+      // Fallback to old format
+      if (ta.support_level) {
+        markdown += \`- Support Level: $\${ta.support_level}\\n\`;
+      }
+      if (ta.resistance_level) {
+        markdown += \`- Resistance Level: $\${ta.resistance_level}\\n\`;
+      }
     }
+
+    // Volume analysis
+    if (ta.volume_analysis) {
+      markdown += \`- Volume: \${ta.volume_analysis}\\n\`;
+      if (ta.volume_data) {
+        const vd = ta.volume_data;
+        if (vd.volume_trend) {
+          markdown += \`  - Trend: \${vd.volume_trend}\\n\`;
+        }
+        if (vd.recent_volume && vd.average_volume) {
+          const volRatio = (vd.recent_volume / vd.average_volume).toFixed(2);
+          markdown += \`  - Recent vs Average: \${volRatio}x\\n\`;
+        }
+      }
+    }
+
+    // Technical indicators
+    if (ta.indicators) {
+      markdown += '- Indicators:\\n';
+      if (ta.indicators.rsi !== undefined) {
+        markdown += \`  - RSI: \${ta.indicators.rsi.toFixed(1)}\`;
+        if (ta.indicators.rsi_signal) {
+          markdown += \` (\${ta.indicators.rsi_signal})\`;
+        }
+        markdown += '\\n';
+      }
+      if (ta.indicators.moving_average) {
+        const ma = ta.indicators.moving_average;
+        markdown += \`  - Moving Averages:\\n\`;
+        if (ma.sma_20) markdown += \`    - SMA 20: $\${ma.sma_20.toFixed(2)}\\n\`;
+        if (ma.sma_50) markdown += \`    - SMA 50: $\${ma.sma_50.toFixed(2)}\\n\`;
+        if (ma.position_vs_ma) markdown += \`    - Position: \${ma.position_vs_ma}\\n\`;
+      }
+      if (ta.indicators.momentum) {
+        markdown += \`  - Momentum: \${ta.indicators.momentum}\\n\`;
+      }
+    }
+
+    // Chart pattern
+    if (ta.chart_pattern) {
+      markdown += \`- Chart Pattern: \${ta.chart_pattern}\\n\`;
+    }
+
+    // Chart points for visualization
+    if (ta.chart_points && ta.chart_points.length > 0) {
+      markdown += '- Chart Points:\\n';
+      ta.chart_points.forEach(point => {
+        markdown += \`  - $\${point.price.toFixed(2)}: \${point.label} (\${point.type || 'point'})\\n\`;
+      });
+    }
+
+    // Timeframe analysis
+    if (ta.timeframe_analysis) {
+      markdown += '- Timeframe Analysis:\\n';
+      if (ta.timeframe_analysis.short_term) {
+        markdown += \`  - Short-term: \${ta.timeframe_analysis.short_term}\\n\`;
+      }
+      if (ta.timeframe_analysis.medium_term) {
+        markdown += \`  - Medium-term: \${ta.timeframe_analysis.medium_term}\\n\`;
+      }
+      if (ta.timeframe_analysis.long_term) {
+        markdown += \`  - Long-term: \${ta.timeframe_analysis.long_term}\\n\`;
+      }
+    }
+
+    // Data source tracing for technical analysis
+    if (ta.data_sources_used && ta.data_sources_used.length > 0) {
+      markdown += \`- Technical Analysis Sources: \${ta.data_sources_used.join(', ')}\\n\`;
+    }
+
+    if (ta.analysis_notes) {
+      markdown += \`- Analysis Notes: \${ta.analysis_notes}\\n\`;
+    }
+
     markdown += '\\n';
   }
 
@@ -383,9 +604,15 @@ return [{
           jsCode: `// Combine JSON and Markdown outputs, ensuring consistency
 const jsonItem = $node['Generate JSON Output'].json || {};
 const markdownItem = $node['Generate Markdown Output'].json || {};
+const inputDataItem = $node['Extract Input Data'].json || {};
+const aiAnalysisItem = $node['Parse AI Analysis'].json || {};
 
 const jsonOutput = jsonItem.json_output || '{}';
 const markdownOutput = markdownItem.markdown_output || '# Stock Analysis Report\\n\\nNo data available.';
+// Capture input data (sources, strategy, activePredictions)
+const inputData = JSON.stringify(inputDataItem);
+// Capture raw AI analysis output
+const aiAnalysis = JSON.stringify(aiAnalysisItem.aiAnalysis || aiAnalysisItem);
 
 // Parse JSON to validate it matches markdown
 let jsonObj = {};
@@ -411,6 +638,8 @@ return [{
     strategy_id: "${strategyId}",
     json_output: jsonOutput,
     markdown_output: markdownOutput,
+    input_data: inputData,
+    ai_analysis: aiAnalysis,
     timestamp: new Date().toISOString(),
     format_version: "1.0",
     validated: missingInMarkdown.length === 0
@@ -444,7 +673,7 @@ return [{
           sendBody: true,
           bodyContentType: "json",
           jsonBody:
-            "={{ JSON.stringify({ strategyId: $json.strategy_id, jsonOutput: $json.json_output, markdownOutput: $json.markdown_output, executionId: $execution.id }) }}",
+            "={{ JSON.stringify({ strategyId: $json.strategy_id, jsonOutput: $json.json_output, markdownOutput: $json.markdown_output, executionId: $execution.id, inputData: $json.input_data, aiAnalysis: $json.ai_analysis }) }}",
           options: {},
           authentication: "genericCredentialType",
           genericAuthType: "httpHeaderAuth",

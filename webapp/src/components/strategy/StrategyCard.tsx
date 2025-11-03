@@ -28,7 +28,6 @@ interface StrategyCardProps {
   onTriggerPredictions: (id: string) => void;
   onEdit: (strategy: Strategy) => void;
   onDelete: (id: string) => void;
-  onDetail: (strategy: Strategy) => void;
   onCopy: (id: string) => void;
   onShare: (id: string, name: string) => void;
 }
@@ -45,14 +44,14 @@ export function StrategyCard({
   onTriggerPredictions,
   onEdit,
   onDelete,
-  onDetail,
   onCopy,
   onShare,
 }: StrategyCardProps) {
   return (
-    <div
-      className="bg-white border border-gray-200 rounded-lg px-5 py-3.5 hover:shadow-md hover:border-gray-300 transition-all cursor-pointer group"
-      onClick={() => onDetail(strategy)}
+    <Link
+      to="/strategies/$strategyId"
+      params={{ strategyId: strategy.id }}
+      className="block bg-white border border-gray-200 rounded-lg px-5 py-3.5 hover:shadow-md hover:border-gray-300 transition-all cursor-pointer group"
     >
       <div className="flex items-center gap-6">
         {/* Name, Status, and Privacy */}
@@ -269,6 +268,6 @@ export function StrategyCard({
           )}
         </div>
       </div>
-    </div>
+    </Link>
   );
 }

@@ -7,7 +7,6 @@ interface ActiveStrategiesProps {
   activeStrategies: Strategy[];
   predictionCounts: Record<string, number>;
   triggeringStrategy: string | null;
-  onStrategyClick: (strategy: Strategy) => void;
   onTriggerPredictions: (strategyId: string, strategyName: string) => void;
 }
 
@@ -15,7 +14,6 @@ export function ActiveStrategies({
   activeStrategies,
   predictionCounts,
   triggeringStrategy,
-  onStrategyClick,
   onTriggerPredictions,
 }: ActiveStrategiesProps) {
   if (activeStrategies.length === 0) {
@@ -28,7 +26,6 @@ export function ActiveStrategies({
         <h2 className="text-lg font-semibold">Active Strategies</h2>
         <Link
           to="/strategies"
-          search={{ id: undefined }}
           className="text-sm text-blue-600 hover:text-blue-700 flex items-center gap-1"
         >
           View All <ArrowRight className="w-4 h-4" />
@@ -36,10 +33,11 @@ export function ActiveStrategies({
       </div>
       <div className="divide-y divide-gray-200">
         {activeStrategies.map((strategy) => (
-          <div
+          <Link
             key={strategy.id}
-            onClick={() => onStrategyClick(strategy)}
-            className="p-4 hover:bg-gray-50 transition-colors cursor-pointer"
+            to="/strategies/$strategyId"
+            params={{ strategyId: strategy.id }}
+            className="block p-4 hover:bg-gray-50 transition-colors cursor-pointer"
           >
             <div className="flex items-center justify-between">
               <div className="flex-1 min-w-0">
@@ -84,7 +82,7 @@ export function ActiveStrategies({
                 )}
               </button>
             </div>
-          </div>
+          </Link>
         ))}
       </div>
     </div>

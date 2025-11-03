@@ -19,6 +19,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as StrategiesIndexRouteImport } from './routes/strategies/index'
 import { Route as UsersUsernameRouteImport } from './routes/users/$username'
 import { Route as StrategiesNewRouteImport } from './routes/strategies/new'
+import { Route as StrategiesStrategyIdRouteImport } from './routes/strategies/$strategyId'
 
 const PredictionsRoute = PredictionsRouteImport.update({
   id: '/predictions',
@@ -70,6 +71,11 @@ const StrategiesNewRoute = StrategiesNewRouteImport.update({
   path: '/strategies/new',
   getParentRoute: () => rootRouteImport,
 } as any)
+const StrategiesStrategyIdRoute = StrategiesStrategyIdRouteImport.update({
+  id: '/strategies/$strategyId',
+  path: '/strategies/$strategyId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -79,6 +85,7 @@ export interface FileRoutesByFullPath {
   '/leaderboard': typeof LeaderboardRoute
   '/login': typeof LoginRoute
   '/predictions': typeof PredictionsRoute
+  '/strategies/$strategyId': typeof StrategiesStrategyIdRoute
   '/strategies/new': typeof StrategiesNewRoute
   '/users/$username': typeof UsersUsernameRoute
   '/strategies': typeof StrategiesIndexRoute
@@ -91,6 +98,7 @@ export interface FileRoutesByTo {
   '/leaderboard': typeof LeaderboardRoute
   '/login': typeof LoginRoute
   '/predictions': typeof PredictionsRoute
+  '/strategies/$strategyId': typeof StrategiesStrategyIdRoute
   '/strategies/new': typeof StrategiesNewRoute
   '/users/$username': typeof UsersUsernameRoute
   '/strategies': typeof StrategiesIndexRoute
@@ -104,6 +112,7 @@ export interface FileRoutesById {
   '/leaderboard': typeof LeaderboardRoute
   '/login': typeof LoginRoute
   '/predictions': typeof PredictionsRoute
+  '/strategies/$strategyId': typeof StrategiesStrategyIdRoute
   '/strategies/new': typeof StrategiesNewRoute
   '/users/$username': typeof UsersUsernameRoute
   '/strategies/': typeof StrategiesIndexRoute
@@ -118,6 +127,7 @@ export interface FileRouteTypes {
     | '/leaderboard'
     | '/login'
     | '/predictions'
+    | '/strategies/$strategyId'
     | '/strategies/new'
     | '/users/$username'
     | '/strategies'
@@ -130,6 +140,7 @@ export interface FileRouteTypes {
     | '/leaderboard'
     | '/login'
     | '/predictions'
+    | '/strategies/$strategyId'
     | '/strategies/new'
     | '/users/$username'
     | '/strategies'
@@ -142,6 +153,7 @@ export interface FileRouteTypes {
     | '/leaderboard'
     | '/login'
     | '/predictions'
+    | '/strategies/$strategyId'
     | '/strategies/new'
     | '/users/$username'
     | '/strategies/'
@@ -155,6 +167,7 @@ export interface RootRouteChildren {
   LeaderboardRoute: typeof LeaderboardRoute
   LoginRoute: typeof LoginRoute
   PredictionsRoute: typeof PredictionsRoute
+  StrategiesStrategyIdRoute: typeof StrategiesStrategyIdRoute
   StrategiesNewRoute: typeof StrategiesNewRoute
   UsersUsernameRoute: typeof UsersUsernameRoute
   StrategiesIndexRoute: typeof StrategiesIndexRoute
@@ -232,6 +245,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof StrategiesNewRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/strategies/$strategyId': {
+      id: '/strategies/$strategyId'
+      path: '/strategies/$strategyId'
+      fullPath: '/strategies/$strategyId'
+      preLoaderRoute: typeof StrategiesStrategyIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -243,6 +263,7 @@ const rootRouteChildren: RootRouteChildren = {
   LeaderboardRoute: LeaderboardRoute,
   LoginRoute: LoginRoute,
   PredictionsRoute: PredictionsRoute,
+  StrategiesStrategyIdRoute: StrategiesStrategyIdRoute,
   StrategiesNewRoute: StrategiesNewRoute,
   UsersUsernameRoute: UsersUsernameRoute,
   StrategiesIndexRoute: StrategiesIndexRoute,

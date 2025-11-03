@@ -24,10 +24,56 @@ import { dbRowToProtoStrategy } from "./strategyHelpers.js";
  */
 export async function prepareDataForWorkflow(
   req: PrepareDataForWorkflowRequest,
-  _context: HandlerContext
+  context: HandlerContext
 ): Promise<PrepareDataForWorkflowResponse> {
+  let workflowRunId: string | null = null;
   try {
     const strategyId = req.id;
+
+    // Get execution ID from headers if available (n8n may send this)
+    const executionId = context.requestHeader.get("x-n8n-execution-id") || null;
+
+    // Create or update workflow run record at workflow start
+    // Check if there's an existing pending workflow run for this execution
+    let existingRun: { id: string; execution_id: string | null } | undefined;
+    if (executionId) {
+      existingRun = (await db.get(
+        "SELECT id, execution_id FROM workflow_runs WHERE strategy_id = ? AND execution_id = ? AND status IN ('pending', 'running')",
+        [strategyId, executionId]
+      )) as { id: string; execution_id: string | null } | undefined;
+    }
+
+    if (existingRun) {
+      // Update existing workflow run to running status
+      workflowRunId = existingRun.id;
+      await db.run(
+        "UPDATE workflow_runs SET status = 'running', updated_at = datetime('now') WHERE id = ?",
+        [workflowRunId]
+      );
+      console.log(`🔄 Updated workflow run to running:`, {
+        workflowRunId,
+        strategyId,
+        executionId,
+      });
+    } else {
+      // Create new workflow run record
+      workflowRunId = randomUUID();
+      const inputData = JSON.stringify({
+        strategy_id: strategyId,
+        timestamp: new Date().toISOString(),
+      });
+
+      await db.run(
+        `INSERT INTO workflow_runs (id, strategy_id, execution_id, input_data, status, created_at, updated_at)
+         VALUES (?, ?, ?, ?, 'running', datetime('now'), datetime('now'))`,
+        [workflowRunId, strategyId, executionId, inputData]
+      );
+      console.log(`✅ Created workflow run at start:`, {
+        workflowRunId,
+        strategyId,
+        executionId,
+      });
+    }
 
     // Get strategy from database
     const row = (await db.get("SELECT * FROM strategies WHERE id = ?", [strategyId])) as
@@ -157,6 +203,22 @@ export async function prepareDataForWorkflow(
       })
     );
 
+    // Update workflow run with full input data
+    if (workflowRunId) {
+      const fullInputData = JSON.stringify({
+        strategy: strategyData,
+        activePredictions: activePredictionsData,
+        hasBudget,
+        sources,
+        timestamp: new Date().toISOString(),
+      });
+
+      await db.run(
+        "UPDATE workflow_runs SET input_data = ?, updated_at = datetime('now') WHERE id = ?",
+        [fullInputData, workflowRunId]
+      );
+    }
+
     return create(PrepareDataForWorkflowResponseSchema, {
       strategy: strategyData,
       activePredictions: activePredictionsData,
@@ -165,6 +227,21 @@ export async function prepareDataForWorkflow(
     });
   } catch (error) {
     console.error("❌ Error in prepareDataForWorkflow:", error);
+
+    // Update workflow run status to failed if we created one
+    if (workflowRunId) {
+      try {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        await db.run(
+          "UPDATE workflow_runs SET status = 'failed', error_message = ?, updated_at = datetime('now') WHERE id = ?",
+          [errorMessage, workflowRunId]
+        );
+        console.log(`❌ Updated workflow run to failed:`, { workflowRunId, errorMessage });
+      } catch (updateError) {
+        console.error("⚠️ Failed to update workflow run status:", updateError);
+      }
+    }
+
     if (error instanceof ConnectError) {
       throw error;
     }
@@ -188,6 +265,8 @@ export async function createPredictionsFromWorkflow(
     const jsonOutput = req.jsonOutput;
     const markdownOutput = req.markdownOutput;
     const executionId = req.executionId;
+    const inputData = req.inputData;
+    const aiAnalysis = req.aiAnalysis;
 
     // Parse JSON output
     let jsonOutputObj: { recommendations?: Array<Record<string, unknown>> };
@@ -221,17 +300,62 @@ export async function createPredictionsFromWorkflow(
       throw new ConnectError("No recommendations found in json_output", Code.InvalidArgument);
     }
 
-    // Create workflow run record
-    const workflowRunId = randomUUID();
+    // Update existing workflow run or create new one if not found
     const executionIdFromHeader = context.requestHeader.get("x-n8n-execution-id") || executionId;
 
-    await db.run(
-      `INSERT INTO workflow_runs (id, strategy_id, execution_id, json_output, markdown_output, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
-      [workflowRunId, strategyId, executionIdFromHeader || null, jsonOutput, markdownOutput]
-    );
+    // Try to find existing workflow run by execution ID
+    let workflowRunId: string;
+    const existingRun = executionIdFromHeader
+      ? ((await db.get(
+          "SELECT id FROM workflow_runs WHERE strategy_id = ? AND execution_id = ? AND status IN ('pending', 'running')",
+          [strategyId, executionIdFromHeader]
+        )) as { id: string } | undefined)
+      : null;
 
-    console.log(`✅ Created workflow run:`, {
+    if (existingRun) {
+      // Update existing workflow run
+      workflowRunId = existingRun.id;
+      await db.run(
+        `UPDATE workflow_runs 
+         SET input_data = COALESCE(?, input_data),
+             ai_analysis = ?,
+             json_output = ?,
+             markdown_output = ?,
+             status = 'completed',
+             error_message = NULL,
+             updated_at = datetime('now')
+         WHERE id = ?`,
+        [inputData || null, aiAnalysis || null, jsonOutput, markdownOutput, workflowRunId]
+      );
+      console.log(`✅ Updated existing workflow run:`, {
+        workflowRunId,
+        strategyId,
+        executionId: executionIdFromHeader,
+      });
+    } else {
+      // Create new workflow run record (fallback if not created at start)
+      workflowRunId = randomUUID();
+      await db.run(
+        `INSERT INTO workflow_runs (id, strategy_id, execution_id, input_data, ai_analysis, json_output, markdown_output, status, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'completed', datetime('now'), datetime('now'))`,
+        [
+          workflowRunId,
+          strategyId,
+          executionIdFromHeader || null,
+          inputData || null,
+          aiAnalysis || null,
+          jsonOutput,
+          markdownOutput,
+        ]
+      );
+      console.log(`✅ Created workflow run at completion:`, {
+        workflowRunId,
+        strategyId,
+        executionId: executionIdFromHeader,
+      });
+    }
+
+    console.log(`✅ Workflow run completed:`, {
       workflowRunId,
       strategyId,
       executionId: executionIdFromHeader,
@@ -351,6 +475,34 @@ export async function createPredictionsFromWorkflow(
     });
   } catch (error) {
     console.error("❌ Error in createPredictionsFromWorkflow:", error);
+
+    // Try to update workflow run status to failed
+    try {
+      const executionIdFromHeader =
+        context.requestHeader.get("x-n8n-execution-id") || req.executionId || null;
+      const strategyIdForError = req.strategyId;
+      if (executionIdFromHeader && strategyIdForError) {
+        const existingRun = (await db.get(
+          "SELECT id FROM workflow_runs WHERE strategy_id = ? AND execution_id = ? AND status IN ('pending', 'running')",
+          [strategyIdForError, executionIdFromHeader]
+        )) as { id: string } | undefined;
+
+        if (existingRun) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          await db.run(
+            "UPDATE workflow_runs SET status = 'failed', error_message = ?, updated_at = datetime('now') WHERE id = ?",
+            [errorMessage, existingRun.id]
+          );
+          console.log(`❌ Updated workflow run to failed:`, {
+            workflowRunId: existingRun.id,
+            errorMessage,
+          });
+        }
+      }
+    } catch (updateError) {
+      console.error("⚠️ Failed to update workflow run status on error:", updateError);
+    }
+
     if (error instanceof ConnectError) {
       throw error;
     }

@@ -122,8 +122,8 @@ export function DashboardPredictionDetailDialog({
                 <label className="block text-xs font-medium text-gray-500 mb-1">Strategy</label>
                 {strategyPrivacy === StrategyPrivacy.PUBLIC || isStrategyOwned ? (
                   <Link
-                    to="/strategies"
-                    search={{ id: prediction.strategyId }}
+                    to="/strategies/$strategyId"
+                    params={{ strategyId: prediction.strategyId }}
                     onClick={(e) => e.stopPropagation()}
                     className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 hover:underline"
                   >

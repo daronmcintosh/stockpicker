@@ -4,6 +4,8 @@ CREATE TABLE IF NOT EXISTS workflow_runs (
   id TEXT PRIMARY KEY,
   strategy_id TEXT NOT NULL REFERENCES strategies(id) ON DELETE CASCADE,
   execution_id TEXT, -- n8n execution ID
+  input_data TEXT, -- JSON string of input data sent to workflow (sources, strategy, etc.)
+  ai_analysis TEXT, -- JSON string of AI analysis output (raw AI response)
   json_output TEXT NOT NULL, -- JSON string of structured output
   markdown_output TEXT NOT NULL, -- Markdown string for UI rendering
   created_at TEXT NOT NULL DEFAULT (datetime('now')),

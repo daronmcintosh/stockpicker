@@ -44,9 +44,9 @@ export async function updateStrategy(
       updates.push("name = ?");
       params.push(req.name);
     }
-    if (req.description) {
+    if (req.description !== undefined) {
       updates.push("description = ?");
-      params.push(req.description);
+      params.push(req.description || "");
     }
     if (req.customPrompt) {
       updates.push("custom_prompt = ?");

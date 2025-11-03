@@ -37,11 +37,7 @@ export function RecentPredictions({
         ) : recentPredictions.length === 0 ? (
           <div className="p-8 text-center text-gray-500">
             <p className="mb-2">No predictions yet</p>
-            <Link
-              to="/strategies"
-              search={{ id: undefined }}
-              className="text-sm text-blue-600 hover:text-blue-700"
-            >
+            <Link to="/strategies" className="text-sm text-blue-600 hover:text-blue-700">
               Create a strategy to get started
             </Link>
           </div>

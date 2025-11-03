@@ -30,6 +30,34 @@ export async function createWorkflow(
     // Filter workflow to only include API-accepted fields
     const requestBody = filterWorkflowForApi(workflowData);
 
+    // Debug: Log HTTP Request node configurations
+    if (Array.isArray(requestBody.nodes)) {
+      for (const node of requestBody.nodes) {
+        if (
+          typeof node === "object" &&
+          node !== null &&
+          (node as Record<string, unknown>).type === "n8n-nodes-base.httpRequest"
+        ) {
+          const nodeObj = node as Record<string, unknown>;
+          const params = nodeObj.parameters as Record<string, unknown> | undefined;
+          if (params) {
+            console.log(`🔍 HTTP Request node "${nodeObj.name}":`, {
+              hasJsonBody: !!params.jsonBody,
+              jsonBody: params.jsonBody,
+              hasBody: !!params.body,
+              body: params.body,
+              specifyBody: params.specifyBody,
+              contentType: params.contentType,
+              bodyContentType: params.bodyContentType, // Legacy field
+              hasBodyParameters: !!params.bodyParameters,
+              sendBody: params.sendBody,
+              url: params.url,
+            });
+          }
+        }
+      }
+    }
+
     console.log(`📝 Creating n8n workflow from JSON:`, {
       name: workflow.name,
       nodeCount: Array.isArray(workflowData.nodes) ? workflowData.nodes.length : 0,
@@ -99,6 +127,34 @@ export async function updateFullWorkflow(
     // Filter workflow to only include API-accepted fields (remove id, active, versionId, meta, etc.)
     const workflowData = processedWorkflow as unknown as Record<string, unknown>;
     const requestBody = filterWorkflowForApi(workflowData);
+
+    // Debug: Log HTTP Request node configurations
+    if (Array.isArray(requestBody.nodes)) {
+      for (const node of requestBody.nodes) {
+        if (
+          typeof node === "object" &&
+          node !== null &&
+          (node as Record<string, unknown>).type === "n8n-nodes-base.httpRequest"
+        ) {
+          const nodeObj = node as Record<string, unknown>;
+          const params = nodeObj.parameters as Record<string, unknown> | undefined;
+          if (params) {
+            console.log(`🔍 HTTP Request node "${nodeObj.name}":`, {
+              hasJsonBody: !!params.jsonBody,
+              jsonBody: params.jsonBody,
+              hasBody: !!params.body,
+              body: params.body,
+              specifyBody: params.specifyBody,
+              contentType: params.contentType,
+              bodyContentType: params.bodyContentType, // Legacy field
+              hasBodyParameters: !!params.bodyParameters,
+              sendBody: params.sendBody,
+              url: params.url,
+            });
+          }
+        }
+      }
+    }
 
     console.log(`📝 Filtered workflow fields for update:`, {
       fields: Object.keys(requestBody),

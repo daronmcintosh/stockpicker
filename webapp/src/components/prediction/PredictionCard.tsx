@@ -274,8 +274,8 @@ export function PredictionCard({
                 prediction.strategyId &&
                 (strategyPrivacy === StrategyPrivacy.PUBLIC || isStrategyOwned) && (
                   <Link
-                    to="/strategies"
-                    search={{ id: prediction.strategyId }}
+                    to="/strategies/$strategyId"
+                    params={{ strategyId: prediction.strategyId }}
                     onClick={(e) => e.stopPropagation()}
                     className="text-xs text-gray-600 hover:text-blue-600 transition-colors flex items-center gap-1 w-fit"
                   >

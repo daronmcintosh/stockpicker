@@ -4,7 +4,6 @@ import {
   DashboardStats,
   PredictionPerformanceBreakdown,
   RecentPredictions,
-  StrategyDetailDialog,
 } from "@/components/dashboard";
 import { toNumber } from "@/components/dashboard";
 import { DeletePredictionDialog } from "@/components/prediction/DeletePredictionDialog";
@@ -36,8 +35,6 @@ function App() {
   const [activeStrategies, setActiveStrategies] = useState<Strategy[]>([]);
   const [recentPredictions, setRecentPredictions] = useState<Prediction[]>([]);
   const [triggeringStrategy, setTriggeringStrategy] = useState<string | null>(null);
-  const [detailDialogOpen, setDetailDialogOpen] = useState(false);
-  const [selectedStrategyForDetail, setSelectedStrategyForDetail] = useState<Strategy | null>(null);
   const [predictionDialogOpen, setPredictionDialogOpen] = useState(false);
   const [selectedPrediction, setSelectedPrediction] = useState<Prediction | null>(null);
   const [predictionCounts, setPredictionCounts] = useState<Record<string, number>>({});
@@ -191,11 +188,6 @@ function App() {
     }
   }
 
-  function openDetailDialog(strategy: Strategy) {
-    setSelectedStrategyForDetail(strategy);
-    setDetailDialogOpen(true);
-  }
-
   function openPredictionDialog(prediction: Prediction) {
     setSelectedPrediction(prediction);
     setPredictionDialogOpen(true);
@@ -312,7 +304,6 @@ function App() {
             </p>
             <Link
               to="/strategies"
-              search={{ id: undefined }}
               className="inline-block bg-white text-blue-600 px-4 py-2 rounded-lg font-semibold hover:bg-blue-50 transition-colors text-sm"
             >
               Manage Strategies
@@ -337,17 +328,7 @@ function App() {
         activeStrategies={activeStrategies}
         predictionCounts={predictionCounts}
         triggeringStrategy={triggeringStrategy}
-        onStrategyClick={openDetailDialog}
         onTriggerPredictions={handleTriggerPredictions}
-      />
-
-      <StrategyDetailDialog
-        open={detailDialogOpen}
-        onOpenChange={setDetailDialogOpen}
-        strategy={selectedStrategyForDetail}
-        predictionCount={
-          selectedStrategyForDetail ? (predictionCounts[selectedStrategyForDetail.id] ?? 0) : 0
-        }
       />
 
       <DashboardPredictionDetailDialog

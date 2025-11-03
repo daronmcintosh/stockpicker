@@ -13,7 +13,9 @@ import {
   createStrategy,
   deleteStrategy,
   getStrategy,
+  getWorkflowRun,
   listStrategies,
+  listWorkflowRuns,
   pauseStrategy,
   prepareDataForWorkflow,
   startStrategy,
@@ -46,6 +48,10 @@ const strategyServiceImpl = {
   // Workflow handlers (internal - called by n8n workflows)
   prepareDataForWorkflow,
   createPredictionsFromWorkflow,
+
+  // Workflow runs
+  listWorkflowRuns,
+  getWorkflowRun,
 
   // Remaining RPCs from original file (to be migrated)
   sendOTP: remainingStrategyService.sendOTP,

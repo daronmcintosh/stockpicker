@@ -207,7 +207,7 @@ function FeedPage() {
   }
 
   async function shareStrategy(id: string, _name: string) {
-    const url = `${window.location.origin}/strategies?id=${id}`;
+    const url = `${window.location.origin}/strategies/${id}`;
     try {
       await navigator.clipboard.writeText(url);
       toast.success("Link copied to clipboard!");

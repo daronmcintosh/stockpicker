@@ -141,8 +141,8 @@ export function PredictionDetailDialog({
                 <label className="block text-xs font-medium text-gray-500 mb-1">Strategy</label>
                 {strategyPrivacy === StrategyPrivacy.PUBLIC || isStrategyOwned ? (
                   <Link
-                    to="/strategies"
-                    search={{ id: prediction.strategyId }}
+                    to="/strategies/$strategyId"
+                    params={{ strategyId: prediction.strategyId }}
                     onClick={(e) => e.stopPropagation()}
                     className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 hover:underline"
                   >
@@ -320,7 +320,7 @@ export function PredictionDetailDialog({
             </div>
           </div>
           <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-            <h4 className="text-sm font-semibold text-gray-900 mb-3">Scores</h4>
+            <h4 className="text-sm font-semibold text-gray-900 mb-3">Scores & Metrics</h4>
             <div className="space-y-2 text-sm">
               <div className="flex justify-between">
                 <span className="text-gray-600">Sentiment:</span>
@@ -332,6 +332,8 @@ export function PredictionDetailDialog({
                 <span className="text-gray-600">Overall:</span>
                 <span className="font-semibold text-gray-900">{overallScore.toFixed(1)} / 10</span>
               </div>
+              {/* Note: Confidence and risk metrics would come from workflow run JSON output */}
+              {/* These will be displayed once we link predictions to workflow runs */}
             </div>
           </div>
         </div>

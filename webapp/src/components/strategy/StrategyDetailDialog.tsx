@@ -1,6 +1,11 @@
 import { Dialog, DialogButton, DialogFooter } from "@/components/ui/Dialog";
-import type { Strategy } from "@/gen/stockpicker/v1/strategy_pb";
+import { WorkflowRunsList } from "@/components/workflow/WorkflowRunsList";
+import type { Strategy, WorkflowRun } from "@/gen/stockpicker/v1/strategy_pb";
+import { useAuth } from "@/lib/auth";
+import { createClient } from "@/lib/connect";
 import { Edit } from "lucide-react";
+import { useEffect, useState } from "react";
+import toast from "react-hot-toast";
 import { StatusBadge } from "./StatusBadge";
 import { getFrequencyLabel, getRiskLevelLabel } from "./strategyHelpers";
 
@@ -19,6 +24,34 @@ export function StrategyDetailDialog({
   predictionCount,
   onEdit,
 }: StrategyDetailDialogProps) {
+  const { token } = useAuth();
+  const [workflowRuns, setWorkflowRuns] = useState<WorkflowRun[]>([]);
+  const [loadingWorkflowRuns, setLoadingWorkflowRuns] = useState(false);
+
+  useEffect(() => {
+    if (open && strategy?.id && token) {
+      loadWorkflowRuns();
+    }
+  }, [open, strategy?.id, token]);
+
+  async function loadWorkflowRuns() {
+    if (!strategy?.id || !token) return;
+    setLoadingWorkflowRuns(true);
+    try {
+      const client = createClient(token);
+      const response = await client.strategy.listWorkflowRuns({
+        strategyId: strategy.id,
+        limit: 10,
+      });
+      setWorkflowRuns(response.workflowRuns);
+    } catch (error) {
+      console.error("Failed to load workflow runs:", error);
+      toast.error("Failed to load workflow runs");
+    } finally {
+      setLoadingWorkflowRuns(false);
+    }
+  }
+
   if (!strategy) {
     return null;
   }
@@ -150,6 +183,14 @@ export function StrategyDetailDialog({
                 : "N/A"}
             </div>
           </div>
+        </div>
+
+        {/* Workflow Runs Section */}
+        <div className="border-t border-gray-200 pt-4">
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Recent Workflow Runs
+          </label>
+          <WorkflowRunsList workflowRuns={workflowRuns} loading={loadingWorkflowRuns} />
         </div>
       </div>
       <DialogFooter>

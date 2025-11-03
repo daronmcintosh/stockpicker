@@ -39,6 +39,12 @@ service StrategyService {
   // Internal: Create predictions from workflow output (called by n8n workflows)
   rpc CreatePredictionsFromWorkflow(CreatePredictionsFromWorkflowRequest) returns (CreatePredictionsFromWorkflowResponse);
 
+  // Get workflow runs for a strategy
+  rpc ListWorkflowRuns(ListWorkflowRunsRequest) returns (ListWorkflowRunsResponse);
+  
+  // Get a specific workflow run
+  rpc GetWorkflowRun(GetWorkflowRunRequest) returns (GetWorkflowRunResponse);
+
   // Update strategy privacy (public/private)
   rpc UpdateStrategyPrivacy(UpdateStrategyPrivacyRequest) returns (UpdateStrategyPrivacyResponse);
 
@@ -301,6 +307,8 @@ message CreatePredictionsFromWorkflowRequest {
   string json_output = 2; // JSON string containing recommendations
   string markdown_output = 3; // Markdown report
   optional string execution_id = 4; // n8n execution ID
+  optional string input_data = 5; // JSON string of input data sent to workflow (sources, strategy, etc.)
+  optional string ai_analysis = 6; // JSON string of raw AI analysis output
 }
 
 message CreatePredictionsFromWorkflowResponse {
@@ -316,6 +324,40 @@ message CreatedPredictionData {
   double entry_price = 3;
   double target_price = 4;
   double stop_loss_price = 5;
+}
+
+// Workflow Runs
+message ListWorkflowRunsRequest {
+  string strategy_id = 1;
+  optional int32 limit = 2; // Max number of runs to return (default: 50)
+  optional int32 offset = 3; // Pagination offset (default: 0)
+}
+
+message ListWorkflowRunsResponse {
+  repeated WorkflowRun workflow_runs = 1;
+  int32 total = 2; // Total count of workflow runs
+}
+
+message GetWorkflowRunRequest {
+  string id = 1;
+}
+
+message GetWorkflowRunResponse {
+  WorkflowRun workflow_run = 1;
+}
+
+message WorkflowRun {
+  string id = 1;
+  string strategy_id = 2;
+  optional string execution_id = 3; // n8n execution ID
+  optional string input_data = 4; // JSON string of input data sent to workflow
+  optional string ai_analysis = 5; // JSON string of raw AI analysis output
+  optional string json_output = 6; // JSON string of structured output (null if failed)
+  optional string markdown_output = 7; // Markdown string for UI rendering (null if failed)
+  string status = 8; // pending, running, completed, failed
+  optional string error_message = 9; // Error message if status is failed
+  google.protobuf.Timestamp created_at = 10;
+  google.protobuf.Timestamp updated_at = 11;
 }
 
 // ============================================================================

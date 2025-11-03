@@ -78,6 +78,26 @@ export function injectCredentialReference(
               );
           }
 
+          // If using jsonBody, ensure specifyBody is set and bodyParameters is removed
+          // n8n will auto-convert to bodyParameters if both exist or contentType is missing
+          if (
+            node.parameters.jsonBody &&
+            (node.parameters.contentType === "json" || node.parameters.bodyContentType === "json")
+          ) {
+            // Set specifyBody to "json" if not already set
+            if (!node.parameters.specifyBody) {
+              (node.parameters as Record<string, unknown>).specifyBody = "json";
+            }
+            // Ensure contentType is set (may be bodyContentType in older versions)
+            if (node.parameters.bodyContentType && !node.parameters.contentType) {
+              (node.parameters as Record<string, unknown>).contentType =
+                node.parameters.bodyContentType;
+              (node.parameters as Record<string, unknown>).bodyContentType = undefined;
+            }
+            // Remove bodyParameters to avoid n8n auto-converting jsonBody to bodyParameters
+            (node.parameters as Record<string, unknown>).bodyParameters = undefined;
+          }
+
           // Add credential reference to the node
           // n8n HTTP Request node uses credentials field for credential references
           if (!node.credentials) {
@@ -208,6 +228,26 @@ export function filterWorkflowForApi(workflow: Record<string, unknown>): Record<
           const nodeObj = node as Record<string, unknown>;
           // Remove unsupported fields from nodes
           const { note, webhookId, ...filteredNode } = nodeObj;
+
+          // For HTTP Request nodes, ensure jsonBody and bodyContentType are preserved
+          if (
+            filteredNode.type === "n8n-nodes-base.httpRequest" &&
+            filteredNode.parameters &&
+            typeof filteredNode.parameters === "object"
+          ) {
+            const params = filteredNode.parameters as Record<string, unknown>;
+            // If jsonBody exists, ensure contentType and specifyBody are set correctly
+            if (params.jsonBody && typeof params.jsonBody === "string") {
+              // Use contentType (not bodyContentType) for n8n HTTP Request v4.2+
+              params.contentType = "json";
+              params.specifyBody = "json";
+              // Remove bodyContentType if present (legacy field)
+              params.bodyContentType = undefined;
+              // Remove bodyParameters to avoid n8n auto-converting jsonBody to bodyParameters
+              params.bodyParameters = undefined;
+            }
+          }
+
           return filteredNode;
         }
         return node;

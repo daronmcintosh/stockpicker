@@ -18,6 +18,7 @@ export {
   prepareDataForWorkflow,
   createPredictionsFromWorkflow,
 } from "./workflowHandlers.js";
+export { listWorkflowRuns, getWorkflowRun } from "./workflowRuns.js";
 
 // Re-export auth methods (auth is now in services/auth, not services/strategy/auth)
 export {
