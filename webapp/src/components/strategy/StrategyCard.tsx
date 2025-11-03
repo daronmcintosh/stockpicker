@@ -156,7 +156,11 @@ export function StrategyCard({
             strategy.status === StrategyStatus.STOPPED) && (
             <button
               type="button"
-              onClick={() => onStart(strategy.id)}
+              onClick={(e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                onStart(strategy.id);
+              }}
               className="flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-medium bg-green-500 text-white hover:bg-green-600 transition-colors"
               title={strategy.status === StrategyStatus.STOPPED ? "Restart" : "Start"}
             >
@@ -168,7 +172,11 @@ export function StrategyCard({
             <>
               <button
                 type="button"
-                onClick={() => onTriggerPredictions(strategy.id)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  e.preventDefault();
+                  onTriggerPredictions(strategy.id);
+                }}
                 disabled={triggeringStrategy === strategy.id}
                 className="flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-medium bg-blue-500 text-white hover:bg-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 title="Generate Predictions"
@@ -187,7 +195,11 @@ export function StrategyCard({
               </button>
               <button
                 type="button"
-                onClick={() => onPause(strategy.id)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  e.preventDefault();
+                  onPause(strategy.id);
+                }}
                 className="flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-medium bg-yellow-500 text-white hover:bg-yellow-600 transition-colors"
                 title="Pause"
               >
@@ -199,7 +211,11 @@ export function StrategyCard({
           {strategy.status !== StrategyStatus.STOPPED && (
             <button
               type="button"
-              onClick={() => onStop(strategy.id)}
+              onClick={(e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                onStop(strategy.id);
+              }}
               className="flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-medium bg-red-500 text-white hover:bg-red-600 transition-colors"
               title="Stop"
             >

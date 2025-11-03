@@ -64,8 +64,8 @@ export async function prepareDataForWorkflow(
       });
 
       await db.run(
-        `INSERT INTO workflow_runs (id, strategy_id, execution_id, input_data, status, created_at, updated_at)
-         VALUES (?, ?, ?, ?, 'running', datetime('now'), datetime('now'))`,
+        `INSERT INTO workflow_runs (id, strategy_id, execution_id, input_data, json_output, markdown_output, status, created_at, updated_at)
+         VALUES (?, ?, ?, ?, NULL, NULL, 'running', datetime('now'), datetime('now'))`,
         [workflowRunId, strategyId, executionId, inputData]
       );
       console.log(`✅ Created workflow run at start:`, {

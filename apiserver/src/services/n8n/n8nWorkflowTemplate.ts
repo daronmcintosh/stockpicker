@@ -21,6 +21,15 @@ export function createStrategyWorkflowTemplate(
   const workflow: N8nWorkflow = {
     name: `Strategy: ${strategyName} (${frequencyName})`,
     nodes: [
+      // Manual Trigger (for manual execution via API or UI button)
+      {
+        parameters: {},
+        id: "manual-trigger",
+        name: "Manual Trigger",
+        type: "n8n-nodes-base.manualTrigger",
+        typeVersion: 1.0,
+        position: [250, 200],
+      },
       // Schedule Trigger (for cron-based execution) - managed by n8n
       {
         parameters: {
@@ -652,7 +661,9 @@ return [{
         typeVersion: 2,
         position: [1450, 300],
       },
-      // Create Workflow Run - sends both outputs to create workflow run record
+      // Complete Workflow Run - updates existing workflow run (created at start) with results and creates predictions
+      // The workflow run was already created when "Get Prepared Data" was called at the start
+      // This node updates it with the final outputs and creates predictions for top 3 stocks
       {
         parameters: {
           url: `${apiUrl}/stockpicker.v1.StrategyService/CreatePredictionsFromWorkflow`,
@@ -678,14 +689,17 @@ return [{
           authentication: "genericCredentialType",
           genericAuthType: "httpHeaderAuth",
         },
-        id: "create-workflow-run",
-        name: "Create Workflow Run",
+        id: "complete-workflow-run",
+        name: "Complete Workflow Run",
         type: "n8n-nodes-base.httpRequest",
         typeVersion: 4.2,
         position: [1650, 300],
       },
     ],
     connections: {
+      "Manual Trigger": {
+        main: [[{ node: "Get Prepared Data", type: "main", index: 0 }]],
+      },
       "Schedule Trigger": {
         main: [[{ node: "Get Prepared Data", type: "main", index: 0 }]],
       },
@@ -713,7 +727,7 @@ return [{
         main: [[{ node: "Combine & Validate Outputs", type: "main", index: 0 }]],
       },
       "Combine & Validate Outputs": {
-        main: [[{ node: "Create Workflow Run", type: "main", index: 0 }]],
+        main: [[{ node: "Complete Workflow Run", type: "main", index: 0 }]],
       },
     },
     settings: {

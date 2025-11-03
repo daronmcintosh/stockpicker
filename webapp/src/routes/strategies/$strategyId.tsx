@@ -3,10 +3,11 @@ import type { EditFormData } from "@/components/strategy/EditStrategyDialog";
 import { getFrequencyLabel, getRiskLevelLabel } from "@/components/strategy/strategyHelpers";
 import { WorkflowRunsList } from "@/components/workflow/WorkflowRunsList";
 import type { Strategy, WorkflowRun } from "@/gen/stockpicker/v1/strategy_pb";
+import { StrategyStatus } from "@/gen/stockpicker/v1/strategy_pb";
 import { useAuth } from "@/lib/auth";
 import { createClient } from "@/lib/connect";
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
-import { ArrowLeft, Edit } from "lucide-react";
+import { ArrowLeft, Edit, Sparkles } from "lucide-react";
 import { useEffect, useState } from "react";
 import toast from "react-hot-toast";
 
@@ -26,6 +27,7 @@ function StrategyDetailPage() {
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [editingStrategy, setEditingStrategy] = useState<Strategy | null>(null);
   const [updatingStrategy, setUpdatingStrategy] = useState(false);
+  const [triggeringStrategy, setTriggeringStrategy] = useState(false);
   const [editingSourceConfig, setEditingSourceConfig] = useState<Awaited<
     ReturnType<typeof fetchSourceConfig>
   > | null>(null);
@@ -145,6 +147,27 @@ function StrategyDetailPage() {
     }
   }
 
+  async function triggerPredictions() {
+    if (!token || !strategy) return;
+    setTriggeringStrategy(true);
+    try {
+      const client = createClient(token);
+      const response = await client.strategy.triggerPredictions({ id: strategy.id });
+      if (response.success) {
+        toast.success(response.message);
+        // Reload strategy data to refresh prediction count and workflow runs
+        await loadStrategy();
+      } else {
+        toast.error(response.message);
+      }
+    } catch (error) {
+      console.error("Failed to trigger predictions:", error);
+      toast.error("Failed to trigger predictions");
+    } finally {
+      setTriggeringStrategy(false);
+    }
+  }
+
   if (loading) {
     return (
       <div className="container mx-auto px-4 py-8">
@@ -178,13 +201,36 @@ function StrategyDetailPage() {
               <span className="text-gray-600">{predictionCount} predictions</span>
             </div>
           </div>
-          <button
-            onClick={() => openEditDialog(strategy)}
-            className="inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
-          >
-            <Edit className="w-4 h-4" />
-            Edit Strategy
-          </button>
+          <div className="flex items-center gap-3">
+            {strategy.status === StrategyStatus.ACTIVE && (
+              <button
+                type="button"
+                onClick={triggerPredictions}
+                disabled={triggeringStrategy}
+                className="inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {triggeringStrategy ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-4 h-4" />
+                    Generate Predictions
+                  </>
+                )}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => openEditDialog(strategy)}
+              className="inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              <Edit className="w-4 h-4" />
+              Edit Strategy
+            </button>
+          </div>
         </div>
       </div>
 

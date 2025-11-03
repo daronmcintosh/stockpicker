@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { create } from "@bufbuild/protobuf";
 import type { HandlerContext } from "@connectrpc/connect";
 import { Code, ConnectError } from "@connectrpc/connect";
@@ -462,13 +463,56 @@ export async function triggerPredictions(
       }
     }
 
+    // Create workflow run record BEFORE executing (for tracking even if execution fails)
+    // This creates a pending workflow run that will be updated when the workflow starts
+    const workflowRunId = randomUUID();
+    const inputData = JSON.stringify({
+      strategy_id: req.id,
+      triggered_manually: true,
+      timestamp: new Date().toISOString(),
+    });
+
+    try {
+      await db.run(
+        `INSERT INTO workflow_runs (id, strategy_id, execution_id, input_data, json_output, markdown_output, status, created_at, updated_at)
+         VALUES (?, ?, ?, ?, NULL, NULL, 'pending', datetime('now'), datetime('now'))`,
+        [workflowRunId, req.id, null, inputData]
+      );
+      console.log(`✅ Created pending workflow run before execution:`, {
+        workflowRunId,
+        strategyId: req.id,
+      });
+    } catch (dbError) {
+      console.warn(`⚠️ Failed to create pending workflow run, continuing:`, dbError);
+      // Continue with execution even if workflow run creation fails
+    }
+
     // Execute the n8n workflow manually
     console.log(`▶️ Executing n8n workflow:`, {
       strategyId: req.id,
       workflowId,
+      workflowRunId,
     });
 
-    await n8nClient.executeWorkflow(workflowId);
+    try {
+      await n8nClient.executeWorkflow(workflowId);
+    } catch (execError) {
+      // If execution fails, update workflow run status to failed
+      try {
+        const errorMessage = execError instanceof Error ? execError.message : String(execError);
+        await db.run(
+          "UPDATE workflow_runs SET status = 'failed', error_message = ?, updated_at = datetime('now') WHERE id = ?",
+          [errorMessage, workflowRunId]
+        );
+        console.log(`❌ Updated workflow run to failed after execution error:`, {
+          workflowRunId,
+          errorMessage,
+        });
+      } catch (updateError) {
+        console.error(`⚠️ Failed to update workflow run status on execution error:`, updateError);
+      }
+      throw execError; // Re-throw to return error to caller
+    }
 
     console.log(`✅ Predictions triggered successfully:`, {
       strategyId: req.id,
