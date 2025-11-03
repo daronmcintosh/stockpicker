@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { createServer } from "node:http";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { ConnectRouter } from "@connectrpc/connect";
+import { type ConnectRouter, createHandlerContext } from "@connectrpc/connect";
 import { connectNodeAdapter } from "@connectrpc/connect-node";
 import { registerServerReflectionFromFile } from "@lambdalisue/connectrpc-grpcreflect";
 import { appConfig } from "./config.js";
@@ -14,6 +14,7 @@ import {
   deleteStrategy,
   getStrategy,
   getWorkflowRun,
+  listModelPrompts,
   listStrategies,
   listWorkflowRuns,
   pauseStrategy,
@@ -53,6 +54,9 @@ const strategyServiceImpl = {
   listWorkflowRuns,
   getWorkflowRun,
   updateWorkflowRunStatus,
+
+  // Model prompts
+  listModelPrompts,
 
   // Remaining RPCs from original file (to be migrated)
   sendOTP: remainingStrategyService.sendOTP,
@@ -237,11 +241,18 @@ async function initializeSchedulerOnStartup(): Promise<void> {
 
     console.log(`📋 Found ${rows.length} active strategy(ies) to schedule`);
 
+    const context = createHandlerContext({
+      service: StrategyService,
+      method: StrategyService.method.startStrategy,
+      protocolName: "connectrpc",
+      requestMethod: "POST",
+      url: "/stockpicker.v1.StrategyService/startStrategy",
+    });
     for (const row of rows) {
       try {
         const frequency = protoNameToFrequency(row.frequency);
         schedulerService.scheduleStrategy(row.id, frequency, async () => {
-          await executeStrategyWorkflow(row.id, frequency);
+          await executeStrategyWorkflow(context, row.id, frequency);
         });
         schedulerService.startStrategy(row.id);
         console.log(`✅ Scheduled and started job for strategy:`, { strategyId: row.id });

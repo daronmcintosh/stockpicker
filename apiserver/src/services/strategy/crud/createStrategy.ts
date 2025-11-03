@@ -9,6 +9,9 @@ import type {
 } from "../../../gen/stockpicker/v1/strategy_pb.js";
 import { CreateStrategyResponseSchema } from "../../../gen/stockpicker/v1/strategy_pb.js";
 import { getCurrentUserId } from "../../authHelpers.js";
+import { schedulerService } from "../../scheduler/schedulerService.js";
+import { executeStrategyWorkflow } from "../../workflow/workflowExecutor.js";
+import { generateBasePromptForModel } from "../promptGenerator.js";
 import {
   dbRowToProtoStrategy,
   frequencyToProtoName,
@@ -62,7 +65,7 @@ export async function createStrategy(
       userId,
     });
 
-    // Create strategy in database (workflow will be scheduled when strategy is started)
+    // Create strategy in database (strategy will be automatically started)
     const now = new Date().toISOString();
     const tradesPerMonth = getTradesPerMonth(req.frequency);
     // Round to 2 decimal places for monetary values
@@ -85,7 +88,7 @@ export async function createStrategy(
       risk_level: riskLevelToProtoName(req.riskLevel), // Convert enum to proto name string
       unique_stocks_count: 0,
       max_unique_stocks: req.maxUniqueStocks || 20,
-      status: "STRATEGY_STATUS_PAUSED",
+      status: "STRATEGY_STATUS_ACTIVE", // Auto-start strategy on creation
       privacy: "STRATEGY_PRIVACY_PRIVATE", // Default to private
       user_id: userId, // Add user_id
       source_config: (req as unknown as { sourceConfig?: string }).sourceConfig || null, // Store as JSON string
@@ -116,6 +119,7 @@ export async function createStrategy(
       strategyData.source_config, // Add source_config
       strategyData.created_at,
       strategyData.updated_at,
+      now, // next_trade_scheduled
     ];
 
     const sql = `
@@ -124,9 +128,22 @@ export async function createStrategy(
         current_month_start, time_horizon, target_return_pct, frequency,
         trades_per_month, per_trade_budget, per_stock_allocation, risk_level,
         unique_stocks_count, max_unique_stocks, status,
-        privacy, user_id, source_config, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        privacy, user_id, source_config, created_at, updated_at, next_trade_scheduled
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
+
+    // Get AI agents from request or use default
+    const aiAgentsStr = (req as unknown as { aiAgents?: string }).aiAgents;
+    const aiAgentsRaw: string[] = aiAgentsStr
+      ? (JSON.parse(aiAgentsStr) as string[])
+      : ["gpt-4o-mini", "gpt-4o", "gpt-4o-mini"];
+
+    // Deduplicate AI agents to avoid UNIQUE constraint violations
+    const aiAgents = Array.from(new Set(aiAgentsRaw));
+
+    if (aiAgents.length === 0) {
+      throw new Error("At least one AI model must be selected");
+    }
 
     // Use transaction to ensure atomicity
     try {
@@ -142,9 +159,77 @@ export async function createStrategy(
       await db.run(sql, params);
       console.log("✅ Strategy inserted into database");
 
+      // Store ai_agents (deduplicated)
+      await db.run("UPDATE strategies SET ai_agents = ? WHERE id = ?", [
+        JSON.stringify(aiAgents),
+        id,
+      ]);
+
+      // Generate and store prompts for each AI model
+      console.log(`📝 Generating prompts for ${aiAgents.length} AI models:`, {
+        strategyId: id,
+        models: aiAgents,
+      });
+
+      // First get the strategy row to generate prompts
+      const strategyRowForPrompts = (await db.get("SELECT * FROM strategies WHERE id = ?", [id])) as
+        | StrategyRow
+        | undefined;
+
+      if (strategyRowForPrompts) {
+        for (const model of aiAgents) {
+          const basePrompt = generateBasePromptForModel(model, strategyRowForPrompts);
+
+          // Check if prompt already exists for this strategy/model
+          const existing = (await db.get(
+            "SELECT id FROM strategy_model_prompts WHERE strategy_id = ? AND model_name = ?",
+            [id, model]
+          )) as { id: string } | undefined;
+
+          if (existing) {
+            // Update existing prompt
+            await db.run(
+              `UPDATE strategy_model_prompts
+               SET prompt = ?, updated_at = datetime('now')
+               WHERE strategy_id = ? AND model_name = ?`,
+              [basePrompt, id, model]
+            );
+            console.log(`✅ Updated prompt for model:`, { model, promptId: existing.id });
+          } else {
+            // Insert new prompt
+            const promptId = randomUUID();
+            await db.run(
+              `INSERT INTO strategy_model_prompts (id, strategy_id, model_name, prompt, created_at, updated_at)
+               VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))`,
+              [promptId, id, model, basePrompt]
+            );
+            console.log(`✅ Generated prompt for model:`, { model, promptId });
+          }
+        }
+      }
+
       // Commit transaction
       await db.run("COMMIT");
       console.log("✅ Transaction committed successfully");
+
+      // Schedule and start the strategy workflow
+      // req.frequency is already the Frequency enum, so use it directly
+      console.log(`▶️ Scheduling workflow job for newly created strategy:`, {
+        strategyId: id,
+        frequency: req.frequency,
+      });
+
+      schedulerService.scheduleStrategy(id, req.frequency, async () => {
+        await executeStrategyWorkflow(context, id, req.frequency);
+      });
+
+      // Start the scheduled job
+      schedulerService.startStrategy(id);
+
+      console.log(`✅ Workflow scheduled and started for new strategy:`, {
+        strategyId: id,
+        frequency: req.frequency,
+      });
     } catch (dbError: unknown) {
       // Rollback on any database error
       try {
@@ -153,7 +238,6 @@ export async function createStrategy(
       } catch (rollbackError) {
         console.error("❌ Failed to rollback transaction:", rollbackError);
       }
-
 
       console.error("❌ Database error details:");
       if (dbError && typeof dbError === "object") {
@@ -164,7 +248,6 @@ export async function createStrategy(
       }
       throw dbError;
     }
-
 
     // Fetch the created strategy
     console.log(`📖 Fetching created strategy from database:`, { strategyId: id });

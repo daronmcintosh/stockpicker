@@ -83,7 +83,7 @@ export async function updateStrategy(
 
     // Track if name changed for workflow update
     const nameChanged = req.name && req.name !== existingRow.name;
-    const oldName = existingRow.name;
+    const _oldName = existingRow.name;
 
     console.log(`🔍 Strategy update check:`, {
       strategyId: req.id,

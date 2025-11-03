@@ -90,7 +90,7 @@ export interface StockRecommendation {
 }
 
 /**
- * Merged AI results from multiple agents
+ * Merged AI results from multiple agents (legacy - will be replaced)
  */
 export interface MergedAIResults {
   top10Stocks: StockRecommendation[];
@@ -103,6 +103,20 @@ export interface MergedAIResults {
 }
 
 /**
+ * Per-model AI analysis results
+ * Each model creates its own predictions which are then merged
+ */
+export interface ModelAIAnalysis {
+  model: string;
+  recommendations: StockRecommendation[];
+  metadata?: {
+    sources_used?: string[];
+    analysis_date?: string;
+    stocks_considered?: number;
+  };
+}
+
+/**
  * Workflow output formats
  */
 export interface WorkflowOutputs {
@@ -111,4 +125,3 @@ export interface WorkflowOutputs {
   aiAnalysis: string;
   inputData: string;
 }
-

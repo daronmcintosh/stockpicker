@@ -17,9 +17,9 @@ import {
   TriggerPredictionsResponseSchema,
 } from "../../gen/stockpicker/v1/strategy_pb.js";
 import { getCurrentUserId } from "../authHelpers.js";
-import { dbRowToProtoStrategy, protoNameToFrequency } from "./strategyHelpers.js";
 import { schedulerService } from "../scheduler/schedulerService.js";
 import { executeStrategyWorkflow } from "../workflow/workflowExecutor.js";
+import { dbRowToProtoStrategy, protoNameToFrequency } from "./strategyHelpers.js";
 
 export async function startStrategy(
   req: StartStrategyRequest,
@@ -65,11 +65,11 @@ export async function startStrategy(
         strategyId: req.id,
         frequency,
       });
-      
+
       schedulerService.scheduleStrategy(req.id, frequency, async () => {
-        await executeStrategyWorkflow(req.id, frequency);
+        await executeStrategyWorkflow(context, req.id, frequency);
       });
-      
+
       // Start the scheduled job
       schedulerService.startStrategy(req.id);
 
@@ -315,7 +315,7 @@ export async function triggerPredictions(
       frequency,
     });
 
-    await executeStrategyWorkflow(req.id, frequency);
+    await executeStrategyWorkflow(context, req.id, frequency);
 
     console.log(`✅ Predictions triggered successfully:`, {
       strategyId: req.id,

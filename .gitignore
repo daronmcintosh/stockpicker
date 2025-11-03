@@ -44,3 +44,6 @@ terraform/*.tfstate.*
 # Backups
 *.bak*
 *.backup*
+
+# Generated protobuf files
+**/*.fdset

@@ -1,21 +1,19 @@
 import { randomUUID } from "node:crypto";
 import { create } from "@bufbuild/protobuf";
+import type { HandlerContext } from "@connectrpc/connect";
 import { db } from "../../db.js";
-import type {
-  CreatePredictionsFromWorkflowRequest,
-} from "../../gen/stockpicker/v1/strategy_pb.js";
-import { createPredictionsFromWorkflow } from "../strategy/workflowHandlers.js";
-import type {
-  MergedAIResults,
-  WorkflowOutputs,
-} from "./workflowTypes.js";
+import type { CreatePredictionsFromWorkflowRequest } from "../../gen/stockpicker/v1/strategy_pb.js";
+import { CreatePredictionsFromWorkflowRequestSchema } from "../../gen/stockpicker/v1/strategy_pb.js";
 import type { PrepareDataForWorkflowResponse } from "../../gen/stockpicker/v1/strategy_pb.js";
+import { createPredictionsFromWorkflow } from "../strategy/workflowHandlers.js";
+import type { MergedAIResults, WorkflowOutputs } from "./workflowTypes.js";
 
 /**
  * Process workflow results and create predictions
  * Replaces n8n's "Complete Workflow Run" step
  */
 export async function processWorkflowResults(
+  context: HandlerContext,
   strategyId: string,
   executionId: string,
   aiResults: MergedAIResults,
@@ -30,26 +28,20 @@ export async function processWorkflowResults(
   // Generate standardized JSON and Markdown outputs
   const outputs = generateWorkflowOutputs(strategyId, aiResults, preparedData);
 
-  // Create a minimal HandlerContext for the internal call
-  const context = {
-    requestHeader: new Headers(),
-    signal: new AbortController().signal,
-  };
-
   // Set execution ID in header
   context.requestHeader.set("x-execution-id", executionId);
 
   // Call the same endpoint that n8n workflows call
-  const request: CreatePredictionsFromWorkflowRequest = {
+  const request = create(CreatePredictionsFromWorkflowRequestSchema, {
     strategyId,
     jsonOutput: outputs.jsonOutput,
     markdownOutput: outputs.markdownOutput,
     executionId,
     inputData: outputs.inputData,
     aiAnalysis: outputs.aiAnalysis,
-  };
+  });
 
-  await createPredictionsFromWorkflow(request, context as any);
+  await createPredictionsFromWorkflow(request, context);
 
   console.log(`✅ Workflow results processed and predictions created:`, {
     strategyId,
@@ -67,6 +59,15 @@ function generateWorkflowOutputs(
   preparedData: PrepareDataForWorkflowResponse
 ): WorkflowOutputs {
   const strategy = preparedData.strategy;
+  if (!strategy) {
+    throw new Error("Strategy data is required in preparedData");
+  }
+
+  const budget = preparedData.budget;
+  if (!budget) {
+    throw new Error("Budget data is required in preparedData");
+  }
+
   const sources = JSON.parse(preparedData.sources || "{}");
 
   // Generate JSON output
@@ -99,13 +100,13 @@ function generateWorkflowOutputs(
       sources_analyzed: Object.keys(sources),
       recommendations_count: aiResults.top10Stocks.length,
       budget: {
-        monthlyBudget: preparedData.budget.monthlyBudget,
-        currentMonthSpent: preparedData.budget.currentMonthSpent,
-        remainingBudget: preparedData.budget.remainingBudget,
-        perStockAllocation: preparedData.budget.perStockAllocation,
-        availableSlots: preparedData.budget.availableSlots,
-        budgetUtilizationPct: preparedData.budget.budgetUtilizationPct,
-        hasBudget: preparedData.budget.hasBudget,
+        monthlyBudget: budget.monthlyBudget,
+        currentMonthSpent: budget.currentMonthSpent,
+        remainingBudget: budget.remainingBudget,
+        perStockAllocation: budget.perStockAllocation,
+        availableSlots: budget.availableSlots,
+        budgetUtilizationPct: budget.budgetUtilizationPct,
+        hasBudget: budget.hasBudget,
       },
     },
   };
@@ -124,7 +125,7 @@ function generateWorkflowOutputs(
       customPrompt: strategy.customPrompt,
     },
     activePredictions: preparedData.activePredictions,
-    budget: preparedData.budget,
+    budget: budget,
     sources,
     timestamp: new Date().toISOString(),
   });
@@ -146,11 +147,14 @@ function generateWorkflowOutputs(
  * Generate Markdown output (replicates n8n workflow markdown generation)
  */
 function generateMarkdownOutput(
-  strategyId: string,
+  _strategyId: string,
   strategy: PrepareDataForWorkflowResponse["strategy"],
   aiResults: MergedAIResults,
   sources: Record<string, unknown>
 ): string {
+  if (!strategy) {
+    throw new Error("Strategy data is required for markdown generation");
+  }
   const top10 = aiResults.top10Stocks;
   let markdown = "# Stock Analysis Report\n\n";
   markdown += `**Strategy:** ${strategy.name || "N/A"}\n`;
@@ -173,7 +177,8 @@ function generateMarkdownOutput(
   const avgHitProb =
     top10.length > 0
       ? top10.reduce(
-          (sum, s) => sum + (Number(s.hit_probability_pct) || Number(s.success_probability) * 100 || 0),
+          (sum, s) =>
+            sum + (Number(s.hit_probability_pct) || Number(s.success_probability) * 100 || 0),
           0
         ) / top10.length
       : 0;
@@ -196,7 +201,8 @@ function generateMarkdownOutput(
     const stopLossPrice = Number(stock.stop_loss_price) || 0;
     const overallScore = Number(stock.overall_score) || 0;
     const confidencePct = Number(stock.confidence_pct) || Number(stock.confidence_level) * 100 || 0;
-    const hitProbPct = Number(stock.hit_probability_pct) || Number(stock.success_probability) * 100 || 0;
+    const hitProbPct =
+      Number(stock.hit_probability_pct) || Number(stock.success_probability) * 100 || 0;
     const riskLevel = stock.risk_level || "medium";
     const riskScore = Number(stock.risk_score) || 5;
 
@@ -229,4 +235,3 @@ function generateMarkdownOutput(
 
   return markdown;
 }
-

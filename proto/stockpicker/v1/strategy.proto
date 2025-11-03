@@ -45,6 +45,9 @@ service StrategyService {
   // Get a specific workflow run
   rpc GetWorkflowRun(GetWorkflowRunRequest) returns (GetWorkflowRunResponse);
 
+  // List model prompts for a strategy
+  rpc ListModelPrompts(ListModelPromptsRequest) returns (ListModelPromptsResponse);
+
   // Update strategy privacy (public/private)
   rpc UpdateStrategyPrivacy(UpdateStrategyPrivacyRequest) returns (UpdateStrategyPrivacyResponse);
 
@@ -189,6 +192,7 @@ message CreateStrategyRequest {
   Frequency frequency = 7;
   RiskLevel risk_level = 8;
   int32 max_unique_stocks = 9;
+  optional string ai_agents = 10; // JSON array of model names (e.g., ["gpt-4o-mini", "gpt-4o"])
 }
 
 message CreateStrategyResponse {
@@ -373,6 +377,24 @@ message GetWorkflowRunResponse {
   WorkflowRun workflow_run = 1;
 }
 
+// List Model Prompts
+message ListModelPromptsRequest {
+  string strategy_id = 1;
+}
+
+message ModelPrompt {
+  string id = 1;
+  string strategy_id = 2;
+  string model_name = 3;
+  string prompt = 4;
+  google.protobuf.Timestamp created_at = 5;
+  google.protobuf.Timestamp updated_at = 6;
+}
+
+message ListModelPromptsResponse {
+  repeated ModelPrompt prompts = 1;
+}
+
 message WorkflowRun {
   string id = 1;
   string strategy_id = 2;
@@ -458,6 +480,7 @@ message Prediction {
   PredictionSource source = 25; // AI-generated or manually created
   string user_id = 26; // User who owns this prediction
   optional User user = 27; // Populated in list/get responses
+  optional string ai_models = 28; // JSON array of model names that suggested this prediction (e.g., ["gpt-4o", "gpt-4o-mini"])
 }
 
 // List Predictions

@@ -23,11 +23,7 @@ class SchedulerService {
   /**
    * Schedule a job based on strategy frequency
    */
-  scheduleStrategy(
-    strategyId: string,
-    frequency: Frequency,
-    callback: () => Promise<void>
-  ): void {
+  scheduleStrategy(strategyId: string, frequency: Frequency, callback: () => Promise<void>): void {
     // Stop existing job if it exists
     this.unscheduleStrategy(strategyId);
 
@@ -217,4 +213,3 @@ class SchedulerService {
 }
 
 export const schedulerService = new SchedulerService();
-

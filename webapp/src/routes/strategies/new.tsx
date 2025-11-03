@@ -4,6 +4,7 @@ import {
   SourceConfigEditor,
 } from "@/components/strategy/SourceConfigEditor";
 import { Frequency, RiskLevel } from "@/gen/stockpicker/v1/strategy_pb";
+import { groupModelsByProvider } from "@/lib/aiModels";
 import { useAuth } from "@/lib/auth";
 import { createClient } from "@/lib/connect";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
@@ -44,6 +45,12 @@ function NewStrategyPage() {
   const [frequency, setFrequency] = useState(Frequency.TWICE_WEEKLY);
   const [maxUniqueStocks, setMaxUniqueStocks] = useState(20);
   const [sourceConfig, setSourceConfig] = useState<SourceConfig>(DEFAULT_SOURCE_CONFIG);
+  // AI Models selection - default to OpenAI models
+  const [selectedModels, setSelectedModels] = useState<string[]>([
+    "gpt-4o-mini",
+    "gpt-4o",
+    "gpt-4o-mini",
+  ]);
 
   // Calculate derived values
   const calculatedValues = useMemo(() => {
@@ -83,6 +90,7 @@ function NewStrategyPage() {
         riskLevel: Number(formData.get("riskLevel")) as RiskLevel,
         maxUniqueStocks: Number(formData.get("maxUniqueStocks")),
         sourceConfig: JSON.stringify(sourceConfig),
+        aiAgents: JSON.stringify(selectedModels),
       } as never);
 
       toast.success("Strategy created successfully!");
@@ -313,6 +321,28 @@ function NewStrategyPage() {
           <SourceConfigEditor config={sourceConfig} onChange={setSourceConfig} />
         </section>
 
+        {/* AI Models Selection */}
+        <section className="space-y-4">
+          <h2 className="text-lg font-semibold text-gray-900 border-b pb-2">AI Models</h2>
+          <div>
+            <label className="block text-sm font-medium mb-2">
+              Select AI Models for Analysis *
+            </label>
+            <p className="text-xs text-gray-500 mb-3">
+              Choose one or more AI models. Each model will independently analyze stocks and provide
+              recommendations. Results will be merged with attribution.
+            </p>
+            <AIModelSelector
+              selectedModels={selectedModels}
+              onSelectionChange={setSelectedModels}
+            />
+            <p className="text-xs text-gray-500 mt-2 flex items-start gap-1">
+              <Info className="w-3 h-3 mt-0.5 flex-shrink-0" />
+              Select at least one model. Multiple models provide diverse perspectives.
+            </p>
+          </div>
+        </section>
+
         {/* Advanced Settings - Collapsible */}
         <section className="space-y-4">
           <button
@@ -360,6 +390,79 @@ function NewStrategyPage() {
           </a>
         </div>
       </form>
+    </div>
+  );
+}
+
+/**
+ * AI Model Selector Component
+ */
+function AIModelSelector({
+  selectedModels,
+  onSelectionChange,
+}: {
+  selectedModels: string[];
+  onSelectionChange: (models: string[]) => void;
+}) {
+  const modelsByProvider = useMemo(() => groupModelsByProvider(), []);
+  const providerNames: Record<string, string> = {
+    openai: "OpenAI",
+    anthropic: "Anthropic (Claude)",
+    deepseek: "DeepSeek",
+    ollama: "Ollama",
+    google: "Google",
+    xai: "xAI (Grok)",
+  };
+
+  function toggleModel(modelId: string) {
+    if (selectedModels.includes(modelId)) {
+      onSelectionChange(selectedModels.filter((id) => id !== modelId));
+    } else {
+      onSelectionChange([...selectedModels, modelId]);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      {Object.entries(modelsByProvider).map(([provider, models]) => (
+        <div key={provider} className="border border-gray-200 rounded-lg p-4">
+          <h3 className="text-sm font-semibold text-gray-900 mb-3">
+            {providerNames[provider] || provider}
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {models.map((model) => {
+              const isSelected = selectedModels.includes(model.id);
+              return (
+                <label
+                  key={model.id}
+                  className={`
+                    flex items-start gap-3 p-3 border rounded-lg cursor-pointer transition-colors
+                    ${
+                      isSelected
+                        ? "border-blue-500 bg-blue-50"
+                        : "border-gray-200 hover:border-gray-300 hover:bg-gray-50"
+                    }
+                  `}
+                >
+                  <input
+                    type="checkbox"
+                    checked={isSelected}
+                    onChange={() => toggleModel(model.id)}
+                    className="mt-0.5 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium text-gray-900">{model.name}</div>
+                    <div className="text-xs text-gray-500 mt-0.5">{model.description}</div>
+                  </div>
+                </label>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+      {selectedModels.length === 0 && (
+        <p className="text-sm text-red-600 mt-2">Please select at least one AI model</p>
+      )}
     </div>
   );
 }

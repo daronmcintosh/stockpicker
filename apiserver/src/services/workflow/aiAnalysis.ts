@@ -1,12 +1,10 @@
 import type { PrepareDataForWorkflowResponse } from "../../gen/stockpicker/v1/strategy_pb.js";
-import type {
-  AIAgentResponse,
-  MergedAIResults,
-  StockRecommendation,
-} from "./workflowTypes.js";
+import { generateFakeAIAgentResponse } from "./fakeAIAgents.js";
+import type { AIAgentResponse, MergedAIResults, StockRecommendation } from "./workflowTypes.js";
 
+const USE_FAKE_AI_AGENTS = process.env.USE_FAKE_AI_AGENTS === "true";
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-if (!OPENAI_API_KEY) {
+if (!USE_FAKE_AI_AGENTS && !OPENAI_API_KEY) {
   throw new Error("OPENAI_API_KEY environment variable is required");
 }
 
@@ -70,10 +68,19 @@ export async function executeAIAnalysis(
 async function callOpenAIAgent(
   model: string,
   data: PrepareDataForWorkflowResponse,
-  strategyId: string,
+  _strategyId: string,
   temperature: number
 ): Promise<AIAgentResponse> {
+  // Use fake data if enabled
+  if (USE_FAKE_AI_AGENTS) {
+    console.log(`🎭 Using fake AI agent data (model: ${model}, temperature: ${temperature})`);
+    return generateFakeAIAgentResponse(model, temperature);
+  }
+
   const strategy = data.strategy;
+  if (!strategy) {
+    throw new Error("Strategy data is required");
+  }
   const budget = data.budget;
   const sources = JSON.parse(data.sources || "{}");
   const activePredictions = data.activePredictions || [];
@@ -105,7 +112,9 @@ async function callOpenAIAgent(
     throw new Error(`OpenAI API error: ${response.status} ${response.statusText} - ${errorText}`);
   }
 
-  const result = await response.json();
+  const result = (await response.json()) as {
+    choices?: Array<{ message?: { content?: string } }>;
+  };
   const content = result.choices?.[0]?.message?.content;
   if (!content) {
     throw new Error("OpenAI API returned empty response");
@@ -128,49 +137,14 @@ function buildUserPrompt(
   sources: Record<string, unknown>,
   activePredictions: PrepareDataForWorkflowResponse["activePredictions"]
 ): string {
-  return (
-    `Analyze the following multi-source stock data and provide your top 10 stock recommendations with comprehensive technical analysis:\n\n` +
-    `Strategy Parameters:\n` +
-    `- Strategy: ${strategy.name}\n` +
-    `- Time Horizon: ${strategy.timeHorizon}\n` +
-    `- Target Return: ${strategy.targetReturnPct}%\n` +
-    `- Risk Level: ${strategy.riskLevel}\n` +
-    `- Custom Instructions: ${strategy.customPrompt || "None"}\n\n` +
-    `Budget Information:\n` +
-    `- Monthly Budget: $${(budget.monthlyBudget || 0).toFixed(2)}\n` +
-    `- Current Month Spent: $${(budget.currentMonthSpent || 0).toFixed(2)}\n` +
-    `- Remaining Budget: $${(budget.remainingBudget || 0).toFixed(2)}\n` +
-    `- Per Stock Allocation: $${(budget.perStockAllocation || 0).toFixed(2)}\n` +
-    `- Available Investment Slots: ${budget.availableSlots || 0} stocks\n` +
-    `- Budget Utilization: ${(budget.budgetUtilizationPct || 0).toFixed(1)}%\n` +
-    `- Has Budget: ${budget.hasBudget ? "Yes" : "No"}\n` +
-    `\nIMPORTANT: Only recommend stocks if remaining budget >= per stock allocation. ` +
-    `Consider available_slots when selecting how many stocks to recommend. ` +
-    `If available_slots is limited, prioritize highest confidence/reward opportunities.\n\n` +
-    `Multi-Source Data:\n${JSON.stringify(sources, null, 2)}\n\n` +
-    `Active Predictions: ${JSON.stringify(activePredictions, null, 2)}\n\n` +
-    `Provide EXACTLY 10 stock recommendations in this JSON format:\n` +
-    buildJSONFormatExample() +
-    `\n\nIMPORTANT TECHNICAL ANALYSIS REQUIREMENTS:\n` +
-    `1. Base technical analysis on actual data from sources (price, volume, change percentages)\n` +
-    `2. Calculate support/resistance levels from price data where available\n` +
-    `3. Include chart_points array with specific price levels for chart generation\n` +
-    `4. Extract volume analysis from source data (if available)\n` +
-    `5. Calculate or estimate RSI, moving averages, momentum based on price movements\n` +
-    `6. Identify chart patterns (uptrend, downtrend, consolidation, breakout, etc.)\n` +
-    `7. Trace technical indicators back to source data in source_tracing\n` +
-    `8. Ensure all price values are numbers, not strings\n` +
-    `9. Technical analysis should be actionable for chart generation\n\n` +
-    `CONFIDENCE & RISK ASSESSMENT REQUIREMENTS:\n` +
-    `1. confidence_level: decimal 0.0-1.0 representing confidence in recommendation (based on data quality, signal strength, source agreement)\n` +
-    `2. confidence_pct: percentage 0-100 (same as confidence_level * 100)\n` +
-    `3. risk_level: string - one of 'low', 'medium', 'high' based on volatility, stop loss distance, price stability\n` +
-    `4. risk_score: number 1-10 where 1=very low risk, 10=very high risk\n` +
-    `5. success_probability: decimal 0.0-1.0 representing probability of hitting target price based on technical analysis and signals\n` +
-    `6. hit_probability_pct: percentage 0-100 (same as success_probability * 100)\n` +
-    `7. Consider: data source agreement, signal strength, volume confirmation, price stability, stop loss distance\n\n` +
-    `Return ONLY valid JSON, no markdown formatting. Ensure all prices are numbers, not strings.`
-  );
+  if (!strategy) {
+    throw new Error("Strategy is required to build user prompt");
+  }
+  if (!budget) {
+    throw new Error("Budget is required to build user prompt");
+  }
+
+  return `Analyze the following multi-source stock data and provide your top 10 stock recommendations with comprehensive technical analysis:\n\nStrategy Parameters:\n- Strategy: ${strategy.name}\n- Time Horizon: ${strategy.timeHorizon}\n- Target Return: ${strategy.targetReturnPct}%\n- Risk Level: ${strategy.riskLevel}\n- Custom Instructions: ${strategy.customPrompt || "None"}\n\nBudget Information:\n- Monthly Budget: $${(budget.monthlyBudget || 0).toFixed(2)}\n- Current Month Spent: $${(budget.currentMonthSpent || 0).toFixed(2)}\n- Remaining Budget: $${(budget.remainingBudget || 0).toFixed(2)}\n- Per Stock Allocation: $${(budget.perStockAllocation || 0).toFixed(2)}\n- Available Investment Slots: ${budget.availableSlots || 0} stocks\n- Budget Utilization: ${(budget.budgetUtilizationPct || 0).toFixed(1)}%\n- Has Budget: ${budget.hasBudget ? "Yes" : "No"}\n\nIMPORTANT: Only recommend stocks if remaining budget >= per stock allocation. Consider available_slots when selecting how many stocks to recommend. If available_slots is limited, prioritize highest confidence/reward opportunities.\n\nMulti-Source Data:\n${JSON.stringify(sources, null, 2)}\n\nActive Predictions: ${JSON.stringify(activePredictions, null, 2)}\n\nProvide EXACTLY 10 stock recommendations in this JSON format:\n${buildJSONFormatExample()}\n\nIMPORTANT TECHNICAL ANALYSIS REQUIREMENTS:\n1. Base technical analysis on actual data from sources (price, volume, change percentages)\n2. Calculate support/resistance levels from price data where available\n3. Include chart_points array with specific price levels for chart generation\n4. Extract volume analysis from source data (if available)\n5. Calculate or estimate RSI, moving averages, momentum based on price movements\n6. Identify chart patterns (uptrend, downtrend, consolidation, breakout, etc.)\n7. Trace technical indicators back to source data in source_tracing\n8. Ensure all price values are numbers, not strings\n9. Technical analysis should be actionable for chart generation\n\nCONFIDENCE & RISK ASSESSMENT REQUIREMENTS:\n1. confidence_level: decimal 0.0-1.0 representing confidence in recommendation (based on data quality, signal strength, source agreement)\n2. confidence_pct: percentage 0-100 (same as confidence_level * 100)\n3. risk_level: string - one of 'low', 'medium', 'high' based on volatility, stop loss distance, price stability\n4. risk_score: number 1-10 where 1=very low risk, 10=very high risk\n5. success_probability: decimal 0.0-1.0 representing probability of hitting target price based on technical analysis and signals\n6. hit_probability_pct: percentage 0-100 (same as success_probability * 100)\n7. Consider: data source agreement, signal strength, volume confirmation, price stability, stop loss distance\n\nReturn ONLY valid JSON, no markdown formatting. Ensure all prices are numbers, not strings.`;
 }
 
 /**
@@ -258,10 +232,7 @@ function buildJSONFormatExample(): string {
  * Merge results from multiple AI agents
  * Takes the best recommendations based on overall_score
  */
-function mergeAIAgentResults(
-  results: AIAgentResponse[],
-  agentsUsed: string[]
-): MergedAIResults {
+function mergeAIAgentResults(results: AIAgentResponse[], agentsUsed: string[]): MergedAIResults {
   // Collect all stocks from all agents
   const allStocks: StockRecommendation[] = [];
   const sourcesUsed = new Set<string>();
@@ -305,4 +276,3 @@ function mergeAIAgentResults(
     },
   };
 }
-
