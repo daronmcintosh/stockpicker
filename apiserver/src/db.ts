@@ -103,13 +103,13 @@ try {
   statements = {
     insertStrategy: await db.prepare(`
     INSERT INTO strategies (
-      id, name, description, custom_prompt, monthly_budget, current_month_spent,
+      id, name, description, custom_prompt, monthly_budget,
       current_month_start, time_horizon, target_return_pct, frequency,
       trades_per_month, per_trade_budget, per_stock_allocation, risk_level,
       unique_stocks_count, max_unique_stocks, n8n_workflow_id, status,
       privacy, created_at, updated_at
     ) VALUES (
-      $id, $name, $description, $custom_prompt, $monthly_budget, $current_month_spent,
+      $id, $name, $description, $custom_prompt, $monthly_budget,
       $current_month_start, $time_horizon, $target_return_pct, $frequency,
       $trades_per_month, $per_trade_budget, $per_stock_allocation, $risk_level,
       $unique_stocks_count, $max_unique_stocks, $n8n_workflow_id, $status,
@@ -225,7 +225,6 @@ export interface StrategyRow {
   description: string;
   custom_prompt: string;
   monthly_budget: number;
-  current_month_spent: number;
   current_month_start: string;
   time_horizon: string;
   target_return_pct: number;

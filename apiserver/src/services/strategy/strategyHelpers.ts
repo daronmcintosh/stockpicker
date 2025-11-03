@@ -1,6 +1,6 @@
 import { create } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
-import { type StrategyRow, db } from "../../db.js";
+import { type PredictionRow, type StrategyRow, db } from "../../db.js";
 import {
   Frequency,
   RiskLevel,
@@ -184,13 +184,28 @@ export function timestampToDate(timestamp: number): Date {
 // Helper to convert DB row to proto Strategy message
 export async function dbRowToProtoStrategy(row: StrategyRow): Promise<Strategy> {
   try {
+    // Calculate current_month_spent from active predictions (where action = 'entered')
+    // This ensures accuracy and avoids synchronization issues
+    const activePredictionsRows = (await db.all(
+      `SELECT allocated_amount FROM predictions
+       WHERE strategy_id = ?
+       AND status = 'PREDICTION_STATUS_ACTIVE'
+       AND action = 'entered'`,
+      [row.id]
+    )) as Pick<PredictionRow, "allocated_amount">[];
+
+    const currentMonthSpent = activePredictionsRows.reduce(
+      (sum, pRow) => sum + toNumber(pRow.allocated_amount),
+      0
+    );
+
     const strategy = create(StrategySchema, {
       id: row.id,
       name: row.name,
       description: row.description,
       customPrompt: row.custom_prompt,
       monthlyBudget: toNumber(row.monthly_budget),
-      currentMonthSpent: toNumber(row.current_month_spent),
+      currentMonthSpent,
       currentMonthStart: timestampFromDate(new Date(row.current_month_start)),
       timeHorizon: row.time_horizon,
       targetReturnPct: toNumber(row.target_return_pct),

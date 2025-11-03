@@ -5,34 +5,73 @@ import {
   Home,
   LogIn,
   LogOut,
-  Menu,
+  PanelRightOpen,
   TrendingUp,
   Trophy,
   User,
   Users,
-  X,
 } from "lucide-react";
 import { useState } from "react";
 import { useAuth } from "../lib/auth";
+import { useSidebar } from "./SidebarContext";
 
 export default function Header() {
-  const [isOpen, setIsOpen] = useState(false);
+  const { sidebarMode, toggleSidebarMode, isOpen, setIsOpen, shouldPushContent } = useSidebar();
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const { user, logout } = useAuth();
 
+  // Close sidebar only in overlay mode or on mobile
+  const handleLinkClick = () => {
+    if (sidebarMode === "overlay") {
+      setIsOpen(false);
+    } else {
+      // In persistent mode, only close on mobile (handled by CSS)
+      if (window.innerWidth < 1024) {
+        setIsOpen(false);
+      }
+    }
+  };
+
   return (
     <>
-      <header className="sticky top-0 z-30 bg-white border-b border-gray-200 shadow-sm">
+      <header
+        className={`sticky top-0 z-30 bg-white border-b border-gray-200 shadow-sm ${
+          shouldPushContent
+            ? "lg:ml-64 transition-[margin-left] duration-300"
+            : "transition-[margin-left] duration-300"
+        }`}
+      >
         <div className="px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center gap-3">
               <button
                 type="button"
-                onClick={() => setIsOpen(true)}
+                onClick={() => {
+                  if (sidebarMode === "overlay") {
+                    // In overlay mode, toggle open/close
+                    setIsOpen(!isOpen);
+                  } else {
+                    // In persistent mode, toggle to overlay mode
+                    toggleSidebarMode();
+                  }
+                }}
                 className="p-2 -ml-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
-                aria-label="Open menu"
+                aria-label={
+                  sidebarMode === "persistent"
+                    ? "Switch to overlay mode"
+                    : isOpen
+                      ? "Close sidebar"
+                      : "Open sidebar"
+                }
+                title={
+                  sidebarMode === "persistent"
+                    ? "Switch to overlay mode"
+                    : isOpen
+                      ? "Close sidebar"
+                      : "Open sidebar"
+                }
               >
-                <Menu size={20} />
+                <PanelRightOpen size={20} />
               </button>
               <Link to="/" className="flex items-center">
                 <h1 className="text-xl font-bold text-gray-900 hover:text-gray-700 transition-colors">
@@ -137,27 +176,25 @@ export default function Header() {
 
       {/* Sidebar */}
       <aside
-        className={`fixed left-0 top-0 h-full w-72 bg-white border-r border-gray-200 z-50 transform transition-transform duration-300 ease-in-out shadow-xl flex flex-col ${
-          isOpen ? "translate-x-0" : "-translate-x-full"
+        className={`fixed left-0 top-0 h-full w-64 bg-white border-r border-gray-200 z-50 flex flex-col transition-all duration-300 ${
+          sidebarMode === "persistent"
+            ? isOpen
+              ? "translate-x-0 shadow-lg"
+              : "-translate-x-full lg:translate-x-0" // Always visible on desktop when persistent
+            : isOpen
+              ? "translate-x-0 shadow-xl"
+              : "-translate-x-full"
         }`}
       >
         <div className="flex items-center justify-between h-16 px-6 border-b border-gray-200">
           <h2 className="text-lg font-semibold text-gray-900">Navigation</h2>
-          <button
-            type="button"
-            onClick={() => setIsOpen(false)}
-            className="p-2 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
-            aria-label="Close menu"
-          >
-            <X size={20} />
-          </button>
         </div>
 
         <nav className="flex-1 p-4 overflow-y-auto">
           {!user && (
             <Link
               to="/"
-              onClick={() => setIsOpen(false)}
+              onClick={handleLinkClick}
               className="flex items-center gap-3 px-4 py-3 rounded-lg text-gray-700 hover:bg-gray-100 transition-colors mb-1"
               activeProps={{
                 className:
@@ -173,7 +210,7 @@ export default function Header() {
             <>
               <Link
                 to="/dashboard"
-                onClick={() => setIsOpen(false)}
+                onClick={handleLinkClick}
                 className="flex items-center gap-3 px-4 py-3 rounded-lg text-gray-700 hover:bg-gray-100 transition-colors mb-1"
                 activeProps={{
                   className:
@@ -186,7 +223,7 @@ export default function Header() {
               <Link
                 to="/strategies"
                 search={{ id: undefined }}
-                onClick={() => setIsOpen(false)}
+                onClick={handleLinkClick}
                 className="flex items-center gap-3 px-4 py-3 rounded-lg text-gray-700 hover:bg-gray-100 transition-colors mb-1"
                 activeProps={{
                   className:
@@ -200,7 +237,7 @@ export default function Header() {
               <Link
                 to="/predictions"
                 search={{ strategy: undefined, status: undefined, action: undefined }}
-                onClick={() => setIsOpen(false)}
+                onClick={handleLinkClick}
                 className="flex items-center gap-3 px-4 py-3 rounded-lg text-gray-700 hover:bg-gray-100 transition-colors mb-1"
                 activeProps={{
                   className:
@@ -215,7 +252,7 @@ export default function Header() {
 
           <Link
             to="/feed"
-            onClick={() => setIsOpen(false)}
+            onClick={handleLinkClick}
             className="flex items-center gap-3 px-4 py-3 rounded-lg text-gray-700 hover:bg-gray-100 transition-colors mb-1"
             activeProps={{
               className:
@@ -230,7 +267,7 @@ export default function Header() {
             <>
               <Link
                 to="/friends"
-                onClick={() => setIsOpen(false)}
+                onClick={handleLinkClick}
                 className="flex items-center gap-3 px-4 py-3 rounded-lg text-gray-700 hover:bg-gray-100 transition-colors mb-1"
                 activeProps={{
                   className:
@@ -242,7 +279,7 @@ export default function Header() {
               </Link>
               <Link
                 to="/leaderboard"
-                onClick={() => setIsOpen(false)}
+                onClick={handleLinkClick}
                 className="flex items-center gap-3 px-4 py-3 rounded-lg text-gray-700 hover:bg-gray-100 transition-colors mb-1"
                 activeProps={{
                   className:

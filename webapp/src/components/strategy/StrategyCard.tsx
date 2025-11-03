@@ -3,9 +3,12 @@ import { StrategyPrivacy, StrategyStatus } from "@/gen/stockpicker/v1/strategy_p
 import { Link } from "@tanstack/react-router";
 import {
   BarChart3,
+  CheckCircle2,
+  Clock,
   Copy,
   Edit,
   Globe,
+  Loader2,
   Lock,
   Pause,
   Play,
@@ -13,12 +16,27 @@ import {
   Sparkles,
   StopCircle,
   Trash2,
+  TrendingDown,
+  TrendingUp,
+  XCircle,
 } from "lucide-react";
 import { StatusBadge } from "./StatusBadge";
+
+interface PerformanceData {
+  active: number;
+  hitTarget: number;
+  hitStop: number;
+  expired: number;
+  hitRate: number;
+  workflowRuns: number;
+  latestRunStatus?: string;
+  latestRunDate?: Date;
+}
 
 interface StrategyCardProps {
   strategy: Strategy;
   predictionCount: number;
+  performanceData?: PerformanceData;
   updatingPrivacy: string | null;
   triggeringStrategy: string | null;
   onPrivacyToggle: (id: string, currentPrivacy: StrategyPrivacy) => void;
@@ -32,9 +50,47 @@ interface StrategyCardProps {
   onShare: (id: string, name: string) => void;
 }
 
+function getWorkflowStatusConfig(status?: string) {
+  if (!status) return null;
+  const normalized = status.toLowerCase();
+  switch (normalized) {
+    case "completed":
+      return {
+        label: "Completed",
+        className: "bg-green-100 text-green-700 border-green-200",
+        icon: CheckCircle2,
+      };
+    case "failed":
+      return {
+        label: "Failed",
+        className: "bg-red-100 text-red-700 border-red-200",
+        icon: XCircle,
+      };
+    case "running":
+      return {
+        label: "Running",
+        className: "bg-blue-100 text-blue-700 border-blue-200",
+        icon: Loader2,
+      };
+    case "pending":
+      return {
+        label: "Pending",
+        className: "bg-yellow-100 text-yellow-700 border-yellow-200",
+        icon: Clock,
+      };
+    default:
+      return {
+        label: status,
+        className: "bg-gray-100 text-gray-700 border-gray-200",
+        icon: Clock,
+      };
+  }
+}
+
 export function StrategyCard({
   strategy,
   predictionCount,
+  performanceData,
   updatingPrivacy,
   triggeringStrategy,
   onPrivacyToggle,
@@ -47,6 +103,10 @@ export function StrategyCard({
   onCopy,
   onShare,
 }: StrategyCardProps) {
+  const perf = performanceData;
+  const latestRunStatusConfig = perf?.latestRunStatus
+    ? getWorkflowStatusConfig(perf.latestRunStatus)
+    : null;
   return (
     <Link
       to="/strategies/$strategyId"
@@ -110,9 +170,9 @@ export function StrategyCard({
         {/* Vertical Divider */}
         <div className="h-12 w-px bg-gray-200" />
 
-        {/* Key Metrics */}
-        <div className="flex items-center gap-8 flex-1">
-          <div className="min-w-[100px]">
+        {/* Key Metrics - Budget & Config */}
+        <div className="flex items-center gap-6 flex-1">
+          <div className="min-w-[90px]">
             <div className="text-xs text-gray-500 mb-0.5">Monthly Budget</div>
             <div className="text-sm font-semibold text-gray-900">
               $
@@ -122,8 +182,8 @@ export function StrategyCard({
               })}
             </div>
           </div>
-          <div className="min-w-[100px]">
-            <div className="text-xs text-gray-500 mb-0.5">Spent This Month</div>
+          <div className="min-w-[90px]">
+            <div className="text-xs text-gray-500 mb-0.5">Spent</div>
             <div className="text-sm font-semibold text-gray-900">
               $
               {Number(strategy.currentMonthSpent).toLocaleString("en-US", {
@@ -132,19 +192,81 @@ export function StrategyCard({
               })}
             </div>
           </div>
-          <div className="min-w-[90px]">
-            <div className="text-xs text-gray-500 mb-0.5">Time Horizon</div>
-            <div className="text-sm font-semibold text-gray-900">{strategy.timeHorizon}</div>
-          </div>
-          <div className="min-w-[90px]">
+          <div className="min-w-[85px]">
             <div className="text-xs text-gray-500 mb-0.5">Target Return</div>
             <div className="text-sm font-semibold text-green-600">
-              {Number(strategy.targetReturnPct).toFixed(2)}%
+              {Number(strategy.targetReturnPct).toFixed(1)}%
             </div>
           </div>
         </div>
 
-        {/* Vertical Divider */}
+        {/* Divider - appears if we have Performance Metrics OR Workflow Runs */}
+        {perf && (predictionCount > 0 || perf.workflowRuns > 0) && (
+          <div className="h-12 w-px bg-gray-200" />
+        )}
+
+        {/* Performance Metrics */}
+        {perf && predictionCount > 0 && (
+          <div className="flex items-center gap-6 flex-1">
+            <div className="min-w-[70px]">
+              <div className="text-xs text-gray-500 mb-0.5">Hit Rate</div>
+              <div className="text-sm font-semibold text-emerald-600">
+                {perf.hitRate.toFixed(1)}%
+              </div>
+            </div>
+            <div className="min-w-[70px]">
+              <div className="text-xs text-gray-500 mb-0.5">Wins</div>
+              <div className="flex items-center gap-1">
+                <TrendingUp className="w-3 h-3 text-green-600" />
+                <span className="text-sm font-semibold text-green-600">{perf.hitTarget}</span>
+              </div>
+            </div>
+            <div className="min-w-[70px]">
+              <div className="text-xs text-gray-500 mb-0.5">Losses</div>
+              <div className="flex items-center gap-1">
+                <TrendingDown className="w-3 h-3 text-red-600" />
+                <span className="text-sm font-semibold text-red-600">
+                  {perf.hitStop + perf.expired}
+                </span>
+              </div>
+            </div>
+            <div className="min-w-[70px]">
+              <div className="text-xs text-gray-500 mb-0.5">Active</div>
+              <div className="text-sm font-semibold text-blue-600">{perf.active}</div>
+            </div>
+          </div>
+        )}
+
+        {/* Workflow Runs Info */}
+        {perf && perf.workflowRuns > 0 && (
+          <div className="flex items-center gap-3 min-w-[140px]">
+            <div>
+              <div className="text-xs text-gray-500 mb-0.5">Workflow Runs</div>
+              <div className="text-sm font-semibold text-gray-900">{perf.workflowRuns}</div>
+            </div>
+            {latestRunStatusConfig &&
+              (() => {
+                const StatusIcon = latestRunStatusConfig.icon;
+                return (
+                  <div>
+                    <div className="text-xs text-gray-500 mb-1">Latest</div>
+                    <span
+                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium border ${latestRunStatusConfig.className}`}
+                    >
+                      <StatusIcon
+                        className={`w-3 h-3 ${
+                          perf?.latestRunStatus?.toLowerCase() === "running" ? "animate-spin" : ""
+                        }`}
+                      />
+                      {latestRunStatusConfig.label}
+                    </span>
+                  </div>
+                );
+              })()}
+          </div>
+        )}
+
+        {/* Vertical Divider before Action Buttons */}
         <div className="h-12 w-px bg-gray-200" />
 
         {/* Action Buttons - Compact Grouped Layout */}

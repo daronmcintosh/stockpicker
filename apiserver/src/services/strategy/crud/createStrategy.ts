@@ -119,7 +119,6 @@ export async function createStrategy(
       description: req.description || "",
       custom_prompt: req.customPrompt || "",
       monthly_budget: req.monthlyBudget,
-      current_month_spent: 0,
       current_month_start: now,
       time_horizon: req.timeHorizon || "3 months",
       target_return_pct: req.targetReturnPct ?? 10.0,
@@ -146,7 +145,6 @@ export async function createStrategy(
       strategyData.description,
       strategyData.custom_prompt,
       strategyData.monthly_budget,
-      strategyData.current_month_spent,
       strategyData.current_month_start,
       strategyData.time_horizon,
       strategyData.target_return_pct,
@@ -168,12 +166,12 @@ export async function createStrategy(
 
     const sql = `
       INSERT INTO strategies (
-        id, name, description, custom_prompt, monthly_budget, current_month_spent,
+        id, name, description, custom_prompt, monthly_budget,
         current_month_start, time_horizon, target_return_pct, frequency,
         trades_per_month, per_trade_budget, per_stock_allocation, risk_level,
         unique_stocks_count, max_unique_stocks, n8n_workflow_id, status,
         privacy, user_id, source_config, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
     // Use transaction to ensure atomicity

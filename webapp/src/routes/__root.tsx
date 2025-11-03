@@ -5,6 +5,7 @@ import { Toaster } from "react-hot-toast";
 
 import { ErrorFallback } from "../components/ErrorFallback";
 import Header from "../components/Header";
+import { SidebarProvider, useSidebar } from "../components/SidebarContext";
 import { AuthProvider } from "../lib/auth";
 
 import appCss from "../styles.css?url";
@@ -35,6 +36,21 @@ export const Route = createRootRoute({
   shellComponent: RootDocument,
 });
 
+function ContentWrapper({ children }: { children: React.ReactNode }) {
+  const { shouldPushContent } = useSidebar();
+  return (
+    <div
+      className={`${
+        shouldPushContent
+          ? "lg:ml-64 transition-[margin-left] duration-300"
+          : "transition-[margin-left] duration-300"
+      }`}
+    >
+      {children}
+    </div>
+  );
+}
+
 function RootDocument({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
@@ -43,8 +59,10 @@ function RootDocument({ children }: { children: React.ReactNode }) {
       </head>
       <body>
         <AuthProvider>
-          <Header />
-          {children}
+          <SidebarProvider>
+            <Header />
+            <ContentWrapper>{children}</ContentWrapper>
+          </SidebarProvider>
           <Toaster position="bottom-center" />
           <TanStackDevtools
             config={{

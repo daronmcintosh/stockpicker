@@ -8,6 +8,7 @@ import {
   injectApiUrl,
   injectCredentialReference,
   needsApiUrlUpdate,
+  workflowsAreDifferent,
 } from "./n8nHelpers.js";
 import { createStrategyWorkflowTemplate } from "./n8nWorkflowTemplate.js";
 
@@ -30,46 +31,8 @@ export async function createWorkflow(
     // Filter workflow to only include API-accepted fields
     const requestBody = filterWorkflowForApi(workflowData);
 
-    // Debug: Log HTTP Request node configurations
-    if (Array.isArray(requestBody.nodes)) {
-      for (const node of requestBody.nodes) {
-        if (
-          typeof node === "object" &&
-          node !== null &&
-          (node as Record<string, unknown>).type === "n8n-nodes-base.httpRequest"
-        ) {
-          const nodeObj = node as Record<string, unknown>;
-          const params = nodeObj.parameters as Record<string, unknown> | undefined;
-          if (params) {
-            console.log(`🔍 HTTP Request node "${nodeObj.name}":`, {
-              hasJsonBody: !!params.jsonBody,
-              jsonBody: params.jsonBody,
-              hasBody: !!params.body,
-              body: params.body,
-              specifyBody: params.specifyBody,
-              contentType: params.contentType,
-              bodyContentType: params.bodyContentType, // Legacy field
-              hasBodyParameters: !!params.bodyParameters,
-              sendBody: params.sendBody,
-              url: params.url,
-            });
-          }
-        }
-      }
-    }
-
-    console.log(`📝 Creating n8n workflow from JSON:`, {
-      name: workflow.name,
-      nodeCount: Array.isArray(workflowData.nodes) ? workflowData.nodes.length : 0,
-      apiUrl: appConfig.n8n.apiServerUrl,
-      fields: Object.keys(requestBody),
-    });
     const response = await request<N8nWorkflowResponse>("POST", "/workflows", requestBody);
-    console.log(`✅ n8n workflow created successfully:`, {
-      workflowId: response.id,
-      workflowName: response.name,
-      active: response.active,
-    });
+    console.log(`✅ Created workflow: ${response.name} (${response.id})`);
     return response;
   } catch (error) {
     console.error("❌ Error creating n8n workflow:", {
@@ -93,11 +56,8 @@ export async function updateFullWorkflow(
   strategyId?: string
 ): Promise<N8nWorkflowResponse> {
   try {
-    console.log(`📝 Updating full n8n workflow:`, {
-      workflowId,
-      name: workflow.name,
-      nodeCount: Array.isArray(workflow.nodes) ? workflow.nodes.length : undefined,
-    });
+    // Fetch existing workflow to compare
+    const existingWorkflow = await getFullWorkflow(request, workflowId);
 
     // Update credential if user token provided
     let processedWorkflow = workflow;
@@ -124,42 +84,24 @@ export async function updateFullWorkflow(
       ) as N8nFullWorkflow;
     }
 
+    // Check if workflow actually differs from existing one
+    console.log(`🔍 Comparing workflow update: ${workflow.name} (${workflowId})`);
+    const isDifferent = workflowsAreDifferent(existingWorkflow, processedWorkflow, true);
+
+    if (!isDifferent) {
+      console.log(`ℹ️  Workflow unchanged: ${workflow.name} (${workflowId})`);
+      return {
+        id: workflowId,
+        name: existingWorkflow.name,
+        active: existingWorkflow.active ?? false,
+      };
+    }
+
+    console.log(`⚠️  Workflow differs - will update: ${workflow.name} (${workflowId})`);
+
     // Filter workflow to only include API-accepted fields (remove id, active, versionId, meta, etc.)
     const workflowData = processedWorkflow as unknown as Record<string, unknown>;
     const requestBody = filterWorkflowForApi(workflowData);
-
-    // Debug: Log HTTP Request node configurations
-    if (Array.isArray(requestBody.nodes)) {
-      for (const node of requestBody.nodes) {
-        if (
-          typeof node === "object" &&
-          node !== null &&
-          (node as Record<string, unknown>).type === "n8n-nodes-base.httpRequest"
-        ) {
-          const nodeObj = node as Record<string, unknown>;
-          const params = nodeObj.parameters as Record<string, unknown> | undefined;
-          if (params) {
-            console.log(`🔍 HTTP Request node "${nodeObj.name}":`, {
-              hasJsonBody: !!params.jsonBody,
-              jsonBody: params.jsonBody,
-              hasBody: !!params.body,
-              body: params.body,
-              specifyBody: params.specifyBody,
-              contentType: params.contentType,
-              bodyContentType: params.bodyContentType, // Legacy field
-              hasBodyParameters: !!params.bodyParameters,
-              sendBody: params.sendBody,
-              url: params.url,
-            });
-          }
-        }
-      }
-    }
-
-    console.log(`📝 Filtered workflow fields for update:`, {
-      fields: Object.keys(requestBody),
-      nodeCount: Array.isArray(requestBody.nodes) ? requestBody.nodes.length : 0,
-    });
 
     // Use PUT to replace the entire workflow
     const response = await request<N8nWorkflowResponse>(
@@ -167,11 +109,7 @@ export async function updateFullWorkflow(
       `/workflows/${workflowId}`,
       requestBody
     );
-    console.log(`✅ n8n workflow updated successfully:`, {
-      workflowId: response.id,
-      workflowName: response.name,
-      active: response.active,
-    });
+    console.log(`✅ Updated workflow: ${response.name} (${response.id})`);
     return response;
   } catch (error) {
     console.error(`❌ Error updating full n8n workflow:`, {
@@ -192,14 +130,7 @@ export async function getFullWorkflow(
   workflowId: string
 ): Promise<N8nFullWorkflow> {
   try {
-    console.log(`🔍 Getting full n8n workflow:`, { workflowId });
     const response = await request<N8nFullWorkflow>("GET", `/workflows/${workflowId}`);
-    console.log(`✅ Retrieved full n8n workflow:`, {
-      workflowId: response.id,
-      workflowName: response.name,
-      active: response.active,
-      nodeCount: Array.isArray(response.nodes) ? response.nodes.length : 0,
-    });
     return response;
   } catch (error) {
     console.error(`❌ Error getting full n8n workflow:`, {
@@ -220,13 +151,7 @@ export async function getWorkflow(
   workflowId: string
 ): Promise<N8nWorkflowResponse> {
   try {
-    console.log(`🔍 Getting n8n workflow:`, { workflowId });
     const response = await request<N8nWorkflowResponse>("GET", `/workflows/${workflowId}`);
-    console.log(`✅ Retrieved n8n workflow:`, {
-      workflowId: response.id,
-      workflowName: response.name,
-      active: response.active,
-    });
     return response;
   } catch (error) {
     console.error(`❌ Error getting n8n workflow:`, {
@@ -270,9 +195,7 @@ export async function listWorkflows(
  */
 export async function deleteWorkflow(request: RequestMethod, workflowId: string): Promise<void> {
   try {
-    console.log(`🗑️ Deleting n8n workflow:`, { workflowId });
     await request<void>("DELETE", `/workflows/${workflowId}`);
-    console.log(`✅ n8n workflow deleted successfully:`, { workflowId });
   } catch (error) {
     console.error(`❌ Error deleting n8n workflow:`, {
       workflowId,
@@ -290,10 +213,8 @@ export async function deleteWorkflow(request: RequestMethod, workflowId: string)
  */
 export async function activateWorkflow(request: RequestMethod, workflowId: string): Promise<void> {
   try {
-    console.log(`▶️ Activating n8n workflow:`, { workflowId });
     // Use the dedicated activate endpoint instead of PATCH with active: true
     await request<void>("POST", `/workflows/${workflowId}/activate`);
-    console.log(`✅ n8n workflow activated successfully:`, { workflowId });
   } catch (error) {
     console.error(`❌ Error activating n8n workflow:`, {
       workflowId,
@@ -312,10 +233,8 @@ export async function deactivateWorkflow(
   workflowId: string
 ): Promise<void> {
   try {
-    console.log(`⏸️ Deactivating n8n workflow:`, { workflowId });
     // Use the dedicated deactivate endpoint instead of PATCH with active: false
     await request<void>("POST", `/workflows/${workflowId}/deactivate`);
-    console.log(`✅ n8n workflow deactivated successfully:`, { workflowId });
   } catch (error) {
     console.error(`❌ Error deactivating n8n workflow:`, {
       workflowId,
@@ -337,11 +256,6 @@ export async function updateWorkflow(
   strategyId?: string
 ): Promise<N8nWorkflowResponse> {
   try {
-    console.log(`📝 Updating n8n workflow:`, {
-      workflowId,
-      updates: Object.keys(updates),
-    });
-
     // n8n doesn't support PATCH, so we need to fetch the full workflow first
     const existingWorkflow = await getFullWorkflow(request, workflowId);
 
@@ -353,6 +267,7 @@ export async function updateWorkflow(
     };
 
     // Pass strategyId to updateFullWorkflow for credential updates
+    // updateFullWorkflow will check for differences internally
     const response = await updateFullWorkflow(
       request,
       workflowId,
@@ -361,11 +276,6 @@ export async function updateWorkflow(
       strategyId
     );
 
-    console.log(`✅ n8n workflow updated:`, {
-      workflowId: response.id,
-      workflowName: response.name,
-      active: response.active,
-    });
     return response;
   } catch (error) {
     console.error(`❌ Error updating n8n workflow:`, {
@@ -394,14 +304,8 @@ export async function updateWorkflowApiUrl(
 
     // Check if it needs updating
     if (!needsApiUrlUpdate(workflow)) {
-      console.log(`✅ Workflow API URL is current:`, { workflowId });
       return null;
     }
-
-    console.log(`🔄 Updating API URL in workflow:`, {
-      workflowId,
-      workflowName: workflow.name,
-    });
 
     // Inject the current API URL into the workflow
     // Note: injectApiUrl preserves node structure including credentials
@@ -415,6 +319,7 @@ export async function updateWorkflowApiUrl(
 
     // Update the workflow (PUT replaces entire workflow)
     // Pass userToken and strategyId to preserve credentials
+    // updateFullWorkflow will check for differences internally
     const response = await updateFullWorkflow(
       request,
       workflowId,
@@ -422,11 +327,6 @@ export async function updateWorkflowApiUrl(
       userToken,
       strategyId
     );
-
-    console.log(`✅ Workflow API URL updated:`, {
-      workflowId: response.id,
-      workflowName: response.name,
-    });
 
     return response;
   } catch (error) {
@@ -462,19 +362,9 @@ export async function updateStrategyWorkflow(
   // the name. Node updates can be done via full workflow replacement if needed.
 
   try {
-    console.log(`📝 Updating n8n workflow for strategy:`, {
-      workflowId,
-      strategyId,
-      strategyName,
-      newName: updates.name,
-      frequency: frequencyToName(frequency),
-    });
     // Pass strategyId to updateWorkflow so it can update credentials
+    // updateWorkflow -> updateFullWorkflow will check for differences internally
     const response = await updateWorkflow(request, workflowId, updates, userToken, strategyId);
-    console.log(`✅ n8n workflow updated for strategy:`, {
-      workflowId: response.id,
-      strategyId,
-    });
     return response;
   } catch (error) {
     console.error(`❌ Error updating n8n workflow for strategy:`, {
@@ -500,14 +390,7 @@ export async function rebuildWorkflowFromTemplate(
   userToken: string
 ): Promise<N8nWorkflowResponse> {
   try {
-    console.log(`🔄 Rebuilding workflow from latest template:`, {
-      workflowId,
-      strategyId,
-      strategyName,
-      frequency: frequencyToName(frequency),
-    });
-
-    // Get existing workflow to preserve active status
+    // Get existing workflow to preserve active status and compare
     const existingWorkflow = await getFullWorkflow(request, workflowId);
     const wasActive = existingWorkflow.active;
 
@@ -519,29 +402,54 @@ export async function rebuildWorkflowFromTemplate(
     let processedWorkflow = injectApiUrl(template);
     processedWorkflow = injectCredentialReference(processedWorkflow, credentialId, credentialName);
 
-    // Create the new workflow
-    const newWorkflow = await createWorkflow(request, processedWorkflow);
+    // Check if the new workflow is actually different from the existing one
+    // If they're the same, just return the existing workflow (preserving active status)
+    console.log(
+      `🔍 Comparing template with existing workflow: ${existingWorkflow.name} (${workflowId})`
+    );
+    const isDifferent = workflowsAreDifferent(existingWorkflow, processedWorkflow, true);
 
-    // Delete old workflow
-    await deleteWorkflow(request, workflowId);
-    console.log(`🗑️ Deleted old workflow:`, { workflowId });
-
-    // The new workflow is created but inactive by default
-    // Restore active status if it was active before
-    if (wasActive) {
-      await activateWorkflow(request, newWorkflow.id);
-      console.log(`✅ Restored active status for rebuilt workflow:`, {
-        workflowId: newWorkflow.id,
-      });
+    if (!isDifferent) {
+      console.log(`ℹ️  Workflow unchanged: ${existingWorkflow.name} (${workflowId})`);
+      return {
+        id: workflowId,
+        name: existingWorkflow.name,
+        active: existingWorkflow.active ?? false,
+      };
     }
 
-    console.log(`✅ Workflow rebuilt successfully:`, {
-      oldWorkflowId: workflowId,
-      newWorkflowId: newWorkflow.id,
-      active: wasActive,
-    });
+    console.log(
+      `⚠️  Workflow differs from template - will update: ${existingWorkflow.name} (${workflowId})`
+    );
 
-    return newWorkflow;
+    // Workflows are different - update in place to preserve workflow ID
+    // This is critical to preserve webhook URLs and other references
+    const processedWorkflowWithId = {
+      ...processedWorkflow,
+      id: workflowId,
+    } as N8nFullWorkflow;
+
+    const updatedWorkflow = await updateFullWorkflow(
+      request,
+      workflowId,
+      processedWorkflowWithId,
+      userToken,
+      strategyId
+    );
+
+    // updateFullWorkflow preserves active status, but ensure it's active if it was before
+    if (wasActive && !updatedWorkflow.active) {
+      await activateWorkflow(request, workflowId);
+      return {
+        id: workflowId,
+        name: updatedWorkflow.name,
+        active: true,
+      };
+    }
+
+    console.log(`✅ Rebuilt workflow: ${updatedWorkflow.name} (${workflowId})`);
+
+    return updatedWorkflow;
   } catch (error) {
     console.error(`❌ Error rebuilding workflow from template:`, {
       workflowId,

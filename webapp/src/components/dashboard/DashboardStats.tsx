@@ -15,6 +15,9 @@ interface DashboardStatsProps {
     hitTarget: number;
     hitStop: number;
   };
+  totalExpectedReturn?: number;
+  activeReturns?: number;
+  totalPortfolioValue?: number;
 }
 
 export function DashboardStats({

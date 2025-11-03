@@ -3,13 +3,9 @@ import type { RequestMethod } from "./n8nCredentials.js";
 import { getFullWorkflow, getWorkflow } from "./n8nWorkflowCRUD.js";
 
 /**
- * Manually execute a workflow (triggers the manual trigger node)
- * See: https://docs.n8n.io/api/
- *
- * Note: n8n workflow execution can be done via:
- * - POST /workflows/{id}/activate (to activate and run)
- * - POST /executions/workflow/{id} (alternative endpoint)
- * - Using webhook trigger (if configured)
+ * Execute workflow via webhook trigger
+ * Manual Trigger nodes cannot be executed via API, so we use the Webhook Trigger instead
+ * See: https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.webhook/
  */
 export async function executeWorkflow(
   request: RequestMethod,
@@ -17,7 +13,7 @@ export async function executeWorkflow(
   workflowId: string
 ): Promise<void> {
   try {
-    console.log(`▶️ Executing n8n workflow manually:`, { workflowId, baseURL });
+    console.log(`▶️ Executing n8n workflow via webhook:`, { workflowId, baseURL });
 
     // First verify the workflow exists and get its details
     let workflow: N8nWorkflowResponse;
@@ -33,64 +29,119 @@ export async function executeWorkflow(
         workflowId,
         error: verifyError instanceof Error ? verifyError.message : String(verifyError),
       });
-
-      // List available workflows to help debug
-      try {
-        const { listWorkflows } = await import("./n8nWorkflowCRUD.js");
-        const allWorkflows = await listWorkflows(request, true);
-        console.log(`📋 Available workflows in n8n:`, {
-          count: allWorkflows.length,
-          workflowIds: allWorkflows.map((w) => ({ id: w.id, name: w.name })),
-        });
-      } catch (listError) {
-        console.error(`⚠️ Could not list workflows:`, listError);
-      }
-
       throw new Error(
-        `Workflow ${workflowId} does not exist in n8n. It may have been deleted or the ID is incorrect. Check the logs above for available workflow IDs.`
+        `Workflow ${workflowId} does not exist in n8n. It may have been deleted or the ID is incorrect.`
       );
     }
 
-    // Try the standard workflow execution endpoint
-    // POST /workflows/{id}/run
-    try {
-      await request<void>("POST", `/workflows/${workflowId}/run`);
-      console.log(`✅ n8n workflow execution triggered successfully:`, { workflowId });
-      return;
-    } catch (runError) {
-      // If /run endpoint doesn't work, try alternative: activate workflow first
-      if (runError instanceof Error && runError.message.includes("404")) {
-        console.log(`⚠️ /run endpoint returned 404, trying alternative approach...`);
-
-        // Try activating the workflow if it's not active
-        if (!workflow.active) {
-          console.log(`🔄 Activating workflow first...`);
-          try {
-            const { activateWorkflow } = await import("./n8nWorkflowCRUD.js");
-            await activateWorkflow(request, workflowId);
-            console.log(`✅ Workflow activated`);
-          } catch (activateError) {
-            console.error(`❌ Failed to activate workflow:`, activateError);
-          }
-        }
-
-        // Try the executions endpoint instead
-        try {
-          console.log(`🔄 Trying executions endpoint...`);
-          await request<void>("POST", `/executions/workflow/${workflowId}`);
-          console.log(`✅ n8n workflow execution triggered via executions endpoint:`, {
-            workflowId,
-          });
-          return;
-        } catch (execError) {
-          console.error(`❌ Executions endpoint also failed:`, execError);
-          throw new Error(
-            `Both execution endpoints failed. Original error: ${runError.message}. Alternative error: ${execError instanceof Error ? execError.message : String(execError)}`
-          );
-        }
-      }
-      throw runError;
+    // Workflow must be active for webhooks to work
+    if (!workflow.active) {
+      throw new Error(
+        `Workflow ${workflowId} is not active. Webhooks only work for active workflows. Please activate the workflow first.`
+      );
     }
+
+    // Get the full workflow to find the webhook trigger node and its actual webhook path
+    const fullWorkflow = await getFullWorkflow(request, workflowId);
+    const webhookNode = Array.isArray(fullWorkflow.nodes)
+      ? fullWorkflow.nodes.find(
+          (n) => n.type === "n8n-nodes-base.webhook" && n.name === "Webhook Trigger"
+        )
+      : null;
+
+    if (!webhookNode) {
+      throw new Error(
+        `Workflow ${workflowId} does not have a Webhook Trigger node configured. The workflow template needs to be updated.`
+      );
+    }
+
+    // Get webhook path from node parameters or webhookId
+    // n8n uses the path parameter if set, otherwise uses webhookId
+    const webhookPath = String(webhookNode.parameters?.path || webhookNode.webhookId || "");
+
+    if (!webhookPath) {
+      throw new Error(
+        `Webhook Trigger node in workflow ${workflowId} does not have a path or webhookId configured.`
+      );
+    }
+
+    // Construct webhook URL
+    // n8n webhook URLs use /webhook-test/ prefix for test/development workflows
+    // Format: {baseURL}/webhook-test/{path}
+    // For production/active workflows, it might use /webhook/ instead
+    // Try webhook-test first (works for both test and production in n8n)
+    const webhookUrl = `${baseURL}/webhook-test/${webhookPath}`;
+
+    console.log(`📡 Triggering webhook:`, { webhookUrl, workflowId, webhookPath });
+
+    // POST to webhook (no auth needed for webhook)
+    // n8n uses /webhook-test/ prefix for webhook URLs
+    // Format: {baseURL}/webhook-test/{path}
+    let response: Response | null = null;
+
+    // Try webhook-test first (works for both test and production in n8n)
+    try {
+      response = await fetch(webhookUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ triggered: true }),
+        signal: AbortSignal.timeout(30000), // 30 second timeout
+      });
+
+      if (!response.ok && response.status === 404) {
+        // If webhook-test fails with 404, try the production webhook path
+        const productionWebhookUrl = `${baseURL}/webhook/${webhookPath}`;
+        console.log(`⚠️ webhook-test returned 404, trying production webhook:`, {
+          productionWebhookUrl,
+        });
+
+        response = await fetch(productionWebhookUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ triggered: true }),
+          signal: AbortSignal.timeout(30000),
+        });
+      }
+    } catch (fetchError) {
+      // If webhook-test URL fails entirely, try production webhook path
+      const productionWebhookUrl = `${baseURL}/webhook/${webhookPath}`;
+      console.log(`⚠️ webhook-test fetch failed, trying production webhook:`, {
+        productionWebhookUrl,
+        error: fetchError,
+      });
+
+      try {
+        response = await fetch(productionWebhookUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ triggered: true }),
+          signal: AbortSignal.timeout(30000),
+        });
+      } catch (productionError) {
+        throw new Error(
+          `Both webhook URLs failed. webhook-test error: ${fetchError instanceof Error ? fetchError.message : String(fetchError)}. Production error: ${productionError instanceof Error ? productionError.message : String(productionError)}`
+        );
+      }
+    }
+
+    if (!response || !response.ok) {
+      const errorText = response ? await response.text() : "No response received";
+      throw new Error(
+        `Webhook trigger failed: HTTP ${response?.status || "unknown"} ${response?.statusText || "unknown"} - ${errorText}`
+      );
+    }
+
+    console.log(`✅ Workflow webhook triggered successfully:`, {
+      workflowId,
+      webhookUrl,
+      status: response.status,
+    });
   } catch (error) {
     console.error(`❌ Error executing n8n workflow:`, {
       workflowId,

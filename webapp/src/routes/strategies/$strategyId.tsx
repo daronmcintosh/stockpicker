@@ -1,15 +1,34 @@
+import { PredictionCard } from "@/components/prediction";
 import { EditStrategyDialog, StatusBadge } from "@/components/strategy";
 import type { EditFormData } from "@/components/strategy/EditStrategyDialog";
 import { getFrequencyLabel, getRiskLevelLabel } from "@/components/strategy/strategyHelpers";
 import { WorkflowRunsList } from "@/components/workflow/WorkflowRunsList";
-import type { Strategy, WorkflowRun } from "@/gen/stockpicker/v1/strategy_pb";
-import { StrategyStatus } from "@/gen/stockpicker/v1/strategy_pb";
+import type { Prediction, Strategy, WorkflowRun } from "@/gen/stockpicker/v1/strategy_pb";
+import { PredictionStatus, StrategyStatus } from "@/gen/stockpicker/v1/strategy_pb";
 import { useAuth } from "@/lib/auth";
 import { createClient } from "@/lib/connect";
+import { fetchStockPrices } from "@/lib/stockPrice";
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
 import { ArrowLeft, Edit, Sparkles } from "lucide-react";
 import { useEffect, useState } from "react";
 import toast from "react-hot-toast";
+
+const SIDEBAR_VISIBILITY_KEY = "strategy_detail_sidebar_visible";
+
+function useSidebarVisibility() {
+  const [isVisible, setIsVisible] = useState(() => {
+    const stored = localStorage.getItem(SIDEBAR_VISIBILITY_KEY);
+    return stored !== null ? stored === "true" : true; // Default to visible
+  });
+
+  const toggle = () => {
+    const newValue = !isVisible;
+    setIsVisible(newValue);
+    localStorage.setItem(SIDEBAR_VISIBILITY_KEY, String(newValue));
+  };
+
+  return [isVisible, toggle] as const;
+}
 
 export const Route = createFileRoute("/strategies/$strategyId")({
   component: StrategyDetailPage,
@@ -19,11 +38,15 @@ function StrategyDetailPage() {
   const { strategyId } = Route.useParams();
   const navigate = useNavigate();
   const { token } = useAuth();
+  const [_sidebarVisible, _toggleSidebar] = useSidebarVisibility();
   const [strategy, setStrategy] = useState<Strategy | null>(null);
   const [workflowRuns, setWorkflowRuns] = useState<WorkflowRun[]>([]);
+  const [predictions, setPredictions] = useState<Prediction[]>([]);
   const [predictionCount, setPredictionCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [loadingWorkflowRuns, setLoadingWorkflowRuns] = useState(false);
+  const [loadingPredictions, setLoadingPredictions] = useState(false);
+  const [currentPrices, setCurrentPrices] = useState<Record<string, number>>({});
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [editingStrategy, setEditingStrategy] = useState<Strategy | null>(null);
   const [updatingStrategy, setUpdatingStrategy] = useState(false);
@@ -46,6 +69,7 @@ function StrategyDetailPage() {
       const response = await client.strategy.getStrategy({ id: strategyId });
       if (response.strategy) {
         setStrategy(response.strategy);
+        await loadPredictions(response.strategy.id);
         await loadPredictionCount(response.strategy.id);
         await loadWorkflowRuns(response.strategy.id);
       } else {
@@ -61,16 +85,46 @@ function StrategyDetailPage() {
     }
   }
 
-  async function loadPredictionCount(id: string) {
-    if (!token) return;
+  async function loadPredictions(id: string) {
+    if (!id || !token) return;
+    setLoadingPredictions(true);
     try {
       const client = createClient(token);
-      const response = await client.prediction.listPredictions({ strategyId: id });
+      const response = await client.prediction.listPredictions({
+        strategyId: id,
+      });
+      const preds = response.predictions.sort((a, b) => {
+        const aTime = a.createdAt?.seconds ? Number(a.createdAt.seconds) : 0;
+        const bTime = b.createdAt?.seconds ? Number(b.createdAt.seconds) : 0;
+        return bTime - aTime; // Most recent first
+      });
+      setPredictions(preds);
       setPredictionCount(response.predictions.length);
+
+      // Fetch current prices for active predictions
+      const activeSymbols = preds
+        .filter((p) => p.status === PredictionStatus.ACTIVE)
+        .map((p) => p.symbol)
+        .filter(Boolean);
+      if (activeSymbols.length > 0) {
+        try {
+          const prices = await fetchStockPrices(activeSymbols);
+          setCurrentPrices(prices);
+        } catch (error) {
+          console.error("Failed to fetch stock prices:", error);
+        }
+      }
     } catch (error) {
-      console.error("Failed to load prediction count:", error);
-      setPredictionCount(0);
+      console.error("Failed to load predictions:", error);
+      toast.error("Failed to load predictions");
+    } finally {
+      setLoadingPredictions(false);
     }
+  }
+
+  async function loadPredictionCount(_id: string) {
+    // Count is now loaded as part of loadPredictions
+    // This function kept for backward compatibility if needed elsewhere
   }
 
   async function loadWorkflowRuns(id: string) {
@@ -155,7 +209,7 @@ function StrategyDetailPage() {
       const response = await client.strategy.triggerPredictions({ id: strategy.id });
       if (response.success) {
         toast.success(response.message);
-        // Reload strategy data to refresh prediction count and workflow runs
+        // Reload strategy data to refresh predictions, count, and workflow runs
         await loadStrategy();
       } else {
         toast.error(response.message);
@@ -183,192 +237,311 @@ function StrategyDetailPage() {
   }
 
   return (
-    <div className="container mx-auto px-4 py-8 max-w-5xl">
-      {/* Header with back button */}
-      <div className="mb-6">
-        <Link
-          to="/strategies"
-          className="inline-flex items-center gap-2 text-gray-600 hover:text-gray-900 mb-4 transition-colors"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          Back to Strategies
-        </Link>
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-4xl font-bold mb-2">{strategy.name}</h1>
-            <div className="flex items-center gap-3">
-              <StatusBadge status={strategy.status} />
-              <span className="text-gray-600">{predictionCount} predictions</span>
-            </div>
+    <div className="min-h-screen bg-gray-50">
+      <div className="bg-white border-b border-gray-200">
+        <div className="container mx-auto px-4 py-4 max-w-7xl">
+          {/* Header with back button */}
+          <div className="mb-4">
+            <Link
+              to="/strategies"
+              className="inline-flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900 transition-colors"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              Back to Strategies
+            </Link>
           </div>
-          <div className="flex items-center gap-3">
-            {strategy.status === StrategyStatus.ACTIVE && (
+
+          {/* Title and Actions */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div>
+                <h1 className="text-3xl font-bold text-gray-900 mb-2">{strategy.name}</h1>
+                <div className="flex items-center gap-3">
+                  <StatusBadge status={strategy.status} />
+                  <span className="text-sm text-gray-600">
+                    {predictionCount} prediction{predictionCount !== 1 ? "s" : ""}
+                  </span>
+                  <span className="text-sm text-gray-400">•</span>
+                  <span className="text-sm text-gray-600">
+                    {strategy.createdAt
+                      ? new Date(Number(strategy.createdAt.seconds) * 1000).toLocaleDateString()
+                      : "Unknown date"}
+                  </span>
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              {strategy.status === StrategyStatus.ACTIVE && (
+                <button
+                  type="button"
+                  onClick={triggerPredictions}
+                  disabled={triggeringStrategy}
+                  className="inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
+                >
+                  {triggeringStrategy ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />
+                      Generating...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-4 h-4" />
+                      Generate Predictions
+                    </>
+                  )}
+                </button>
+              )}
               <button
                 type="button"
-                onClick={triggerPredictions}
-                disabled={triggeringStrategy}
-                className="inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                onClick={() => openEditDialog(strategy)}
+                className="inline-flex items-center gap-2 bg-white text-gray-700 border border-gray-300 px-4 py-2 rounded-md hover:bg-gray-50 transition-colors text-sm font-medium"
               >
-                {triggeringStrategy ? (
-                  <>
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />
-                    Generating...
-                  </>
-                ) : (
-                  <>
-                    <Sparkles className="w-4 h-4" />
-                    Generate Predictions
-                  </>
-                )}
+                <Edit className="w-4 h-4" />
+                Edit
               </button>
-            )}
-            <button
-              type="button"
-              onClick={() => openEditDialog(strategy)}
-              className="inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
-            >
-              <Edit className="w-4 h-4" />
-              Edit Strategy
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Strategy Details */}
-      <div className="bg-white border border-gray-200 rounded-lg p-6 mb-6">
-        <div className="space-y-6">
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-500 mb-1">Status</label>
-              <StatusBadge status={strategy.status} />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-500 mb-1">Predictions</label>
-              <div className="text-lg font-semibold">{predictionCount}</div>
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-500 mb-1">Description</label>
-            <div className="text-sm">{strategy.description || "No description"}</div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-500 mb-1">Custom Prompt</label>
-            <div className="text-sm bg-gray-50 p-3 rounded border border-gray-200 max-h-40 overflow-y-auto">
-              {strategy.customPrompt || "No custom prompt"}
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-500 mb-1">Monthly Budget</label>
-              <div className="text-lg font-semibold">
-                $
-                {Number(strategy.monthlyBudget).toLocaleString("en-US", {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2,
-                })}
-              </div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-500 mb-1">
-                Spent This Month
-              </label>
-              <div className="text-lg font-semibold">
-                $
-                {Number(strategy.currentMonthSpent).toLocaleString("en-US", {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2,
-                })}
-              </div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-500 mb-1">Time Horizon</label>
-              <div className="text-sm">{strategy.timeHorizon}</div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-500 mb-1">Target Return</label>
-              <div className="text-sm">
-                {Number(strategy.targetReturnPct).toFixed(2)}% ($
-                {(
-                  (Number(strategy.monthlyBudget) * Number(strategy.targetReturnPct)) /
-                  100
-                ).toFixed(2)}
-                )
-              </div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-500 mb-1">Frequency</label>
-              <div className="text-sm">{getFrequencyLabel(strategy.frequency)}</div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-500 mb-1">Risk Level</label>
-              <div className="text-sm">{getRiskLevelLabel(strategy.riskLevel)}</div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-500 mb-1">
-                Trades Per Month
-              </label>
-              <div className="text-sm">{strategy.tradesPerMonth}</div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-500 mb-1">
-                Per Trade Budget
-              </label>
-              <div className="text-sm">${Number(strategy.perTradeBudget).toFixed(2)}</div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-500 mb-1">
-                Per Stock Allocation
-              </label>
-              <div className="text-sm">${Number(strategy.perStockAllocation).toFixed(2)}</div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-500 mb-1">Portfolio Size</label>
-              <div className="text-sm">
-                {strategy.uniqueStocksCount} / {strategy.maxUniqueStocks} stocks
-              </div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-500 mb-1">Created</label>
-              <div className="text-sm">
-                {strategy.createdAt
-                  ? new Date(Number(strategy.createdAt.seconds) * 1000).toLocaleString()
-                  : "N/A"}
-              </div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-500 mb-1">Last Updated</label>
-              <div className="text-sm">
-                {strategy.updatedAt
-                  ? new Date(Number(strategy.updatedAt.seconds) * 1000).toLocaleString()
-                  : "N/A"}
-              </div>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Workflow Runs Section */}
-      <div className="bg-white border border-gray-200 rounded-lg p-6">
-        <label className="block text-lg font-semibold text-gray-900 mb-4">Workflow Runs</label>
-        <WorkflowRunsList workflowRuns={workflowRuns} loading={loadingWorkflowRuns} />
+      <div className="container mx-auto px-4 py-6 max-w-7xl">
+        <div className="grid grid-cols-12 gap-6">
+          {/* Main Content - Predictions and Workflow Runs */}
+          <div className="col-span-12 lg:col-span-8 space-y-6">
+            {/* Predictions Section */}
+            <div className="bg-white border border-gray-200 rounded-lg">
+              <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+                <div>
+                  <h2 className="text-lg font-semibold text-gray-900">Predictions</h2>
+                  <p className="text-sm text-gray-500 mt-1">
+                    Stock predictions generated by this strategy
+                  </p>
+                </div>
+                {predictionCount > 20 && (
+                  <Link
+                    to="/predictions"
+                    search={{ strategy: strategy.id, status: undefined, action: undefined }}
+                    className="text-sm text-blue-600 hover:text-blue-700 font-medium"
+                  >
+                    View All ({predictionCount})
+                  </Link>
+                )}
+              </div>
+              <div className="p-6">
+                {loadingPredictions ? (
+                  <div className="text-sm text-gray-500 py-4">Loading predictions...</div>
+                ) : predictions.length === 0 ? (
+                  <div className="text-center py-8 text-gray-500">
+                    <p className="mb-2">No predictions yet</p>
+                    <p className="text-sm">
+                      {strategy.status === StrategyStatus.ACTIVE
+                        ? "Click 'Generate Predictions' to create your first predictions"
+                        : "Start the strategy and generate predictions to see them here"}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {predictions.slice(0, 10).map((prediction) => (
+                      <PredictionCard
+                        key={prediction.id}
+                        prediction={prediction}
+                        strategyName={strategy.name}
+                        currentPrice={currentPrices[prediction.symbol]}
+                        isLoadingPrice={false}
+                      />
+                    ))}
+                    {predictions.length > 10 && (
+                      <div className="text-center pt-4">
+                        <Link
+                          to="/predictions"
+                          search={{ strategy: strategy.id, status: undefined, action: undefined }}
+                          className="text-sm text-blue-600 hover:text-blue-700 font-medium"
+                        >
+                          View {predictions.length - 10} more predictions →
+                        </Link>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Workflow Runs Section */}
+            <div className="bg-white border border-gray-200 rounded-lg">
+              <div className="px-6 py-4 border-b border-gray-200">
+                <h2 className="text-lg font-semibold text-gray-900">Workflow Runs</h2>
+                <p className="text-sm text-gray-500 mt-1">
+                  Execution history and results for this strategy
+                </p>
+              </div>
+              <div className="p-6">
+                <WorkflowRunsList workflowRuns={workflowRuns} loading={loadingWorkflowRuns} />
+              </div>
+            </div>
+          </div>
+
+          {/* Sidebar - Strategy Details */}
+          <div className="col-span-12 lg:col-span-4">
+            <div className="space-y-4">
+              {/* Quick Stats */}
+              <div className="bg-white border border-gray-200 rounded-lg p-4">
+                <h3 className="text-sm font-semibold text-gray-900 mb-4">Quick Stats</h3>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-gray-600">Status</span>
+                    <StatusBadge status={strategy.status} />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-gray-600">Predictions</span>
+                    <span className="text-sm font-semibold text-gray-900">{predictionCount}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-gray-600">Monthly Budget</span>
+                    <span className="text-sm font-semibold text-gray-900">
+                      $
+                      {Number(strategy.monthlyBudget).toLocaleString("en-US", {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-gray-600">Spent This Month</span>
+                    <span className="text-sm font-semibold text-gray-900">
+                      $
+                      {Number(strategy.currentMonthSpent).toLocaleString("en-US", {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
+                    </span>
+                  </div>
+                  <div className="pt-3 border-t border-gray-200">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm text-gray-600">Target Return</span>
+                      <span className="text-sm font-semibold text-green-600">
+                        {Number(strategy.targetReturnPct).toFixed(2)}%
+                      </span>
+                    </div>
+                    <div className="text-xs text-gray-500">
+                      $
+                      {(
+                        (Number(strategy.monthlyBudget) * Number(strategy.targetReturnPct)) /
+                        100
+                      ).toFixed(2)}{" "}
+                      expected monthly
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Strategy Configuration */}
+              <div className="bg-white border border-gray-200 rounded-lg p-4">
+                <h3 className="text-sm font-semibold text-gray-900 mb-4">Configuration</h3>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">
+                      Time Horizon
+                    </label>
+                    <div className="text-sm text-gray-900">{strategy.timeHorizon}</div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">
+                      Risk Level
+                    </label>
+                    <div className="text-sm text-gray-900">
+                      {getRiskLevelLabel(strategy.riskLevel)}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">
+                      Frequency
+                    </label>
+                    <div className="text-sm text-gray-900">
+                      {getFrequencyLabel(strategy.frequency)}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">
+                      Trades Per Month
+                    </label>
+                    <div className="text-sm text-gray-900">{strategy.tradesPerMonth}</div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">
+                      Per Trade Budget
+                    </label>
+                    <div className="text-sm text-gray-900">
+                      ${Number(strategy.perTradeBudget).toFixed(2)}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">
+                      Per Stock Allocation
+                    </label>
+                    <div className="text-sm text-gray-900">
+                      ${Number(strategy.perStockAllocation).toFixed(2)}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">
+                      Portfolio Size
+                    </label>
+                    <div className="text-sm text-gray-900">
+                      {strategy.uniqueStocksCount} / {strategy.maxUniqueStocks} stocks
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Description */}
+              <div className="bg-white border border-gray-200 rounded-lg p-4">
+                <h3 className="text-sm font-semibold text-gray-900 mb-2">Description</h3>
+                {strategy.description ? (
+                  <p className="text-sm text-gray-700 leading-relaxed">{strategy.description}</p>
+                ) : (
+                  <p className="text-sm text-gray-400 italic">No description provided</p>
+                )}
+              </div>
+
+              {/* Custom Prompt */}
+              <div className="bg-white border border-gray-200 rounded-lg p-4">
+                <h3 className="text-sm font-semibold text-gray-900 mb-2">Custom Prompt</h3>
+                {strategy.customPrompt ? (
+                  <div className="text-sm bg-gray-50 p-3 rounded border border-gray-200 max-h-48 overflow-y-auto text-gray-800 font-mono text-xs">
+                    {strategy.customPrompt}
+                  </div>
+                ) : (
+                  <div className="text-sm bg-gray-50 p-3 rounded border border-gray-200 text-gray-400 italic font-mono text-xs">
+                    No custom prompt configured
+                  </div>
+                )}
+              </div>
+
+              {/* Metadata */}
+              <div className="bg-white border border-gray-200 rounded-lg p-4">
+                <h3 className="text-sm font-semibold text-gray-900 mb-3">Metadata</h3>
+                <div className="space-y-2 text-xs text-gray-600">
+                  <div className="flex items-center justify-between">
+                    <span>Created</span>
+                    <span className="font-mono">
+                      {strategy.createdAt
+                        ? new Date(Number(strategy.createdAt.seconds) * 1000).toLocaleString()
+                        : "N/A"}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span>Last Updated</span>
+                    <span className="font-mono">
+                      {strategy.updatedAt
+                        ? new Date(Number(strategy.updatedAt.seconds) * 1000).toLocaleString()
+                        : "N/A"}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Edit Dialog */}

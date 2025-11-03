@@ -40,6 +40,7 @@ export async function ensureWorkflowExists(row: StrategyRow, userToken?: string)
           // Update the workflow to reference the credential
           // Get full workflow, inject credential reference, and update it
           // This ensures credentials are in place before API URL update
+          // updateFullWorkflow will check for differences, so this is safe to call
           try {
             const fullWorkflow = await n8nClient.getFullWorkflow(currentWorkflowId);
             await n8nClient.updateFullWorkflow(
@@ -48,11 +49,7 @@ export async function ensureWorkflowExists(row: StrategyRow, userToken?: string)
               userToken,
               strategyId
             );
-            console.log(`✅ Workflow updated to reference credential:`, {
-              strategyId,
-              workflowId: currentWorkflowId,
-              credentialId,
-            });
+            // Note: updateFullWorkflow logs if workflow is unchanged, so we don't need to log here
           } catch (updateError) {
             console.warn(`⚠️ Failed to update workflow with credential reference:`, {
               strategyId,

@@ -86,18 +86,17 @@ export async function copyStrategy(
 
     await db.run(
       `INSERT INTO strategies (
-        id, name, description, custom_prompt, monthly_budget, current_month_spent,
+        id, name, description, custom_prompt, monthly_budget,
         current_month_start, time_horizon, frequency, risk_level, status, privacy,
         n8n_workflow_id, user_id, trades_per_month, per_trade_budget, per_stock_allocation,
         unique_stocks_count, max_unique_stocks, target_return_pct, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         newId,
         newName,
         originalRow.description || "",
         originalRow.custom_prompt || "",
         originalRow.monthly_budget,
-        0, // current_month_spent starts at 0
         now, // current_month_start reset
         originalRow.time_horizon || "3 months",
         originalRow.frequency,

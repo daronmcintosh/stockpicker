@@ -2,7 +2,7 @@ import { EditStrategyDialog, StrategyCard } from "@/components/strategy";
 import type { EditFormData } from "@/components/strategy/EditStrategyDialog";
 import { Dialog, DialogButton, DialogFooter } from "@/components/ui/Dialog";
 import type { Strategy } from "@/gen/stockpicker/v1/strategy_pb";
-import { StrategyPrivacy } from "@/gen/stockpicker/v1/strategy_pb";
+import { PredictionStatus, StrategyPrivacy } from "@/gen/stockpicker/v1/strategy_pb";
 import { useAuth } from "@/lib/auth";
 import { createClient } from "@/lib/connect";
 import { createFileRoute } from "@tanstack/react-router";
@@ -18,6 +18,21 @@ function StrategiesPage() {
   const { token, isLoading: authLoading } = useAuth();
   const [strategies, setStrategies] = useState<Strategy[]>([]);
   const [predictionCounts, setPredictionCounts] = useState<Record<string, number>>({});
+  const [performanceData, setPerformanceData] = useState<
+    Record<
+      string,
+      {
+        active: number;
+        hitTarget: number;
+        hitStop: number;
+        expired: number;
+        hitRate: number;
+        workflowRuns: number;
+        latestRunStatus?: string;
+        latestRunDate?: Date;
+      }
+    >
+  >({});
   const [loading, setLoading] = useState(true);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [strategyToDelete, setStrategyToDelete] = useState<string | null>(null);
@@ -48,20 +63,92 @@ function StrategiesPage() {
       console.log(`[STRATEGIES PAGE] Loaded ${response.strategies.length} strategies`);
       setStrategies(response.strategies);
 
-      // Load prediction counts for each strategy
+      // Load prediction counts and performance data for each strategy
       const counts: Record<string, number> = {};
+      const perfData: Record<
+        string,
+        {
+          active: number;
+          hitTarget: number;
+          hitStop: number;
+          expired: number;
+          hitRate: number;
+          workflowRuns: number;
+          latestRunStatus?: string;
+          latestRunDate?: Date;
+        }
+      > = {};
+
       for (const strategy of response.strategies) {
         try {
+          // Load predictions
           const predictionsResponse = await client.prediction.listPredictions({
             strategyId: strategy.id,
           });
-          counts[strategy.id] = predictionsResponse.predictions.length;
+          const predictions = predictionsResponse.predictions;
+          counts[strategy.id] = predictions.length;
+
+          // Calculate performance metrics
+          let active = 0;
+          let hitTarget = 0;
+          let hitStop = 0;
+          let expired = 0;
+          for (const pred of predictions) {
+            if (pred.status === PredictionStatus.ACTIVE) active++;
+            else if (pred.status === PredictionStatus.HIT_TARGET) hitTarget++;
+            else if (pred.status === PredictionStatus.HIT_STOP) hitStop++;
+            else if (pred.status === PredictionStatus.EXPIRED) expired++;
+          }
+
+          const closed = hitTarget + hitStop + expired;
+          const hitRate = closed > 0 ? (hitTarget / closed) * 100 : 0;
+
+          // Load workflow runs
+          let workflowRuns = 0;
+          let latestRunStatus: string | undefined;
+          let latestRunDate: Date | undefined;
+          try {
+            const workflowRunsResponse = await client.strategy.listWorkflowRuns({
+              strategyId: strategy.id,
+              limit: 1,
+            });
+            workflowRuns = workflowRunsResponse.total || workflowRunsResponse.workflowRuns.length;
+            if (workflowRunsResponse.workflowRuns.length > 0) {
+              const latestRun = workflowRunsResponse.workflowRuns[0];
+              latestRunStatus = latestRun.status;
+              if (latestRun.createdAt) {
+                latestRunDate = new Date(Number(latestRun.createdAt.seconds) * 1000);
+              }
+            }
+          } catch (error) {
+            console.error(`Failed to load workflow runs for strategy ${strategy.id}:`, error);
+          }
+
+          perfData[strategy.id] = {
+            active,
+            hitTarget,
+            hitStop,
+            expired,
+            hitRate,
+            workflowRuns,
+            latestRunStatus,
+            latestRunDate,
+          };
         } catch (error) {
           console.error(`Failed to load predictions for strategy ${strategy.id}:`, error);
           counts[strategy.id] = 0;
+          perfData[strategy.id] = {
+            active: 0,
+            hitTarget: 0,
+            hitStop: 0,
+            expired: 0,
+            hitRate: 0,
+            workflowRuns: 0,
+          };
         }
       }
       setPredictionCounts(counts);
+      setPerformanceData(perfData);
     } catch (error) {
       console.error("Failed to load strategies:", error);
       toast.error("Failed to load strategies");
@@ -293,6 +380,7 @@ function StrategiesPage() {
               key={strategy.id}
               strategy={strategy}
               predictionCount={predictionCounts[strategy.id] ?? 0}
+              performanceData={performanceData[strategy.id]}
               updatingPrivacy={updatingPrivacy}
               triggeringStrategy={triggeringStrategy}
               onPrivacyToggle={handlePrivacyToggle}

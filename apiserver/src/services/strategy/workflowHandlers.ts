@@ -11,6 +11,7 @@ import type {
 } from "../../gen/stockpicker/v1/strategy_pb.js";
 import {
   ActivePredictionDataSchema,
+  BudgetDataSchema,
   CreatePredictionsFromWorkflowResponseSchema,
   CreatedPredictionDataSchema,
   PrepareDataForWorkflowResponseSchema,
@@ -109,10 +110,31 @@ export async function prepareDataForWorkflow(
       activePredictionsRows.map((pRow) => dbRowToProtoPrediction(pRow))
     );
 
-    // Calculate budget
-    const currentMonthSpent = Number(row.current_month_spent || 0);
+    // Calculate current_month_spent from active predictions (where action = 'entered')
+    // This ensures accuracy and avoids synchronization issues
+    const currentMonthSpent = activePredictionsRows.reduce(
+      (sum, pRow) => sum + Number(pRow.allocated_amount || 0),
+      0
+    );
+
+    // Calculate detailed budget information
     const monthlyBudget = Number(row.monthly_budget || 0);
-    const hasBudget = currentMonthSpent < monthlyBudget;
+    const perStockAllocation = Number(row.per_stock_allocation || 0);
+    const remainingBudget = Math.max(0, monthlyBudget - currentMonthSpent);
+    const hasBudget = remainingBudget > 0;
+    const availableSlots =
+      perStockAllocation > 0 ? Math.floor(remainingBudget / perStockAllocation) : 0;
+    const budgetUtilizationPct = monthlyBudget > 0 ? (currentMonthSpent / monthlyBudget) * 100 : 0;
+
+    const budgetData = create(BudgetDataSchema, {
+      monthlyBudget,
+      currentMonthSpent,
+      remainingBudget,
+      perStockAllocation,
+      availableSlots,
+      hasBudget,
+      budgetUtilizationPct,
+    });
 
     // Parse source configuration from strategy
     let sourceConfig: {
@@ -208,7 +230,7 @@ export async function prepareDataForWorkflow(
       const fullInputData = JSON.stringify({
         strategy: strategyData,
         activePredictions: activePredictionsData,
-        hasBudget,
+        budget: budgetData,
         sources,
         timestamp: new Date().toISOString(),
       });
@@ -222,7 +244,7 @@ export async function prepareDataForWorkflow(
     return create(PrepareDataForWorkflowResponseSchema, {
       strategy: strategyData,
       activePredictions: activePredictionsData,
-      hasBudget,
+      budget: budgetData,
       sources: JSON.stringify(sources),
     });
   } catch (error) {
@@ -456,16 +478,9 @@ export async function createPredictionsFromWorkflow(
       });
     }
 
-    // Update strategy's current_month_spent
-    const totalSpent = top3.reduce((sum, _rec) => {
-      return sum + Number(row.per_stock_allocation || 0);
-    }, 0);
-    const newSpent = Number(row.current_month_spent || 0) + totalSpent;
-
-    await db.run(
-      "UPDATE strategies SET current_month_spent = ?, updated_at = datetime('now') WHERE id = ?",
-      [newSpent, strategyId]
-    );
+    // Note: current_month_spent is now calculated from active predictions
+    // (where action = 'entered') instead of being stored in the database.
+    // This ensures accuracy and avoids synchronization issues.
 
     return create(CreatePredictionsFromWorkflowResponseSchema, {
       success: true,

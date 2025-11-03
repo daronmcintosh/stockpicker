@@ -2,7 +2,6 @@ import {
   ActiveStrategies,
   DashboardPredictionDetailDialog,
   DashboardStats,
-  PredictionPerformanceBreakdown,
   RecentPredictions,
 } from "@/components/dashboard";
 import { toNumber } from "@/components/dashboard";
@@ -50,10 +49,13 @@ function App() {
     expired: 0,
     total: 0,
   });
+  const [allPredictions, setAllPredictions] = useState<Prediction[]>([]);
 
   useEffect(() => {
-    if (recentPredictions.length > 0) {
-      const symbols = recentPredictions.map((p) => p.symbol).filter(Boolean);
+    // Fetch prices for all active predictions, not just recent ones
+    const activePreds = allPredictions.filter((p) => p.status === PredictionStatus.ACTIVE);
+    if (activePreds.length > 0) {
+      const symbols = activePreds.map((p) => p.symbol).filter(Boolean);
       if (symbols.length > 0) {
         setLoadingPrices(true);
         fetchStockPrices(symbols)
@@ -67,7 +69,7 @@ function App() {
           });
       }
     }
-  }, [recentPredictions]);
+  }, [allPredictions]);
 
   const loadDashboardData = useCallback(async () => {
     if (!token) {
@@ -151,6 +153,7 @@ function App() {
       setActivePredictionsCount(activePredictions);
       setPredictionCounts(counts);
       setRecentPredictions(recent);
+      setAllPredictions(allPredictions);
       setPredictionStats(stats);
     } catch (error) {
       console.error("Failed to load dashboard data:", error);
@@ -260,76 +263,312 @@ function App() {
   const budgetRemaining = totalBudget - totalSpent;
   const budgetUtilization = totalBudget > 0 ? ((totalSpent / totalBudget) * 100).toFixed(1) : "0.0";
 
+  // Calculate additional metrics
+  const totalExpectedReturn = allStrategies.reduce(
+    (sum, s) => sum + (toNumber(s.monthlyBudget) * toNumber(s.targetReturnPct)) / 100,
+    0
+  );
+  const averageHitRate =
+    closedPredictions > 0
+      ? ((predictionStats.hitTarget / closedPredictions) * 100).toFixed(1)
+      : "0.0";
+  const totalPortfolioValue = allPredictions
+    .filter((p) => p.status === PredictionStatus.ACTIVE)
+    .reduce((sum, p) => sum + toNumber(p.allocatedAmount), 0);
+  const activeReturns = allPredictions
+    .filter((p) => p.status === PredictionStatus.ACTIVE && currentPrices[p.symbol])
+    .reduce((sum, p) => {
+      const entry = toNumber(p.entryPrice);
+      const current = currentPrices[p.symbol] ?? entry;
+      const allocation = toNumber(p.allocatedAmount);
+      const returnPct = (current - entry) / entry;
+      return sum + allocation * returnPct;
+    }, 0);
+
+  // Calculate performance metrics from closed predictions
+  const closedPreds = allPredictions.filter(
+    (p) =>
+      p.status === PredictionStatus.HIT_TARGET ||
+      p.status === PredictionStatus.HIT_STOP ||
+      p.status === PredictionStatus.EXPIRED
+  );
+
+  // Helper function to calculate return for a prediction
+  const getPredictionReturn = (p: Prediction): number => {
+    // Use stored currentReturnPct if available
+    if (p.currentReturnPct !== undefined && p.currentReturnPct !== null) {
+      return toNumber(p.currentReturnPct);
+    }
+    // Otherwise calculate from prices based on status
+    const entry = toNumber(p.entryPrice);
+    if (entry <= 0) return 0;
+
+    let current = toNumber(p.currentPrice);
+    if (!current || current === 0) {
+      // Determine final price based on status
+      if (p.status === PredictionStatus.HIT_TARGET) {
+        current = toNumber(p.targetPrice);
+      } else if (p.status === PredictionStatus.HIT_STOP) {
+        current = toNumber(p.stopLossPrice);
+      } else {
+        current = entry; // EXPIRED - no gain/loss
+      }
+    }
+    return ((current - entry) / entry) * 100;
+  };
+
+  // Average Return % (from closed predictions)
+  const avgReturn =
+    closedPreds.length > 0
+      ? closedPreds.reduce((sum, p) => sum + getPredictionReturn(p), 0) / closedPreds.length
+      : 0;
+
+  // Total Realized Returns ($)
+  const totalRealizedReturns = closedPreds.reduce((sum, p) => {
+    const allocation = toNumber(p.allocatedAmount);
+    const returnPct = getPredictionReturn(p) / 100; // Convert % to decimal
+    return sum + allocation * returnPct;
+  }, 0);
+
+  // Best performing prediction (highest return %)
+  const bestPrediction =
+    closedPreds.length > 0
+      ? closedPreds.reduce((best, p) => {
+          const pReturn = getPredictionReturn(p);
+          const bestReturn = getPredictionReturn(best);
+          return pReturn > bestReturn ? p : best;
+        })
+      : null;
+  const bestReturnPct = bestPrediction ? getPredictionReturn(bestPrediction) : 0;
+
+  // Win/Loss Ratio
+  const losses = predictionStats.hitStop + predictionStats.expired;
+  const winLossRatio =
+    losses > 0
+      ? (predictionStats.hitTarget / losses).toFixed(2)
+      : predictionStats.hitTarget > 0
+        ? "∞"
+        : "0.00";
+
   return (
-    <div className="container mx-auto px-4 py-8 max-w-7xl">
-      <div className="mb-8">
-        <h1 className="text-4xl font-bold mb-2">StockPicker Dashboard</h1>
-        <p className="text-gray-600">AI-powered stock trading strategies for automated investing</p>
-      </div>
-
-      <DashboardStats
-        loading={loading}
-        activeStrategiesCount={activeStrategiesCount}
-        totalStrategiesCount={totalStrategiesCount}
-        activePredictionsCount={activePredictionsCount}
-        predictionsCount={predictionsCount}
-        totalSpent={totalSpent}
-        totalBudget={totalBudget}
-        budgetUtilization={budgetUtilization}
-        budgetRemaining={budgetRemaining}
-        hitRate={hitRate}
-        predictionStats={{
-          hitTarget: predictionStats.hitTarget,
-          hitStop: predictionStats.hitStop,
-        }}
-      />
-
-      <PredictionPerformanceBreakdown predictionStats={predictionStats} />
-
-      <div className="grid gap-6 lg:grid-cols-3 mb-6">
-        <RecentPredictions
-          loading={loading}
-          recentPredictions={recentPredictions}
-          currentPrices={currentPrices}
-          allStrategies={allStrategies}
-          onPredictionClick={openPredictionDialog}
-        />
-
-        {/* Quick Actions */}
-        <div className="space-y-4">
-          <div className="bg-gradient-to-br from-blue-600 to-blue-700 text-white rounded-lg p-6 shadow-lg">
-            <h2 className="text-xl font-bold mb-2">Strategies</h2>
-            <p className="text-sm opacity-90 mb-4">
-              Create and manage AI-powered trading strategies
-            </p>
-            <Link
-              to="/strategies"
-              className="inline-block bg-white text-blue-600 px-4 py-2 rounded-lg font-semibold hover:bg-blue-50 transition-colors text-sm"
-            >
-              Manage Strategies
-            </Link>
-          </div>
-
-          <div className="bg-gradient-to-br from-green-600 to-green-700 text-white rounded-lg p-6 shadow-lg">
-            <h2 className="text-xl font-bold mb-2">Predictions</h2>
-            <p className="text-sm opacity-90 mb-4">View and manage stock predictions</p>
-            <Link
-              to="/predictions"
-              search={{ strategy: undefined, status: undefined, action: undefined }}
-              className="inline-block bg-white text-green-600 px-4 py-2 rounded-lg font-semibold hover:bg-green-50 transition-colors text-sm"
-            >
-              View Predictions
-            </Link>
+    <div className="min-h-screen bg-gray-50">
+      {/* Header */}
+      <div className="bg-white border-b border-gray-200">
+        <div className="container mx-auto px-4 py-6 max-w-7xl">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-3xl font-bold text-gray-900 mb-1">Dashboard</h1>
+              <p className="text-sm text-gray-600">
+                AI-powered stock trading strategies for automated investing
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Link
+                to="/strategies"
+                className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors text-sm font-medium"
+              >
+                Manage Strategies
+              </Link>
+              <Link
+                to="/predictions"
+                search={{ strategy: undefined, status: undefined, action: undefined }}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-white text-gray-700 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors text-sm font-medium"
+              >
+                View Predictions
+              </Link>
+            </div>
           </div>
         </div>
       </div>
 
-      <ActiveStrategies
-        activeStrategies={activeStrategies}
-        predictionCounts={predictionCounts}
-        triggeringStrategy={triggeringStrategy}
-        onTriggerPredictions={handleTriggerPredictions}
-      />
+      <div className="container mx-auto px-4 py-6 max-w-7xl">
+        {/* Stats Grid */}
+        <DashboardStats
+          loading={loading}
+          activeStrategiesCount={activeStrategiesCount}
+          totalStrategiesCount={totalStrategiesCount}
+          activePredictionsCount={activePredictionsCount}
+          predictionsCount={predictionsCount}
+          totalSpent={totalSpent}
+          totalBudget={totalBudget}
+          budgetUtilization={budgetUtilization}
+          budgetRemaining={budgetRemaining}
+          hitRate={hitRate}
+          predictionStats={{
+            hitTarget: predictionStats.hitTarget,
+            hitStop: predictionStats.hitStop,
+          }}
+          totalExpectedReturn={totalExpectedReturn}
+          activeReturns={activeReturns}
+          totalPortfolioValue={totalPortfolioValue}
+        />
+
+        {/* Main Content - Recent Predictions and Active Strategies Side by Side */}
+        <div className="grid grid-cols-12 gap-6 mb-6">
+          {/* Recent Predictions */}
+          <div className="col-span-12 lg:col-span-6">
+            <RecentPredictions
+              loading={loading}
+              recentPredictions={recentPredictions}
+              currentPrices={currentPrices}
+              allStrategies={allStrategies}
+              onPredictionClick={openPredictionDialog}
+            />
+          </div>
+
+          {/* Active Strategies */}
+          <div className="col-span-12 lg:col-span-6">
+            <ActiveStrategies
+              activeStrategies={activeStrategies}
+              predictionCounts={predictionCounts}
+              triggeringStrategy={triggeringStrategy}
+              onTriggerPredictions={handleTriggerPredictions}
+            />
+          </div>
+        </div>
+
+        {/* Performance & Metrics Section */}
+        <div className="mb-6">
+          <div className="bg-white border border-gray-200 rounded-lg p-5">
+            <h3 className="text-base font-semibold text-gray-900 mb-4">Performance & Metrics</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
+              {/* 1. Hit Rate (Win Rate) */}
+              <div className="space-y-2">
+                <div className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+                  Hit Rate
+                </div>
+                <div className="text-2xl font-bold text-emerald-600">{averageHitRate}%</div>
+                <div className="text-xs text-gray-600">
+                  {predictionStats.hitTarget} of {closedPredictions} closed
+                </div>
+              </div>
+
+              {/* 2. Average Return */}
+              <div className="space-y-2">
+                <div className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+                  Avg Return
+                </div>
+                <div
+                  className={`text-2xl font-bold ${
+                    avgReturn >= 0 ? "text-green-600" : "text-red-600"
+                  }`}
+                >
+                  {avgReturn >= 0 ? "+" : ""}
+                  {avgReturn.toFixed(2)}%
+                </div>
+                <div className="text-xs text-gray-600">
+                  {closedPreds.length > 0
+                    ? `From ${closedPreds.length} closed predictions`
+                    : "No closed predictions"}
+                </div>
+              </div>
+
+              {/* 3. Total Realized Returns */}
+              <div className="space-y-2">
+                <div className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+                  Realized Returns
+                </div>
+                <div
+                  className={`text-2xl font-bold ${
+                    totalRealizedReturns >= 0 ? "text-green-600" : "text-red-600"
+                  }`}
+                >
+                  {totalRealizedReturns >= 0 ? "+" : ""}$
+                  {Math.abs(totalRealizedReturns).toLocaleString("en-US", {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  })}
+                </div>
+                <div className="text-xs text-gray-600">
+                  {closedPreds.length > 0 ? "From all closed trades" : "No closed trades"}
+                </div>
+              </div>
+
+              {/* 4. Win/Loss Ratio */}
+              <div className="space-y-2">
+                <div className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+                  Win/Loss Ratio
+                </div>
+                <div className="text-2xl font-bold text-gray-900">{winLossRatio}</div>
+                <div className="text-xs text-gray-600">
+                  {predictionStats.hitTarget} wins / {losses} losses
+                </div>
+              </div>
+
+              {/* 5. Best Performance */}
+              <div className="space-y-2">
+                <div className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+                  Best Return
+                </div>
+                {bestPrediction ? (
+                  <>
+                    <div className="text-2xl font-bold text-green-600">
+                      {bestReturnPct >= 0 ? "+" : ""}
+                      {bestReturnPct.toFixed(2)}%
+                    </div>
+                    <div className="text-xs text-gray-600">{bestPrediction.symbol || "N/A"}</div>
+                  </>
+                ) : (
+                  <>
+                    <div className="text-2xl font-bold text-gray-400">—</div>
+                    <div className="text-xs text-gray-500">No closed predictions</div>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Additional Context Metrics */}
+            {predictionStats.total > 0 && (
+              <div className="mt-6 pt-6 border-t border-gray-200">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                  <div>
+                    <span className="text-gray-600">Active Portfolio:</span>
+                    <span className="ml-2 font-semibold text-gray-900">
+                      $
+                      {totalPortfolioValue.toLocaleString("en-US", {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
+                    </span>
+                  </div>
+                  {activeReturns !== 0 && (
+                    <div>
+                      <span className="text-gray-600">Unrealized:</span>
+                      <span
+                        className={`ml-2 font-semibold ${
+                          activeReturns >= 0 ? "text-green-600" : "text-red-600"
+                        }`}
+                      >
+                        {activeReturns >= 0 ? "+" : ""}$
+                        {Math.abs(activeReturns).toLocaleString("en-US", {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })}
+                      </span>
+                    </div>
+                  )}
+                  <div>
+                    <span className="text-gray-600">Total Predictions:</span>
+                    <span className="ml-2 font-semibold text-gray-900">
+                      {predictionStats.total}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-gray-600">Expected Monthly:</span>
+                    <span className="ml-2 font-semibold text-green-600">
+                      $
+                      {totalExpectedReturn.toLocaleString("en-US", {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
 
       <DashboardPredictionDetailDialog
         open={predictionDialogOpen}

@@ -13,6 +13,7 @@
 
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import { injectApiUrl, workflowsAreDifferent } from "../services/n8n/n8nHelpers.js";
 import { n8nClient } from "../services/n8nClient.js";
 import type { N8nWorkflow } from "../services/n8nTypes.js";
 
@@ -96,8 +97,8 @@ async function syncWorkflows(workflowsDir: string): Promise<void> {
     const existingWorkflows = await n8nClient.listWorkflows(true); // Silent mode
     console.log(`\n📊 Found ${existingWorkflows.length} existing workflow(s) in n8n`);
 
-    // Track which workflows were successfully created
-    const createdWorkflows: Array<{ name: string; id: string }> = [];
+    // Track which workflows were successfully synced
+    const syncedWorkflows: Array<{ name: string; id: string; action: string }> = [];
     const failedWorkflows: Array<{ name: string; error: string }> = [];
 
     // Sync each workflow
@@ -110,67 +111,127 @@ async function syncWorkflows(workflowsDir: string): Promise<void> {
           `\n🔄 Found ${matchingWorkflows.length} workflow(s) named "${workflowFile.name}"`
         );
 
-        // Check if any are active (we'll preserve active status)
-        const _wasActive = matchingWorkflows.some((w) => w.active);
-        const _activeCount = matchingWorkflows.filter((w) => w.active).length;
-
         if (matchingWorkflows.length > 1) {
-          console.log(
-            `   ⚠️  Multiple duplicates found - will delete all and create one clean copy`
-          );
-        }
+          // Multiple duplicates - delete all except the first one, then check if we need to update
+          console.log(`   ⚠️  Multiple duplicates found - cleaning up duplicates`);
+          const keepWorkflow = matchingWorkflows[0];
+          const duplicatesToDelete = matchingWorkflows.slice(1);
 
-        // Delete ALL matching workflows (handles duplicates)
-        for (const existingWorkflow of matchingWorkflows) {
-          try {
+          for (const duplicate of duplicatesToDelete) {
+            try {
+              await n8nClient.deleteWorkflow(duplicate.id);
+            } catch (error) {
+              console.error(
+                `   ⚠️  Failed to delete duplicate workflow ${duplicate.id}:`,
+                error instanceof Error ? error.message : String(error)
+              );
+            }
+          }
+
+          // Use the kept workflow for comparison
+          const existingWorkflow = await n8nClient.getFullWorkflow(keepWorkflow.id);
+          // Inject API URL into file workflow for accurate comparison
+          const fileWorkflow = injectApiUrl(workflowFile.content);
+
+          // Check if workflows are different
+          if (!workflowsAreDifferent(existingWorkflow, fileWorkflow)) {
             console.log(
-              `   Deleting workflow ID: ${existingWorkflow.id} (active: ${existingWorkflow.active})`
+              `   ℹ️  Workflow unchanged, keeping existing: "${workflowFile.name}" (${keepWorkflow.id})`
             );
-            await n8nClient.deleteWorkflow(existingWorkflow.id);
+
+            // Ensure workflow is active
+            if (!keepWorkflow.active) {
+              await n8nClient.activateWorkflow(keepWorkflow.id);
+            }
+
+            syncedWorkflows.push({ name: workflowFile.name, id: keepWorkflow.id, action: "kept" });
+            continue;
+          }
+
+          // Workflow is different - need to update
+          console.log(`   📝 Workflow has changes, updating...`);
+          try {
+            // Prepare file workflow with ID for update
+            const fileWorkflowWithId = {
+              ...fileWorkflow,
+              id: keepWorkflow.id,
+            } as typeof existingWorkflow & { id: string };
+            await n8nClient.updateFullWorkflow(keepWorkflow.id, fileWorkflowWithId);
+
+            // Ensure workflow is active
+            if (!keepWorkflow.active) {
+              await n8nClient.activateWorkflow(keepWorkflow.id);
+            }
+
+            console.log(
+              `   ✅ Successfully updated workflow: "${workflowFile.name}" (${keepWorkflow.id})`
+            );
+            syncedWorkflows.push({
+              name: workflowFile.name,
+              id: keepWorkflow.id,
+              action: "updated",
+            });
           } catch (error) {
-            console.error(
-              `   ⚠️  Failed to delete workflow ${existingWorkflow.id}:`,
-              error instanceof Error ? error.message : String(error)
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            console.error(`❌ Error updating workflow "${workflowFile.name}":`, errorMessage);
+            failedWorkflows.push({ name: workflowFile.name, error: errorMessage });
+          }
+        } else {
+          // Exactly one matching workflow - compare and update if needed
+          const existingWorkflow = matchingWorkflows[0];
+          console.log(`   🔍 Comparing with existing workflow (ID: ${existingWorkflow.id})...`);
+
+          const fullExistingWorkflow = await n8nClient.getFullWorkflow(existingWorkflow.id);
+          // Inject API URL into file workflow for accurate comparison
+          const fileWorkflow = injectApiUrl(workflowFile.content);
+
+          // Check if workflows are different
+          if (!workflowsAreDifferent(fullExistingWorkflow, fileWorkflow)) {
+            console.log(
+              `   ℹ️  Workflow unchanged, keeping existing: "${workflowFile.name}" (${existingWorkflow.id})`
             );
+
+            // Ensure workflow is active
+            if (!existingWorkflow.active) {
+              await n8nClient.activateWorkflow(existingWorkflow.id);
+            }
+
+            syncedWorkflows.push({
+              name: workflowFile.name,
+              id: existingWorkflow.id,
+              action: "kept",
+            });
+            continue;
           }
-        }
 
-        // Wait a moment for deletions to complete
-        await new Promise((resolve) => setTimeout(resolve, 500));
+          // Workflow is different - need to update
+          console.log(`   📝 Workflow has changes, updating...`);
+          try {
+            // Prepare file workflow with ID for update
+            const fileWorkflowWithId = {
+              ...fileWorkflow,
+              id: existingWorkflow.id,
+            } as typeof fullExistingWorkflow & { id: string };
+            await n8nClient.updateFullWorkflow(existingWorkflow.id, fileWorkflowWithId);
 
-        // Create the new workflow from JSON
-        try {
-          const created = await n8nClient.createWorkflow(workflowFile.content);
+            // Ensure workflow is active
+            if (!existingWorkflow.active) {
+              await n8nClient.activateWorkflow(existingWorkflow.id);
+            }
 
-          // Wait a moment for workflow to be fully created
-          await new Promise((resolve) => setTimeout(resolve, 1000));
-
-          // Validate workflow was created by checking if it exists
-          const allWorkflows = await n8nClient.listWorkflows(true);
-          const verified = allWorkflows.find((w) => w.id === created.id && w.name === created.name);
-
-          if (!verified) {
-            throw new Error(
-              `Workflow "${created.name}" was not found in n8n after creation. Creation may have failed silently.`
+            console.log(
+              `   ✅ Successfully updated workflow: "${workflowFile.name}" (${existingWorkflow.id})`
             );
+            syncedWorkflows.push({
+              name: workflowFile.name,
+              id: existingWorkflow.id,
+              action: "updated",
+            });
+          } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            console.error(`❌ Error updating workflow "${workflowFile.name}":`, errorMessage);
+            failedWorkflows.push({ name: workflowFile.name, error: errorMessage });
           }
-
-          console.log(`   ✅ Verified workflow exists in n8n (ID: ${verified.id})`);
-
-          // Always activate workflow after creation/update
-          console.log(`   Activating workflow...`);
-          await n8nClient.activateWorkflow(created.id);
-
-          console.log(`✅ Successfully updated workflow: "${workflowFile.name}" (active)`);
-          createdWorkflows.push({ name: workflowFile.name, id: created.id });
-        } catch (error) {
-          const errorMessage = error instanceof Error ? error.message : String(error);
-          console.error(`❌ Error creating workflow "${workflowFile.name}":`, errorMessage);
-          if (error instanceof Error && error.stack) {
-            console.error(`   Stack trace:`, error.stack);
-          }
-          failedWorkflows.push({ name: workflowFile.name, error: errorMessage });
-          // Continue with next workflow instead of stopping
         }
       } else {
         console.log(`\n➕ Creating new workflow: "${workflowFile.name}"`);
@@ -199,7 +260,7 @@ async function syncWorkflows(workflowsDir: string): Promise<void> {
           console.log(
             `✅ Successfully created workflow: "${created.name}" (ID: ${created.id}, active)`
           );
-          createdWorkflows.push({ name: workflowFile.name, id: created.id });
+          syncedWorkflows.push({ name: workflowFile.name, id: created.id, action: "created" });
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : String(error);
           console.error(`❌ Error creating workflow "${workflowFile.name}":`, errorMessage);
@@ -214,9 +275,9 @@ async function syncWorkflows(workflowsDir: string): Promise<void> {
 
     // Final validation summary
     console.log("\n📊 Workflow Sync Summary:");
-    console.log(`   ✅ Successfully created/updated: ${createdWorkflows.length} workflow(s)`);
-    for (const wf of createdWorkflows) {
-      console.log(`      - "${wf.name}" (ID: ${wf.id})`);
+    console.log(`   ✅ Successfully synced: ${syncedWorkflows.length} workflow(s)`);
+    for (const wf of syncedWorkflows) {
+      console.log(`      - "${wf.name}" (ID: ${wf.id}) [${wf.action}]`);
     }
 
     if (failedWorkflows.length > 0) {

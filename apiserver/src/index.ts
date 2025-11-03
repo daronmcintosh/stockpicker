@@ -24,6 +24,7 @@ import {
   triggerPredictions,
   updateStrategy,
   updateStrategyPrivacy,
+  updateWorkflowRunStatus,
 } from "./services/strategy/index.js";
 import { strategyServiceImpl as remainingStrategyService } from "./services/strategyService.js";
 
@@ -52,6 +53,7 @@ const strategyServiceImpl = {
   // Workflow runs
   listWorkflowRuns,
   getWorkflowRun,
+  updateWorkflowRunStatus,
 
   // Remaining RPCs from original file (to be migrated)
   sendOTP: remainingStrategyService.sendOTP,
@@ -207,6 +209,14 @@ server.listen(Number(PORT), HOST, async () => {
       });
     }, 10000); // Wait 10 seconds after startup to allow n8n to be ready
   }
+
+  // Start stale workflow run cleanup task
+  // This marks workflow runs that have been running for too long as failed
+  // Handles cases where workflows fail silently or timeout
+  const { startStaleWorkflowRunCleanup } = await import(
+    "./services/workflowRuns/staleRunCleanup.js"
+  );
+  startStaleWorkflowRunCleanup();
 });
 
 // CRITICAL: Handle server errors that prevent startup

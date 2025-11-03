@@ -1,7 +1,7 @@
-import { randomUUID } from "node:crypto";
 import { create } from "@bufbuild/protobuf";
 import type { HandlerContext } from "@connectrpc/connect";
 import { Code, ConnectError } from "@connectrpc/connect";
+import { appConfig } from "../../config.js";
 import { type StrategyRow, db } from "../../db.js";
 import {
   type PauseStrategyRequest,
@@ -424,14 +424,12 @@ export async function triggerPredictions(
     // Ensure workflow exists and credential is created/updated
     let workflowId = await ensureWorkflowExists(row, userToken);
 
-    // Rebuild workflow from latest template to propagate code changes (enum updates, etc.)
+    // Check for template changes on each prediction trigger
+    // This ensures template code updates (bug fixes, improvements) propagate to workflows
+    // Diff detection in rebuildWorkflowFromTemplate prevents unnecessary updates
     if (row.n8n_workflow_id) {
       try {
         const frequency = protoNameToFrequency(row.frequency);
-        console.log(`🔄 Rebuilding workflow from latest template when triggering predictions:`, {
-          strategyId: req.id,
-          workflowId: row.n8n_workflow_id,
-        });
         const rebuiltWorkflow = await n8nClient.rebuildWorkflowFromTemplate(
           row.n8n_workflow_id,
           req.id,
@@ -441,18 +439,13 @@ export async function triggerPredictions(
         );
         workflowId = rebuiltWorkflow.id;
 
-        // Update database with new workflow ID if it changed
+        // Update database with new workflow ID if it changed (shouldn't happen anymore, but keep for safety)
         if (workflowId !== row.n8n_workflow_id) {
           await db.run("UPDATE strategies SET n8n_workflow_id = ?, updated_at = ? WHERE id = ?", [
             workflowId,
             new Date().toISOString(),
             req.id,
           ]);
-          console.log(`✅ Updated workflow ID in database:`, {
-            strategyId: req.id,
-            oldWorkflowId: row.n8n_workflow_id,
-            newWorkflowId: workflowId,
-          });
         }
       } catch (rebuildError) {
         console.warn(`⚠️ Failed to rebuild workflow, continuing with existing workflow:`, {
@@ -463,55 +456,71 @@ export async function triggerPredictions(
       }
     }
 
-    // Create workflow run record BEFORE executing (for tracking even if execution fails)
-    // This creates a pending workflow run that will be updated when the workflow starts
-    const workflowRunId = randomUUID();
-    const inputData = JSON.stringify({
-      strategy_id: req.id,
-      triggered_manually: true,
-      timestamp: new Date().toISOString(),
-    });
+    // Trigger the workflow via webhook
+    // Get the webhook URL dynamically from the workflow's webhook trigger node
+    const fullWorkflow = await n8nClient.getFullWorkflow(workflowId);
 
-    try {
-      await db.run(
-        `INSERT INTO workflow_runs (id, strategy_id, execution_id, input_data, json_output, markdown_output, status, created_at, updated_at)
-         VALUES (?, ?, ?, ?, NULL, NULL, 'pending', datetime('now'), datetime('now'))`,
-        [workflowRunId, req.id, null, inputData]
+    // Find the webhook trigger node
+    const webhookNode = Array.isArray(fullWorkflow.nodes)
+      ? fullWorkflow.nodes.find(
+          (n) => n.type === "n8n-nodes-base.webhook" && n.name === "Webhook Trigger"
+        )
+      : null;
+
+    if (!webhookNode) {
+      throw new ConnectError(
+        `Workflow ${workflowId} does not have a Webhook Trigger node configured.`,
+        Code.FailedPrecondition
       );
-      console.log(`✅ Created pending workflow run before execution:`, {
-        workflowRunId,
-        strategyId: req.id,
-      });
-    } catch (dbError) {
-      console.warn(`⚠️ Failed to create pending workflow run, continuing:`, dbError);
-      // Continue with execution even if workflow run creation fails
     }
 
-    // Execute the n8n workflow manually
-    console.log(`▶️ Executing n8n workflow:`, {
+    // Get webhook path from node parameters or webhookId
+    // n8n uses the path parameter if set, otherwise uses webhookId
+    const webhookPath = String(webhookNode.parameters?.path || webhookNode.webhookId || "");
+
+    if (!webhookPath) {
+      throw new ConnectError(
+        `Webhook Trigger node in workflow ${workflowId} does not have a path or webhookId configured.`,
+        Code.FailedPrecondition
+      );
+    }
+
+    // Construct webhook URL
+    // For active workflows, use /webhook/ prefix (production mode)
+    // n8n generates webhookId automatically when workflow is saved
+    const baseURL = appConfig.n8n.apiUrl.replace("/api/v1", ""); // Remove /api/v1 to get base URL
+    const webhookUrl = `${baseURL}/webhook/${webhookPath}`;
+
+    console.log(`▶️ Triggering workflow via webhook:`, {
       strategyId: req.id,
       workflowId,
-      workflowRunId,
+      webhookPath,
+      webhookUrl,
+      workflowActive: fullWorkflow.active,
     });
 
-    try {
-      await n8nClient.executeWorkflow(workflowId);
-    } catch (execError) {
-      // If execution fails, update workflow run status to failed
-      try {
-        const errorMessage = execError instanceof Error ? execError.message : String(execError);
-        await db.run(
-          "UPDATE workflow_runs SET status = 'failed', error_message = ?, updated_at = datetime('now') WHERE id = ?",
-          [errorMessage, workflowRunId]
-        );
-        console.log(`❌ Updated workflow run to failed after execution error:`, {
-          workflowRunId,
-          errorMessage,
-        });
-      } catch (updateError) {
-        console.error(`⚠️ Failed to update workflow run status on execution error:`, updateError);
-      }
-      throw execError; // Re-throw to return error to caller
+    // Verify workflow is active
+    if (!fullWorkflow.active) {
+      throw new ConnectError(
+        `Workflow ${workflowId} is not active. Webhooks only work for active workflows.`,
+        Code.FailedPrecondition
+      );
+    }
+
+    const response = await fetch(webhookUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ triggered: true }),
+      signal: AbortSignal.timeout(30000), // 30 second timeout
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(
+        `Webhook trigger failed: HTTP ${response.status} ${response.statusText} - ${errorText}`
+      );
     }
 
     console.log(`✅ Predictions triggered successfully:`, {

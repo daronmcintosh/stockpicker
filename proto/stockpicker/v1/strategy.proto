@@ -41,7 +41,7 @@ service StrategyService {
 
   // Get workflow runs for a strategy
   rpc ListWorkflowRuns(ListWorkflowRunsRequest) returns (ListWorkflowRunsResponse);
-  
+
   // Get a specific workflow run
   rpc GetWorkflowRun(GetWorkflowRunRequest) returns (GetWorkflowRunResponse);
 
@@ -281,8 +281,18 @@ message PrepareDataForWorkflowRequest {
 message PrepareDataForWorkflowResponse {
   StrategyData strategy = 1;
   repeated ActivePredictionData active_predictions = 2;
-  bool has_budget = 3;
+  BudgetData budget = 3; // Detailed budget information for investment guidance
   string sources = 4; // JSON-encoded source data structure
+}
+
+message BudgetData {
+  double monthly_budget = 1; // Total monthly budget allocated for this strategy
+  double current_month_spent = 2; // Amount already spent this month
+  double remaining_budget = 3; // Available budget remaining (monthly_budget - current_month_spent)
+  double per_stock_allocation = 4; // Amount allocated per stock prediction
+  int32 available_slots = 5; // Number of stocks that can be funded with remaining budget (floor(remaining_budget / per_stock_allocation))
+  bool has_budget = 6; // Quick check: true if remaining_budget > 0
+  double budget_utilization_pct = 7; // Percentage of monthly budget used (current_month_spent / monthly_budget * 100)
 }
 
 message StrategyData {
@@ -324,6 +334,19 @@ message CreatedPredictionData {
   double entry_price = 3;
   double target_price = 4;
   double stop_loss_price = 5;
+}
+
+// Update Workflow Run Status (Internal - called by n8n workflows on error)
+message UpdateWorkflowRunStatusRequest {
+  string strategy_id = 1;
+  optional string execution_id = 2; // n8n execution ID
+  string status = 3; // 'failed' or 'completed'
+  optional string error_message = 4; // Error message if status is 'failed'
+}
+
+message UpdateWorkflowRunStatusResponse {
+  bool success = 1;
+  optional string workflow_run_id = 2;
 }
 
 // Workflow Runs
