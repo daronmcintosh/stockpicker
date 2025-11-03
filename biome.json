@@ -59,7 +59,9 @@
       ".output",
       "apiserver/src/gen",
       "webapp/src/gen",
+      "src/gen",
       "webapp/src/routeTree.gen.ts",
+      "src/routeTree.gen.ts",
       "db/stockpicker.db"
     ],
     "ignoreUnknown": true

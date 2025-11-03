@@ -14,7 +14,7 @@ Step-by-step guide to build the StockPicker MVP.
 ### 1.1 Create Docker Compose Structure
 
 ```bash
-mkdir -p stockpicker/{n8n/workflows,n8n/credentials,apiserver/src,webapp/src,db,docs}
+mkdir -p stockpicker/{apiserver/src,webapp/src,db,docs}
 cd stockpicker
 ```
 
@@ -24,20 +24,6 @@ cd stockpicker
 version: '3.8'
 
 services:
-  n8n:
-    image: n8nio/n8n:latest
-    ports:
-      - "5678:5678"
-    volumes:
-      - ./n8n/workflows:/home/node/.n8n/workflows
-      - ./n8n/credentials:/home/node/.n8n/.n8n
-      - ./data:/data
-    environment:
-      - N8N_BASIC_AUTH_ACTIVE=true
-      - N8N_BASIC_AUTH_USER=admin
-      - N8N_BASIC_AUTH_PASSWORD=${N8N_PASSWORD}
-    restart: unless-stopped
-
   apiserver:
     build: ./apiserver
     ports:
@@ -49,8 +35,6 @@ services:
       - NODE_ENV=development
       - PORT=3000
       - DB_PATH=/app/db/stockpicker.db
-    depends_on:
-      - n8n
     restart: unless-stopped
 
   webapp:
@@ -73,9 +57,6 @@ volumes:
 ### 1.3 Create .env.example
 
 ```bash
-# n8n
-N8N_PASSWORD=changeme
-
 # API Keys
 ALPHA_VANTAGE_API_KEY=your_key_here
 REDDIT_CLIENT_ID=your_id_here
@@ -91,8 +72,8 @@ Create `db/schema.sql`:
 -- strategies table
 -- Note: Calculated fields (not stored):
 --   - current_month_spent: SUM(allocated_amount) from predictions WHERE action='entered' AND in current month
---   - trades_per_month: COUNT(*) from predictions WHERE action='entered' AND in current month (actual count)
---   - per_trade_budget: monthly_budget / trades_per_month (if no trades yet, use frequency-based estimate)
+--   - predictions_per_month: COUNT(*) from predictions WHERE action='entered' AND in current month (actual count)
+--   - per_prediction_budget: monthly_budget / predictions_per_month (if no predictions yet, use frequency-based estimate)
 --   - per_stock_allocation: per_trade_budget / 3
 --   - unique_stocks_count: COUNT(DISTINCT symbol) from predictions WHERE action='entered' AND status='active'
 --   - last_trade_executed: MAX(created_at) from predictions WHERE action='entered'
@@ -107,8 +88,7 @@ CREATE TABLE IF NOT EXISTS strategies (
   target_return_pct DECIMAL(5,2) DEFAULT 10.0,
   frequency TEXT DEFAULT 'twice_weekly',
   risk_level TEXT CHECK(risk_level IN ('low', 'medium', 'high')) DEFAULT 'medium',
-  max_unique_stocks INTEGER DEFAULT 20,
-  n8n_workflow_id TEXT  -- ID of the n8n workflow for this strategy
+  max_unique_stocks INTEGER DEFAULT 20
 );
 
 -- predictions table
@@ -407,115 +387,11 @@ Create:
 - Predictions display
 - Budget tracking
 
-## Phase 4: n8n Workflows (Day 4-6)
+## Phase 4: Background Jobs (Day 4-6)
 
-### 4.1 Analysis Agent (Subflow Template)
-
-**Note:** This is a template workflow that will be referenced by dynamically created workflows.
-
-**Inputs:** `strategy_id`, `time_horizon`, `risk_level`, `custom_prompt`
-
-**Nodes:**
-
-1. HTTP Request: GET strategy config from API (`http://apiserver:3000/api/strategies/:id`)
-2. Extract strategy config
-3. **Data Collection:**
-   - Alpha Vantage: Get top stocks by volume
-   - Reddit: Fetch mentions and sentiment
-   - Seeking Alpha: Parse RSS feeds
-4. **Filtering & Scoring:**
-   - Apply risk level filters
-   - Apply custom prompt filters
-   - Calculate composite scores
-5. **Ranking:**
-
-   - Sort by score
-   - Return top 10
-
-### 4.2 Scheduled Trade Workflow Template
-
-**Note:** This workflow template is created dynamically by the server for each strategy.
-
-**Trigger:** Cron (per strategy frequency) OR Manual
-
-**Nodes:**
-
-1. **Get Strategy Config:** HTTP Request to API (`http://apiserver:3000/api/strategies/:id`)
-2. **Check Status:** Skip if paused/stopped
-3. **Check Monthly Budget:** Calculate spent from predictions WHERE `action='entered'` in current month, verify remaining
-4. **Call Analysis Agent Subflow:** Pass strategy config
-5. **Select Top 3:** Take first 3 from top 10
-6. **Create Predictions:** HTTP POST to API (`http://apiserver:3000/api/predictions`)
-   - Send 3 prediction records
-   - Predictions created with `action='pending'` by default
-   - User can mark as `'entered'` or `'dismissed'` via UI
-   - Budget and unique stocks count calculated only from predictions WHERE `action='entered'`
-7. **Notify UI:** Optional webhook call
-
-**Important:** The server creates this workflow dynamically with:
-
-- Strategy-specific cron schedule
-- Strategy ID parameter
-- Custom analysis config
-
-### 4.3 Performance Tracking Workflow
-
-**Trigger:** Cron (daily at 4:30 PM EST)
-
-**Nodes:**
-
-1. **Get Active Predictions:** HTTP GET to API (`http://apiserver:3000/api/predictions?status=active&action=entered`)
-   - Only track performance for predictions marked as `'entered'`
-2. **For Each Prediction:**
-
-   - Fetch current price (Alpha Vantage)
-   - Calculate return %
-   - Check stop loss/target
-   - Update prediction status via API (`http://apiserver:3000/api/predictions/:id`)
-   - Store snapshot
-
-### 4.4 Performance Summary (Monthly) Workflow
-
-**Trigger:** Cron (1st of month at midnight)
-
-**Purpose:** Generate comprehensive monthly performance report
-
-**Nodes:**
-
-1. **Get All Strategies:** HTTP GET to API (`http://apiserver:3000/api/strategies`)
-2. **For Each Strategy:**
-
-   - **Get Previous Month Predictions:** HTTP GET to API (`http://apiserver:3000/api/predictions?strategy_id=:id&month=YYYY-MM`)
-   - **Analyze Entered Predictions:**
-
-     - Count hits (`status='hit_target'`), misses (`status='hit_stop'` or `'expired'`), pending
-     - Calculate average return %, best/worst performers
-     - Total budget spent vs allocated
-   - **Analyze Dismissed Predictions:**
-
-     - Count dismissed predictions
-     - Calculate what return % they would have had if entered (missed opportunities)
-     - Compare dismissed vs entered performance
-   - **Analyze Top 10 Rankings:**
-
-     - For each trade cycle, compare which top 10 picks were entered vs dismissed
-     - Identify dismissed top 10 picks that performed well
-     - Calculate performance difference between entered and dismissed selections
-   - **Generate Summary Metrics:**
-
-     - Win rate: (hits / total entered predictions)
-     - Average return % (entered predictions)
-     - Total gains/losses in dollars
-     - Best performing stocks (entered)
-     - Worst performing stocks (entered)
-     - Dismissed predictions that would have been profitable
-     - Performance comparison: entered vs dismissed
-   - **Store or Send Summary:** Optional webhook or API call to store/send report
-3. **Aggregate Cross-Strategy Insights:**
-
-   - Overall win rate across all strategies
-   - Best/worst performing strategies
-   - Total portfolio performance
+- Implement internal scheduling for per-strategy prediction generation
+- Implement daily performance tracking job
+- Implement monthly performance summary job
 
 ## Phase 5: Integration & Testing (Day 7-8)
 
@@ -523,9 +399,9 @@ Create:
 
 - Create strategy via UI
 - Verify in database
-- Check n8n workflow execution
+- Verify background job execution
 
-### 5.2 Test Trade Execution
+### 5.2 Test Scheduled Prediction Execution
 
 - Manually trigger scheduled trade workflow
 - Verify predictions created
@@ -540,7 +416,7 @@ Create:
 ### 5.4 End-to-End Test
 
 1. Create strategy via UI
-2. Wait for scheduled trade (or trigger manually)
+2. Wait for scheduled prediction cycle (or trigger manually)
 3. Verify predictions displayed
 4. Run performance tracking
 5. Verify updates in UI

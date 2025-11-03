@@ -33,10 +33,10 @@ service StrategyService {
   // Manually trigger prediction generation for a strategy
   rpc TriggerPredictions(TriggerPredictionsRequest) returns (TriggerPredictionsResponse);
 
-  // Internal: Prepare data for n8n workflow execution (called by n8n workflows)
+  // Internal: Prepare data for workflow execution (called by background jobs)
   rpc PrepareDataForWorkflow(PrepareDataForWorkflowRequest) returns (PrepareDataForWorkflowResponse);
 
-  // Internal: Create predictions from workflow output (called by n8n workflows)
+  // Internal: Create predictions from workflow output (called by background jobs)
   rpc CreatePredictionsFromWorkflow(CreatePredictionsFromWorkflowRequest) returns (CreatePredictionsFromWorkflowResponse);
 
   // Get workflow runs for a strategy
@@ -278,7 +278,7 @@ message TriggerPredictionsResponse {
   string message = 2; // Status message (e.g., "Predictions generation triggered successfully")
 }
 
-// Prepare Data For Workflow (Internal - called by n8n workflows)
+// Prepare Data For Workflow (Internal - called by background jobs)
 message PrepareDataForWorkflowRequest {
   string id = 1; // Strategy ID
 }
@@ -316,12 +316,12 @@ message ActivePredictionData {
   double allocated_amount = 3;
 }
 
-// Create Predictions From Workflow (Internal - called by n8n workflows)
+// Create Predictions From Workflow (Internal - called by background jobs)
 message CreatePredictionsFromWorkflowRequest {
   string strategy_id = 1;
   string json_output = 2; // JSON string containing recommendations
   string markdown_output = 3; // Markdown report
-  optional string execution_id = 4; // n8n execution ID
+  optional string execution_id = 4; // workflow execution ID
   optional string input_data = 5; // JSON string of input data sent to workflow (sources, strategy, etc.)
   optional string ai_analysis = 6; // JSON string of raw AI analysis output
 }
@@ -341,10 +341,10 @@ message CreatedPredictionData {
   double stop_loss_price = 5;
 }
 
-// Update Workflow Run Status (Internal - called by n8n workflows on error)
+// Update Workflow Run Status (Internal - called by background jobs on error)
 message UpdateWorkflowRunStatusRequest {
   string strategy_id = 1;
-  optional string execution_id = 2; // n8n execution ID
+  optional string execution_id = 2; // workflow execution ID
   string status = 3; // 'failed' or 'completed'
   optional string error_message = 4; // Error message if status is 'failed'
 }
@@ -377,7 +377,7 @@ message GetWorkflowRunResponse {
 message WorkflowRun {
   string id = 1;
   string strategy_id = 2;
-  optional string execution_id = 3; // n8n execution ID
+  optional string execution_id = 3; // workflow execution ID
   optional string input_data = 4; // JSON string of input data sent to workflow
   optional string ai_analysis = 5; // JSON string of raw AI analysis output
   optional string json_output = 6; // JSON string of structured output (null if failed)

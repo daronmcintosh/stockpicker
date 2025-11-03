@@ -14,6 +14,14 @@ import {
   StrategyStatus,
 } from "@/gen/stockpicker/v1/strategy_pb";
 import { useAuth } from "@/lib/auth";
+import {
+  type AccountValueCalculation,
+  type BudgetCalculation,
+  type PerformanceCalculation,
+  calculateAccountValue,
+  calculateBudget,
+  calculatePerformance,
+} from "@/lib/calculations";
 import { createClient } from "@/lib/connect";
 import { fetchStockPrices } from "@/lib/stockPrice";
 import { Link, createFileRoute } from "@tanstack/react-router";
@@ -26,8 +34,6 @@ function App() {
   const { token } = useAuth();
   const [activeStrategiesCount, setActiveStrategiesCount] = useState(0);
   const [totalStrategiesCount, setTotalStrategiesCount] = useState(0);
-  const [totalBudget, setTotalBudget] = useState(0);
-  const [totalSpent, setTotalSpent] = useState(0);
   const [predictionsCount, setPredictionsCount] = useState(0);
   const [activePredictionsCount, setActivePredictionsCount] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -91,11 +97,7 @@ function App() {
       setActiveStrategiesCount(active.length);
       setActiveStrategies(active);
 
-      // Calculate total budget and spending
-      const budget = strategies.reduce((sum, s) => sum + toNumber(s.monthlyBudget), 0);
-      const spent = strategies.reduce((sum, s) => sum + toNumber(s.currentMonthSpent), 0);
-      setTotalBudget(budget);
-      setTotalSpent(spent);
+      // Budget and spending are now calculated using centralized functions
 
       // Load predictions for all strategies
       let totalPredictions = 0;
@@ -256,98 +258,48 @@ function App() {
     }
   };
 
-  const closedPredictions = predictionStats.hitTarget + predictionStats.hitStop;
-  const hitRate =
-    closedPredictions > 0
-      ? ((predictionStats.hitTarget / closedPredictions) * 100).toFixed(1)
-      : "0.0";
-  const budgetRemaining = totalBudget - totalSpent;
-  const budgetUtilization = totalBudget > 0 ? ((totalSpent / totalBudget) * 100).toFixed(1) : "0.0";
+  // Use centralized calculations - SINGLE SOURCE OF TRUTH
+  const budget: BudgetCalculation = calculateBudget(allStrategies, allPredictions);
+  const accountValue: AccountValueCalculation = calculateAccountValue(
+    allStrategies,
+    allPredictions,
+    currentPrices,
+    budget
+  );
+  const performance: PerformanceCalculation = calculatePerformance(allPredictions);
 
-  // Calculate additional metrics
+  // Format display values
+  const hitRate = performance.hitRate.toFixed(1);
+  const budgetRemaining = budget.remainingBudget;
+  const budgetUtilization = budget.utilizationPct.toFixed(1);
   const totalExpectedReturn = allStrategies.reduce(
     (sum, s) => sum + (toNumber(s.monthlyBudget) * toNumber(s.targetReturnPct)) / 100,
     0
   );
-  const averageHitRate =
-    closedPredictions > 0
-      ? ((predictionStats.hitTarget / closedPredictions) * 100).toFixed(1)
-      : "0.0";
-  const totalPortfolioValue = allPredictions
-    .filter((p) => p.status === PredictionStatus.ACTIVE)
-    .reduce((sum, p) => sum + toNumber(p.allocatedAmount), 0);
-  const activeReturns = allPredictions
-    .filter((p) => p.status === PredictionStatus.ACTIVE && currentPrices[p.symbol])
-    .reduce((sum, p) => {
-      const entry = toNumber(p.entryPrice);
-      const current = currentPrices[p.symbol] ?? entry;
-      const allocation = toNumber(p.allocatedAmount);
-      const returnPct = (current - entry) / entry;
-      return sum + allocation * returnPct;
-    }, 0);
+  const avgReturn = performance.averageReturn;
+  const totalRealizedReturns = performance.totalRealizedPl;
 
-  // Calculate performance metrics from closed predictions
+  // Find best performing prediction for display
   const closedPreds = allPredictions.filter(
     (p) =>
       p.status === PredictionStatus.HIT_TARGET ||
       p.status === PredictionStatus.HIT_STOP ||
       p.status === PredictionStatus.EXPIRED
   );
-
-  // Helper function to calculate return for a prediction
-  const getPredictionReturn = (p: Prediction): number => {
-    // Use stored currentReturnPct if available
-    if (p.currentReturnPct !== undefined && p.currentReturnPct !== null) {
-      return toNumber(p.currentReturnPct);
-    }
-    // Otherwise calculate from prices based on status
-    const entry = toNumber(p.entryPrice);
-    if (entry <= 0) return 0;
-
-    let current = toNumber(p.currentPrice);
-    if (!current || current === 0) {
-      // Determine final price based on status
-      if (p.status === PredictionStatus.HIT_TARGET) {
-        current = toNumber(p.targetPrice);
-      } else if (p.status === PredictionStatus.HIT_STOP) {
-        current = toNumber(p.stopLossPrice);
-      } else {
-        current = entry; // EXPIRED - no gain/loss
-      }
-    }
-    return ((current - entry) / entry) * 100;
-  };
-
-  // Average Return % (from closed predictions)
-  const avgReturn =
-    closedPreds.length > 0
-      ? closedPreds.reduce((sum, p) => sum + getPredictionReturn(p), 0) / closedPreds.length
-      : 0;
-
-  // Total Realized Returns ($)
-  const totalRealizedReturns = closedPreds.reduce((sum, p) => {
-    const allocation = toNumber(p.allocatedAmount);
-    const returnPct = getPredictionReturn(p) / 100; // Convert % to decimal
-    return sum + allocation * returnPct;
-  }, 0);
-
-  // Best performing prediction (highest return %)
   const bestPrediction =
     closedPreds.length > 0
       ? closedPreds.reduce((best, p) => {
-          const pReturn = getPredictionReturn(p);
-          const bestReturn = getPredictionReturn(best);
+          const pReturn = toNumber(p.currentReturnPct ?? 0);
+          const bestReturn = toNumber(best.currentReturnPct ?? 0);
           return pReturn > bestReturn ? p : best;
         })
       : null;
-  const bestReturnPct = bestPrediction ? getPredictionReturn(bestPrediction) : 0;
+  const bestReturnPct = bestPrediction ? toNumber(bestPrediction.currentReturnPct ?? 0) : 0;
 
-  // Win/Loss Ratio
-  const losses = predictionStats.hitStop + predictionStats.expired;
   const winLossRatio =
-    losses > 0
-      ? (predictionStats.hitTarget / losses).toFixed(2)
-      : predictionStats.hitTarget > 0
+    performance.losses > 0
+      ? performance.winLossRatio.toFixed(2)
+      : performance.wins > 0
         ? "∞"
         : "0.00";
 
@@ -371,6 +323,13 @@ function App() {
                 Manage Strategies
               </Link>
               <Link
+                to="/help"
+                className="inline-flex items-center gap-2 px-3 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition-colors text-sm font-medium"
+                title="Learn how values are calculated"
+              >
+                Help
+              </Link>
+              <Link
                 to="/predictions"
                 search={{ strategy: undefined, status: undefined, action: undefined }}
                 className="inline-flex items-center gap-2 px-4 py-2 bg-white text-gray-700 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors text-sm font-medium"
@@ -383,6 +342,65 @@ function App() {
       </div>
 
       <div className="container mx-auto px-4 py-6 max-w-7xl">
+        {/* Featured KPIs */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+          {/* Account Value */}
+          <div
+            className="bg-white border border-gray-200 rounded-lg p-6 shadow-sm"
+            title={`Account Value calculation:\n- Active Positions Value = sum(entryCost * (1 + return%)) for entered & active\n- Total Account Value = Active Positions Value + Remaining Cash Budget`}
+          >
+            <div className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">
+              Account Value
+            </div>
+            <div className="text-3xl md:text-4xl font-extrabold text-gray-900">
+              $
+              {accountValue.totalAccountValue.toLocaleString("en-US", {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}
+            </div>
+            <div className="mt-2 text-xs text-gray-600">
+              Unrealized:
+              <span
+                className={`ml-2 font-semibold ${
+                  accountValue.totalUnrealizedPl >= 0 ? "text-green-600" : "text-red-600"
+                }`}
+              >
+                {accountValue.totalUnrealizedPl >= 0 ? "+" : "-"}$
+                {Math.abs(accountValue.totalUnrealizedPl).toLocaleString("en-US", {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}
+              </span>
+            </div>
+          </div>
+
+          {/* Returns */}
+          <div className="bg-white border border-gray-200 rounded-lg p-6 shadow-sm">
+            <div className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">
+              Return
+            </div>
+            <div
+              className={`text-3xl md:text-4xl font-extrabold ${avgReturn >= 0 ? "text-green-600" : "text-red-600"}`}
+            >
+              {avgReturn >= 0 ? "+" : ""}
+              {Number(avgReturn || 0).toFixed(2)}%
+            </div>
+            <div className="mt-2 text-xs text-gray-600">
+              Realized P/L:
+              <span
+                className={`ml-2 font-semibold ${totalRealizedReturns >= 0 ? "text-green-600" : "text-red-600"}`}
+              >
+                {totalRealizedReturns >= 0 ? "+" : "-"}$
+                {Math.abs(Number(totalRealizedReturns || 0)).toLocaleString("en-US", {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}
+              </span>
+            </div>
+          </div>
+        </div>
+
         {/* Stats Grid */}
         <DashboardStats
           loading={loading}
@@ -390,8 +408,8 @@ function App() {
           totalStrategiesCount={totalStrategiesCount}
           activePredictionsCount={activePredictionsCount}
           predictionsCount={predictionsCount}
-          totalSpent={totalSpent}
-          totalBudget={totalBudget}
+          totalSpent={budget.totalSpent}
+          totalBudget={budget.totalBudget}
           budgetUtilization={budgetUtilization}
           budgetRemaining={budgetRemaining}
           hitRate={hitRate}
@@ -400,8 +418,8 @@ function App() {
             hitStop: predictionStats.hitStop,
           }}
           totalExpectedReturn={totalExpectedReturn}
-          activeReturns={activeReturns}
-          totalPortfolioValue={totalPortfolioValue}
+          activeReturns={accountValue.totalUnrealizedPl}
+          totalPortfolioValue={accountValue.totalAccountValue}
         />
 
         {/* Main Content - Recent Predictions and Active Strategies Side by Side */}
@@ -438,9 +456,9 @@ function App() {
                 <div className="text-xs font-medium text-gray-500 uppercase tracking-wide">
                   Hit Rate
                 </div>
-                <div className="text-2xl font-bold text-emerald-600">{averageHitRate}%</div>
+                <div className="text-2xl font-bold text-emerald-600">{hitRate}%</div>
                 <div className="text-xs text-gray-600">
-                  {predictionStats.hitTarget} of {closedPredictions} closed
+                  {performance.wins} of {performance.closedCount} closed
                 </div>
               </div>
 
@@ -458,8 +476,8 @@ function App() {
                   {avgReturn.toFixed(2)}%
                 </div>
                 <div className="text-xs text-gray-600">
-                  {closedPreds.length > 0
-                    ? `From ${closedPreds.length} closed predictions`
+                  {performance.closedCount > 0
+                    ? `From ${performance.closedCount} closed predictions`
                     : "No closed predictions"}
                 </div>
               </div>
@@ -492,7 +510,7 @@ function App() {
                 </div>
                 <div className="text-2xl font-bold text-gray-900">{winLossRatio}</div>
                 <div className="text-xs text-gray-600">
-                  {predictionStats.hitTarget} wins / {losses} losses
+                  {performance.wins} wins / {performance.losses} losses
                 </div>
               </div>
 
@@ -526,22 +544,22 @@ function App() {
                     <span className="text-gray-600">Active Portfolio:</span>
                     <span className="ml-2 font-semibold text-gray-900">
                       $
-                      {totalPortfolioValue.toLocaleString("en-US", {
+                      {accountValue.activePositionsValue.toLocaleString("en-US", {
                         minimumFractionDigits: 2,
                         maximumFractionDigits: 2,
                       })}
                     </span>
                   </div>
-                  {activeReturns !== 0 && (
+                  {accountValue.totalUnrealizedPl !== 0 && (
                     <div>
                       <span className="text-gray-600">Unrealized:</span>
                       <span
                         className={`ml-2 font-semibold ${
-                          activeReturns >= 0 ? "text-green-600" : "text-red-600"
+                          accountValue.totalUnrealizedPl >= 0 ? "text-green-600" : "text-red-600"
                         }`}
                       >
-                        {activeReturns >= 0 ? "+" : ""}$
-                        {Math.abs(activeReturns).toLocaleString("en-US", {
+                        {accountValue.totalUnrealizedPl >= 0 ? "+" : ""}$
+                        {Math.abs(accountValue.totalUnrealizedPl).toLocaleString("en-US", {
                           minimumFractionDigits: 2,
                           maximumFractionDigits: 2,
                         })}

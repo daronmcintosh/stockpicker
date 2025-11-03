@@ -1,7 +1,7 @@
 import { WorkflowRunDetailDialog } from "@/components/workflow/WorkflowRunDetailDialog";
 import type { WorkflowRun } from "@/gen/stockpicker/v1/strategy_pb";
 import { Calendar, CheckCircle2, Clock, ExternalLink, Loader2, XCircle } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 function getStatusConfig(status: string) {
   const normalized = status?.toLowerCase() || "unknown";
@@ -42,16 +42,27 @@ function getStatusConfig(status: string) {
 interface WorkflowRunsListProps {
   workflowRuns: WorkflowRun[];
   loading?: boolean;
+  pageSize?: number; // default 5
 }
 
-export function WorkflowRunsList({ workflowRuns, loading }: WorkflowRunsListProps) {
+export function WorkflowRunsList({ workflowRuns, loading, pageSize = 5 }: WorkflowRunsListProps) {
   const [selectedRun, setSelectedRun] = useState<WorkflowRun | null>(null);
   const [detailDialogOpen, setDetailDialogOpen] = useState(false);
+  const [page, setPage] = useState(1);
 
   const handleRunClick = (run: WorkflowRun) => {
     setSelectedRun(run);
     setDetailDialogOpen(true);
   };
+
+  const total = workflowRuns.length;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const pageData = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return workflowRuns.slice(start, start + pageSize);
+  }, [workflowRuns, page, pageSize]);
+  const canPrev = page > 1;
+  const canNext = page < totalPages;
 
   if (loading) {
     return <div className="text-sm text-gray-500 py-4">Loading workflow runs...</div>;
@@ -68,7 +79,8 @@ export function WorkflowRunsList({ workflowRuns, loading }: WorkflowRunsListProp
   return (
     <>
       <div className="space-y-0">
-        {workflowRuns.map((run, index) => {
+        {pageData.map((run, index) => {
+          const absoluteIndex = (page - 1) * pageSize + index;
           const createdDate = run.createdAt ? new Date(Number(run.createdAt.seconds) * 1000) : null;
 
           // Parse JSON to get summary info
@@ -108,11 +120,11 @@ export function WorkflowRunsList({ workflowRuns, loading }: WorkflowRunsListProp
               key={run.id}
               onClick={() => handleRunClick(run)}
               className={`group relative flex items-start gap-4 p-4 border-l-2 ${
-                index === 0
+                absoluteIndex === 0
                   ? "border-blue-500 bg-blue-50/30"
                   : "border-gray-200 hover:border-gray-300"
               } hover:bg-gray-50 transition-all cursor-pointer ${
-                index < workflowRuns.length - 1 ? "border-b border-gray-100" : ""
+                absoluteIndex < total - 1 ? "border-b border-gray-100" : ""
               }`}
             >
               {/* Timeline dot */}
@@ -130,7 +142,7 @@ export function WorkflowRunsList({ workflowRuns, loading }: WorkflowRunsListProp
                   <div className="flex items-center gap-3 min-w-0 flex-1">
                     <div className="flex-shrink-0">
                       <div className="w-8 h-8 rounded-md bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center text-white text-xs font-bold">
-                        #{workflowRuns.length - index}
+                        #{total - absoluteIndex}
                       </div>
                     </div>
                     <div className="min-w-0 flex-1">
@@ -211,6 +223,35 @@ export function WorkflowRunsList({ workflowRuns, loading }: WorkflowRunsListProp
           );
         })}
       </div>
+
+      {totalPages > 1 && (
+        <div className="pt-4 flex items-center justify-between text-sm">
+          <div className="text-gray-600">
+            Showing {(page - 1) * pageSize + 1}-{Math.min(page * pageSize, total)} of {total}
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={!canPrev}
+              className="px-3 py-1.5 rounded border border-gray-300 bg-white hover:bg-gray-50 disabled:opacity-50"
+            >
+              Prev
+            </button>
+            <span className="text-gray-600">
+              Page {page} / {totalPages}
+            </span>
+            <button
+              type="button"
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={!canNext}
+              className="px-3 py-1.5 rounded border border-gray-300 bg-white hover:bg-gray-50 disabled:opacity-50"
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      )}
 
       <WorkflowRunDetailDialog
         open={detailDialogOpen}

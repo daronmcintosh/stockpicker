@@ -38,6 +38,8 @@ interface PredictionCardProps {
   isLoadingPrice?: boolean;
   onEdit?: (prediction: Prediction) => void;
   strategies?: Array<{ id: string; name: string }>;
+  rank?: number;
+  score?: number;
 }
 
 export function PredictionCard({
@@ -50,6 +52,8 @@ export function PredictionCard({
   isLoadingPrice,
   onEdit,
   strategies,
+  rank,
+  score,
 }: PredictionCardProps) {
   const { token } = useAuth();
   const [isUpdatingPrivacy, setIsUpdatingPrivacy] = useState(false);
@@ -301,11 +305,27 @@ export function PredictionCard({
             </div>
           </div>
 
-          {/* Right: Action Buttons */}
+          {/* Right: Rank, Score and Action Buttons */}
           <div
             className="flex items-center gap-2 flex-wrap flex-shrink-0"
             onClick={(e) => e.stopPropagation()}
           >
+            {typeof rank === "number" && (
+              <span
+                className="px-2 py-1 rounded-full text-xs font-semibold bg-indigo-100 text-indigo-800 border border-indigo-200"
+                title="Prediction rank"
+              >
+                #{rank}
+              </span>
+            )}
+            {typeof score === "number" && (
+              <span
+                className="px-2 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-800 border border-gray-200"
+                title="Prediction score (0-100)"
+              >
+                {score.toFixed(1)}
+              </span>
+            )}
             <button
               type="button"
               onClick={() => handleActionChange(PredictionAction.PENDING)}

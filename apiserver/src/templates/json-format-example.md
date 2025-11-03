@@ -72,7 +72,8 @@
     "sources_used": ["alpha_vantage", "reddit", ...],
     "analysis_date": "{{ANALYSIS_DATE}}",
     "stocks_considered": 50
-  }
+  },
+  "run_summary_markdown": "- Action: BUY AAPL $1000, 1.0x, Confidence 0.75\n- Rationale: momentum, earnings beat...\n- Risk: stop $142.5, target $165, Est. Vol: med\n- Expected: +10%, Horizon: 14\n- Portfolio: Account Value [$10,500], Positions [3], Cash [$2,500]\n- Strategy: Tech Swing, Score [82], Rank [1/10]\n- Alternatives considered: MSFT (lower momentum)\n- Log: Entered [no], Dismissed [no], Notes: n/a"
 }
 ```
 

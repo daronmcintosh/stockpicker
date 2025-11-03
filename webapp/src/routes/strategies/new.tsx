@@ -195,11 +195,11 @@ function NewStrategyPage() {
             <p className="text-sm font-medium text-blue-900">Calculated Budget Allocation</p>
             <div className="grid grid-cols-3 gap-4 text-sm">
               <div>
-                <p className="text-blue-600">Trades/Month</p>
+                <p className="text-blue-600">Predictions/Month</p>
                 <p className="font-semibold text-blue-900">{calculatedValues.tradesPerMonth}</p>
               </div>
               <div>
-                <p className="text-blue-600">Per Trade</p>
+                <p className="text-blue-600">Per Prediction</p>
                 <p className="font-semibold text-blue-900">${calculatedValues.perTradeBudget}</p>
               </div>
               <div>

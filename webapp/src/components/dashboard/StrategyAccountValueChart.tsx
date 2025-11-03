@@ -1,6 +1,7 @@
 import { toNumber } from "@/components/dashboard";
 import type { Prediction, Strategy } from "@/gen/stockpicker/v1/strategy_pb";
 import { PredictionStatus } from "@/gen/stockpicker/v1/strategy_pb";
+import { calculateAccountValue, calculateBudget } from "@/lib/calculations";
 import { useMemo } from "react";
 import {
   CartesianGrid,
@@ -18,6 +19,11 @@ interface StrategyAccountValueChartProps {
   predictions: Prediction[];
   currentPrices?: Record<string, number>;
   loading?: boolean;
+  strategyId?: string;
+  title?: string;
+  showLegend?: boolean;
+  showBreakdown?: boolean;
+  height?: number;
 }
 
 const COLORS = [
@@ -143,22 +149,35 @@ export function StrategyAccountValueChart({
   predictions,
   currentPrices,
   loading,
+  strategyId,
+  title,
+  showLegend = true,
+  showBreakdown = true,
+  height = 400,
 }: StrategyAccountValueChartProps) {
+  const filteredStrategies = useMemo(
+    () => (strategyId ? strategies.filter((s) => s.id === strategyId) : strategies),
+    [strategies, strategyId]
+  );
+  const filteredPredictions = useMemo(
+    () => (strategyId ? predictions.filter((p) => p.strategyId === strategyId) : predictions),
+    [predictions, strategyId]
+  );
   const timeSeriesData = useMemo(() => {
-    return buildTimeSeriesData(strategies, predictions, currentPrices);
-  }, [strategies, predictions, currentPrices]);
+    return buildTimeSeriesData(filteredStrategies, filteredPredictions, currentPrices);
+  }, [filteredStrategies, filteredPredictions, currentPrices]);
 
-  // Calculate current total account value
+  // Calculate current total account value using centralized calculation
   const totalAccountValue = useMemo(() => {
-    if (timeSeriesData.length === 0) return 0;
-    const latest = timeSeriesData[timeSeriesData.length - 1];
-    let total = 0;
-    for (const strategy of strategies) {
-      const strategyKey = strategy.name.replace(/[^a-zA-Z0-9]/g, "_");
-      total += toNumber(latest[strategyKey] ?? 0);
-    }
-    return total;
-  }, [timeSeriesData, strategies]);
+    const budget = calculateBudget(filteredStrategies, filteredPredictions);
+    const accountValue = calculateAccountValue(
+      filteredStrategies,
+      filteredPredictions,
+      currentPrices ?? {},
+      budget
+    );
+    return accountValue.totalAccountValue;
+  }, [filteredStrategies, filteredPredictions, currentPrices]);
 
   if (loading) {
     return (
@@ -170,7 +189,7 @@ export function StrategyAccountValueChart({
     );
   }
 
-  if (strategies.length === 0 || timeSeriesData.length === 0) {
+  if (filteredStrategies.length === 0 || timeSeriesData.length === 0) {
     return (
       <div className="bg-white border border-gray-200 rounded-lg p-8 shadow-sm">
         <div className="flex items-center justify-center min-h-[400px]">
@@ -189,7 +208,9 @@ export function StrategyAccountValueChart({
     <div className="bg-white border border-gray-200 rounded-lg p-6 shadow-sm">
       <div className="mb-6">
         <div className="flex items-center justify-between mb-2">
-          <h2 className="text-xl font-bold text-gray-900">Total Account Value by Strategy</h2>
+          <h2 className="text-xl font-bold text-gray-900">
+            {title ?? (strategyId ? "Account Value Over Time" : "Total Account Value by Strategy")}
+          </h2>
           <div className="text-right">
             <div className="text-2xl font-bold text-gray-900">
               $
@@ -203,7 +224,7 @@ export function StrategyAccountValueChart({
         </div>
       </div>
 
-      <ResponsiveContainer width="100%" height={400}>
+      <ResponsiveContainer width="100%" height={height}>
         <LineChart data={timeSeriesData} margin={{ top: 10, right: 30, left: 20, bottom: 60 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
           <XAxis
@@ -240,7 +261,7 @@ export function StrategyAccountValueChart({
               });
             }}
             formatter={(value: number, name: string) => {
-              const strategy = strategies.find(
+              const strategy = filteredStrategies.find(
                 (s) => s.name.replace(/[^a-zA-Z0-9]/g, "_") === name
               );
               return [
@@ -258,16 +279,18 @@ export function StrategyAccountValueChart({
               ];
             }}
           />
-          <Legend
-            wrapperStyle={{ paddingTop: "20px" }}
-            formatter={(value) => {
-              const strategy = strategies.find(
-                (s) => s.name.replace(/[^a-zA-Z0-9]/g, "_") === value
-              );
-              return strategy?.name || value;
-            }}
-          />
-          {strategies.map((strategy, index) => {
+          {showLegend && (
+            <Legend
+              wrapperStyle={{ paddingTop: "20px" }}
+              formatter={(value) => {
+                const strategy = filteredStrategies.find(
+                  (s) => s.name.replace(/[^a-zA-Z0-9]/g, "_") === value
+                );
+                return strategy?.name || value;
+              }}
+            />
+          )}
+          {filteredStrategies.map((strategy, index) => {
             const strategyKey = strategy.name.replace(/[^a-zA-Z0-9]/g, "_");
             return (
               <Line
@@ -286,65 +309,69 @@ export function StrategyAccountValueChart({
       </ResponsiveContainer>
 
       {/* Strategy breakdown list */}
-      <div className="mt-6 space-y-2">
-        <h3 className="text-sm font-semibold text-gray-700 mb-3">Current Values</h3>
-        <div className="space-y-2 max-h-48 overflow-y-auto">
-          {strategies.map((strategy, index) => {
-            const strategyKey = strategy.name.replace(/[^a-zA-Z0-9]/g, "_");
-            const currentValue =
-              timeSeriesData.length > 0
-                ? toNumber(timeSeriesData[timeSeriesData.length - 1][strategyKey] ?? 0)
-                : 0;
+      {showBreakdown && (
+        <div className="mt-6 space-y-2">
+          <h3 className="text-sm font-semibold text-gray-700 mb-3">Current Values</h3>
+          <div className="space-y-2 max-h-48 overflow-y-auto">
+            {filteredStrategies.map((strategy, index) => {
+              const strategyKey = strategy.name.replace(/[^a-zA-Z0-9]/g, "_");
+              const currentValue =
+                timeSeriesData.length > 0
+                  ? toNumber(timeSeriesData[timeSeriesData.length - 1][strategyKey] ?? 0)
+                  : 0;
 
-            // Calculate initial investment and returns
-            const strategyPredictions = predictions.filter((p) => p.strategyId === strategy.id);
-            const initialInvestment = strategyPredictions.reduce(
-              (sum, p) => sum + toNumber(p.allocatedAmount),
-              0
-            );
-            const returns = currentValue - initialInvestment;
-            const returnPct = initialInvestment > 0 ? (returns / initialInvestment) * 100 : 0;
+              // Calculate initial investment and returns
+              const strategyPredictions = filteredPredictions.filter(
+                (p) => p.strategyId === strategy.id
+              );
+              const initialInvestment = strategyPredictions.reduce(
+                (sum, p) => sum + toNumber(p.allocatedAmount),
+                0
+              );
+              const returns = currentValue - initialInvestment;
+              const returnPct = initialInvestment > 0 ? (returns / initialInvestment) * 100 : 0;
 
-            return (
-              <div
-                key={strategy.id}
-                className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
-              >
-                <div className="flex items-center gap-3 flex-1 min-w-0">
-                  <div
-                    className="w-4 h-4 rounded"
-                    style={{ backgroundColor: COLORS[index % COLORS.length] }}
-                  />
-                  <span className="font-medium text-gray-900 truncate">{strategy.name}</span>
-                </div>
-                <div className="flex items-center gap-6 ml-4">
-                  <div className="text-right">
-                    <div className="text-sm font-semibold text-gray-900">
-                      $
-                      {currentValue.toLocaleString(undefined, {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })}
-                    </div>
+              return (
+                <div
+                  key={strategy.id}
+                  className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
+                >
+                  <div className="flex items-center gap-3 flex-1 min-w-0">
                     <div
-                      className={`text-xs ${returnPct >= 0 ? "text-green-600" : "text-red-600"}`}
-                    >
-                      {returnPct >= 0 ? "+" : ""}
-                      {returnPct.toFixed(2)}%
+                      className="w-4 h-4 rounded"
+                      style={{ backgroundColor: COLORS[index % COLORS.length] }}
+                    />
+                    <span className="font-medium text-gray-900 truncate">{strategy.name}</span>
+                  </div>
+                  <div className="flex items-center gap-6 ml-4">
+                    <div className="text-right">
+                      <div className="text-sm font-semibold text-gray-900">
+                        $
+                        {currentValue.toLocaleString(undefined, {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })}
+                      </div>
+                      <div
+                        className={`text-xs ${returnPct >= 0 ? "text-green-600" : "text-red-600"}`}
+                      >
+                        {returnPct >= 0 ? "+" : ""}
+                        {returnPct.toFixed(2)}%
+                      </div>
+                    </div>
+                    <div className="text-right text-xs text-gray-500 w-20">
+                      {totalAccountValue > 0
+                        ? ((currentValue / totalAccountValue) * 100).toFixed(1)
+                        : "0.0"}
+                      %
                     </div>
                   </div>
-                  <div className="text-right text-xs text-gray-500 w-20">
-                    {totalAccountValue > 0
-                      ? ((currentValue / totalAccountValue) * 100).toFixed(1)
-                      : "0.0"}
-                    %
-                  </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

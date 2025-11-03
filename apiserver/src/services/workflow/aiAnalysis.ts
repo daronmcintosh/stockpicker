@@ -49,7 +49,6 @@ if (!USE_FAKE_AI_AGENTS && !OPENAI_API_KEY) {
 
 /**
  * Execute AI analysis using multiple agents in parallel
- * Replaces the n8n workflow's parallel AI agent nodes
  */
 export async function executeAIAnalysis(
   preparedData: PrepareDataForWorkflowResponse,
@@ -57,7 +56,7 @@ export async function executeAIAnalysis(
 ): Promise<MergedAIResults> {
   console.log(`🤖 Starting AI analysis with multiple agents:`, { strategyId });
 
-  // Run 3 agents in parallel (same as n8n workflow)
+  // Run 3 agents in parallel
   const [agent1, agent2, agent3] = await Promise.allSettled([
     callOpenAIAgent("gpt-4o-mini", preparedData, strategyId, 0.7),
     callOpenAIAgent("gpt-4o", preparedData, strategyId, 0.7),

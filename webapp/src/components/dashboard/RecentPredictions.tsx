@@ -2,6 +2,7 @@ import type { Prediction, Strategy } from "@/gen/stockpicker/v1/strategy_pb";
 import { PredictionSource } from "@/gen/stockpicker/v1/strategy_pb";
 import { Link } from "@tanstack/react-router";
 import { ArrowRight, Bot, Pencil, TrendingDown, TrendingUp } from "lucide-react";
+import { useMemo, useState } from "react";
 import { getStatusColor, getStatusLabel, toNumber } from "./dashboardHelpers";
 
 interface RecentPredictionsProps {
@@ -10,6 +11,7 @@ interface RecentPredictionsProps {
   currentPrices: Record<string, number>;
   allStrategies: Strategy[];
   onPredictionClick: (prediction: Prediction) => void;
+  pageSize?: number; // default 5
 }
 
 export function RecentPredictions({
@@ -18,7 +20,19 @@ export function RecentPredictions({
   currentPrices,
   allStrategies,
   onPredictionClick,
+  pageSize = 5,
 }: RecentPredictionsProps) {
+  const [page, setPage] = useState(1);
+  const total = recentPredictions.length;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const pageData = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return recentPredictions.slice(start, start + pageSize);
+  }, [recentPredictions, page, pageSize]);
+
+  const canPrev = page > 1;
+  const canNext = page < totalPages;
+
   return (
     <div className="lg:col-span-2 bg-white border border-gray-200 rounded-lg shadow-sm">
       <div className="p-5 border-b border-gray-200 flex items-center justify-between">
@@ -42,7 +56,7 @@ export function RecentPredictions({
             </Link>
           </div>
         ) : (
-          recentPredictions.map((prediction) => {
+          pageData.map((prediction) => {
             const entryPrice = toNumber(prediction.entryPrice);
             const currentPrice =
               currentPrices[prediction.symbol] ??
@@ -115,6 +129,34 @@ export function RecentPredictions({
           })
         )}
       </div>
+      {totalPages > 1 && (
+        <div className="p-4 flex items-center justify-between text-sm">
+          <div className="text-gray-600">
+            Showing {(page - 1) * pageSize + 1}-{Math.min(page * pageSize, total)} of {total}
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={!canPrev}
+              className="px-3 py-1.5 rounded border border-gray-300 bg-white hover:bg-gray-50 disabled:opacity-50"
+            >
+              Prev
+            </button>
+            <span className="text-gray-600">
+              Page {page} / {totalPages}
+            </span>
+            <button
+              type="button"
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={!canNext}
+              className="px-3 py-1.5 rounded border border-gray-300 bg-white hover:bg-gray-50 disabled:opacity-50"
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

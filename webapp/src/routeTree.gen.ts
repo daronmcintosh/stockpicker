@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as PredictionsRouteImport } from './routes/predictions'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as LeaderboardRouteImport } from './routes/leaderboard'
+import { Route as HelpRouteImport } from './routes/help'
 import { Route as FriendsRouteImport } from './routes/friends'
 import { Route as FeedRouteImport } from './routes/feed'
 import { Route as DashboardRouteImport } from './routes/dashboard'
@@ -34,6 +35,11 @@ const LoginRoute = LoginRouteImport.update({
 const LeaderboardRoute = LeaderboardRouteImport.update({
   id: '/leaderboard',
   path: '/leaderboard',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const HelpRoute = HelpRouteImport.update({
+  id: '/help',
+  path: '/help',
   getParentRoute: () => rootRouteImport,
 } as any)
 const FriendsRoute = FriendsRouteImport.update({
@@ -82,6 +88,7 @@ export interface FileRoutesByFullPath {
   '/dashboard': typeof DashboardRoute
   '/feed': typeof FeedRoute
   '/friends': typeof FriendsRoute
+  '/help': typeof HelpRoute
   '/leaderboard': typeof LeaderboardRoute
   '/login': typeof LoginRoute
   '/predictions': typeof PredictionsRoute
@@ -95,6 +102,7 @@ export interface FileRoutesByTo {
   '/dashboard': typeof DashboardRoute
   '/feed': typeof FeedRoute
   '/friends': typeof FriendsRoute
+  '/help': typeof HelpRoute
   '/leaderboard': typeof LeaderboardRoute
   '/login': typeof LoginRoute
   '/predictions': typeof PredictionsRoute
@@ -109,6 +117,7 @@ export interface FileRoutesById {
   '/dashboard': typeof DashboardRoute
   '/feed': typeof FeedRoute
   '/friends': typeof FriendsRoute
+  '/help': typeof HelpRoute
   '/leaderboard': typeof LeaderboardRoute
   '/login': typeof LoginRoute
   '/predictions': typeof PredictionsRoute
@@ -124,6 +133,7 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/feed'
     | '/friends'
+    | '/help'
     | '/leaderboard'
     | '/login'
     | '/predictions'
@@ -137,6 +147,7 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/feed'
     | '/friends'
+    | '/help'
     | '/leaderboard'
     | '/login'
     | '/predictions'
@@ -150,6 +161,7 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/feed'
     | '/friends'
+    | '/help'
     | '/leaderboard'
     | '/login'
     | '/predictions'
@@ -164,6 +176,7 @@ export interface RootRouteChildren {
   DashboardRoute: typeof DashboardRoute
   FeedRoute: typeof FeedRoute
   FriendsRoute: typeof FriendsRoute
+  HelpRoute: typeof HelpRoute
   LeaderboardRoute: typeof LeaderboardRoute
   LoginRoute: typeof LoginRoute
   PredictionsRoute: typeof PredictionsRoute
@@ -194,6 +207,13 @@ declare module '@tanstack/react-router' {
       path: '/leaderboard'
       fullPath: '/leaderboard'
       preLoaderRoute: typeof LeaderboardRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/help': {
+      id: '/help'
+      path: '/help'
+      fullPath: '/help'
+      preLoaderRoute: typeof HelpRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/friends': {
@@ -260,6 +280,7 @@ const rootRouteChildren: RootRouteChildren = {
   DashboardRoute: DashboardRoute,
   FeedRoute: FeedRoute,
   FriendsRoute: FriendsRoute,
+  HelpRoute: HelpRoute,
   LeaderboardRoute: LeaderboardRoute,
   LoginRoute: LoginRoute,
   PredictionsRoute: PredictionsRoute,

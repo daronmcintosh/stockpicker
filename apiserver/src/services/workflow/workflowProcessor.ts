@@ -10,7 +10,7 @@ import type { MergedAIResults, WorkflowOutputs } from "./workflowTypes.js";
 
 /**
  * Process workflow results and create predictions
- * Replaces n8n's "Complete Workflow Run" step
+ * Used by the internal workflow runner
  */
 export async function processWorkflowResults(
   context: HandlerContext,
@@ -31,7 +31,7 @@ export async function processWorkflowResults(
   // Set execution ID in header
   context.requestHeader.set("x-execution-id", executionId);
 
-  // Call the same endpoint that n8n workflows call
+  // Call the internal endpoint used by workflow runs
   const request = create(CreatePredictionsFromWorkflowRequestSchema, {
     strategyId,
     jsonOutput: outputs.jsonOutput,
@@ -51,7 +51,6 @@ export async function processWorkflowResults(
 
 /**
  * Generate standardized JSON and Markdown outputs
- * Replicates n8n workflow's output generation
  */
 function generateWorkflowOutputs(
   strategyId: string,
@@ -144,7 +143,7 @@ function generateWorkflowOutputs(
 }
 
 /**
- * Generate Markdown output (replicates n8n workflow markdown generation)
+ * Generate Markdown output for analysis results
  */
 function generateMarkdownOutput(
   _strategyId: string,
@@ -157,6 +156,36 @@ function generateMarkdownOutput(
   }
   const top10 = aiResults.top10Stocks;
   let markdown = "# Stock Analysis Report\n\n";
+  // Chat-style run summary (based on top recommendation and budget where possible)
+  const top = top10[0];
+  if (top) {
+    const symbol = top.symbol || "N/A";
+    const entryPrice = Number(top.entry_price) || 0;
+    const targetPrice = Number(top.target_price) || 0;
+    const stopLossPrice = Number(top.stop_loss_price) || 0;
+    const confidence = (
+      Number(top.confidence_level) ||
+      Number(top.confidence_pct) / 100 ||
+      0
+    ).toFixed(2);
+    const expectedPct =
+      entryPrice > 0 ? (((targetPrice - entryPrice) / entryPrice) * 100).toFixed(0) : "0";
+    markdown += "**Run Summary**\n\n";
+    markdown += `- Action: BUY ${symbol} $- , 1.0x, Confidence ${confidence}\n`;
+    markdown += `- Rationale: ${top.reasoning ? top.reasoning.split(". ").slice(0, 2).join(". ") : "Top-ranked setup"}\n`;
+    const estVol = (top.risk_level || "medium").toString();
+    markdown += `- Risk: stop $${stopLossPrice.toFixed(2)}, target $${targetPrice.toFixed(2)}, Est. Vol: ${estVol}\n`;
+    markdown += `- Expected: +${expectedPct}%, Horizon: ${strategy.timeHorizon || "-"}\n`;
+    markdown += `- Portfolio: Account Value [$-], Positions [-], Cash [$-]\n`;
+    markdown += `- Strategy: ${strategy.name || "N/A"}, Score [${Number(top.overall_score || 0).toFixed(0)}], Rank [1/${top10.length}]\n`;
+    markdown += `- Alternatives considered: ${
+      top10
+        .slice(1, 3)
+        .map((s) => s.symbol)
+        .join(", ") || "-"
+    }\n`;
+    markdown += `- Log: Entered [no], Dismissed [no], Notes: -\n\n`;
+  }
   markdown += `**Strategy:** ${strategy.name || "N/A"}\n`;
   markdown += `**Time Horizon:** ${strategy.timeHorizon || "N/A"}\n`;
   markdown += `**Target Return:** ${strategy.targetReturnPct || 0}%\n`;

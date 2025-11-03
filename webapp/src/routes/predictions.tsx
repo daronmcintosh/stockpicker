@@ -6,6 +6,7 @@ import {
   PredictionFilters,
   toNumber,
 } from "@/components/prediction";
+import { scorePrediction } from "@/components/prediction/predictionHelpers";
 import type { Prediction } from "@/gen/stockpicker/v1/strategy_pb";
 import {
   type PredictionAction,
@@ -158,7 +159,12 @@ function PredictionsPage() {
         if (actionFilter !== "all") {
           filteredPredictions = allPredictions.filter((p) => p.action === actionFilter);
         }
-        setPredictions(filteredPredictions);
+        // Rank by score (desc)
+        const ranked = [...filteredPredictions]
+          .map((p) => ({ p, score: scorePrediction(p) }))
+          .sort((a, b) => b.score - a.score)
+          .map(({ p }) => p);
+        setPredictions(ranked);
       } else {
         // Fetch predictions for a specific strategy
         const response = await client.prediction.listPredictions({
@@ -170,7 +176,11 @@ function PredictionsPage() {
         if (actionFilter !== "all") {
           filteredPredictions = response.predictions.filter((p) => p.action === actionFilter);
         }
-        setPredictions(filteredPredictions);
+        const ranked = [...filteredPredictions]
+          .map((p) => ({ p, score: scorePrediction(p) }))
+          .sort((a, b) => b.score - a.score)
+          .map(({ p }) => p);
+        setPredictions(ranked);
       }
     } catch (error) {
       console.error("Failed to load predictions:", error);
@@ -277,7 +287,7 @@ function PredictionsPage() {
       if (response.success) {
         toast.success(response.message);
         setGenerateDialogOpen(false); // Close dialog on success
-        // Reload predictions after a short delay to allow n8n workflow to complete
+        // Reload predictions after a short delay to allow background job to complete
         setTimeout(() => {
           loadData();
         }, 3000);
@@ -479,7 +489,7 @@ function PredictionsPage() {
         </div>
       ) : (
         <div className="grid gap-6">
-          {predictions.map((prediction) => {
+          {predictions.map((prediction, idx) => {
             const strategy = strategies.find((s) => s.id === prediction.strategyId);
             // Strategy is "owned" if it's in the user's strategies list (since there's no user system)
             const isStrategyOwned = !!strategy;
@@ -495,6 +505,8 @@ function PredictionsPage() {
                 isLoadingPrice={loadingPrices}
                 onEdit={openEditDialog}
                 strategies={strategies}
+                rank={idx + 1}
+                score={scorePrediction(prediction)}
               />
             );
           })}

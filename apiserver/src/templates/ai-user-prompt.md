@@ -52,6 +52,23 @@ Provide EXACTLY 10 stock recommendations in this JSON format:
 
 1. **confidence_level**: decimal 0.0-1.0 representing confidence in recommendation (based on data quality, signal strength, source agreement)
 2. **confidence_pct**: percentage 0-100 (same as confidence_level * 100)
+
+## Workflow Run Summary (Chat Message)
+
+At the end of your analysis, also produce a concise run summary as a short chat-style Markdown message using EXACTLY these bullets, grounded in your top recommendation and portfolio context. Include this summary in the JSON response under the field `run_summary_markdown`.
+
+```
+- Action: [BUY|SELL|HOLD|CLOSE] [SYMBOL] [SIZE or $], [LEVERAGE]x, Confidence [0-1]
+- Rationale: [1–2 key drivers]
+- Risk: [stop/target or risk factors], Est. Vol: [low|med|high]
+- Expected: [expected return %], Horizon: [days]
+- Portfolio: Account Value [$X], Positions [N], Cash [$Y]
+- Strategy: [name], Score [0–100], Rank [X/Y]
+- Alternatives considered: [top 1–2 symbols] (reason)
+- Log: Entered [yes/no], Dismissed [yes/no], Notes: [short]
+```
+
+Decide on one primary Action among BUY/SELL/HOLD/CLOSE for the top-ranked symbol. Justify briefly.
 3. **risk_level**: string - one of 'low', 'medium', 'high' based on volatility, stop loss distance, price stability
 4. **risk_score**: number 1-10 where 1=very low risk, 10=very high risk
 5. **success_probability**: decimal 0.0-1.0 representing probability of hitting target price based on technical analysis and signals

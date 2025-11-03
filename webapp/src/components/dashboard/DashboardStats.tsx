@@ -79,7 +79,10 @@ export function DashboardStats({
         )}
       </div>
 
-      <div className="bg-white border border-gray-200 rounded-lg p-5 shadow-sm hover:shadow-md transition-shadow">
+      <div
+        className="bg-white border border-gray-200 rounded-lg p-5 shadow-sm hover:shadow-md transition-shadow"
+        title={`Budget calculation:\n- Total Budget = sum(strategy.monthlyBudget)\n- Spent = sum(allocatedAmount) for predictions entered this month\n- Remaining = Total Budget - Spent\n- Utilization = Spent / Total Budget`}
+      >
         <div className="flex items-center justify-between mb-3">
           <DollarSign className="w-6 h-6 text-purple-600" />
           <span className="text-xs font-medium text-gray-500">Budget</span>

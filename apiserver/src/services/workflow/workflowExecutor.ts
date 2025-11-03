@@ -12,8 +12,7 @@ import { executeAIAnalysis } from "./aiAnalysis.js";
 import { processWorkflowResults } from "./workflowProcessor.js";
 
 /**
- * Execute a complete workflow for a strategy
- * This replaces the n8n workflow execution
+ * Execute a complete workflow for a strategy using the internal runner
  */
 export async function executeStrategyWorkflow(
   context: HandlerContext,
@@ -28,7 +27,7 @@ export async function executeStrategyWorkflow(
   });
 
   try {
-    // Step 1: Prepare data (same as n8n workflow would call PrepareDataForWorkflow)
+    // Step 1: Prepare data (same as external workflow would call PrepareDataForWorkflow)
     const preparedData = await prepareWorkflowData(context, strategyId, executionId);
 
     // Step 2: Execute AI analysis (parallel agents)
@@ -52,7 +51,7 @@ export async function executeStrategyWorkflow(
 }
 
 /**
- * Prepare workflow data (replaces n8n's "Get Prepared Data" step)
+ * Prepare workflow data
  */
 async function prepareWorkflowData(
   context: HandlerContext,

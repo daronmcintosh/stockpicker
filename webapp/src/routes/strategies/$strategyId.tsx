@@ -1,3 +1,4 @@
+import { StrategyAccountValueChart } from "@/components/dashboard";
 import { PredictionCard } from "@/components/prediction";
 import { EditStrategyDialog, StatusBadge } from "@/components/strategy";
 import type { EditFormData } from "@/components/strategy/EditStrategyDialog";
@@ -77,6 +78,16 @@ function StrategyDetailPage() {
     ReturnType<typeof fetchSourceConfig>
   > | null>(null);
   const [configExpanded, setConfigExpanded] = useState(false);
+
+  // Client-side pagination for Predictions
+  const PRED_PAGE_SIZE = 5;
+  const [predPage, setPredPage] = useState(1);
+  const predTotal = predictions.length;
+  const predTotalPages = Math.max(1, Math.ceil(predTotal / PRED_PAGE_SIZE));
+  const pagedPredictions = useMemo(() => {
+    const start = (predPage - 1) * PRED_PAGE_SIZE;
+    return predictions.slice(start, start + PRED_PAGE_SIZE);
+  }, [predictions, predPage]);
 
   useEffect(() => {
     if (strategyId && token) {
@@ -453,8 +464,8 @@ function StrategyDetailPage() {
               <div>
                 <div className="text-xs font-medium text-gray-500 mb-2">Budget Details</div>
                 <div className="space-y-1 text-xs text-gray-700">
-                  <div>Trades Per Month: {strategy.tradesPerMonth}</div>
-                  <div>Per Trade Budget: ${Number(strategy.perTradeBudget).toFixed(2)}</div>
+                  <div>Predictions Per Month: {strategy.tradesPerMonth}</div>
+                  <div>Per Prediction Budget: ${Number(strategy.perTradeBudget).toFixed(2)}</div>
                   <div>Per Stock Allocation: ${Number(strategy.perStockAllocation).toFixed(2)}</div>
                 </div>
               </div>
@@ -499,6 +510,20 @@ function StrategyDetailPage() {
           )}
         </div>
 
+        {/* Strategy Account Value Chart */}
+        <div className="mb-6">
+          <StrategyAccountValueChart
+            strategies={[strategy]}
+            predictions={predictions}
+            currentPrices={currentPrices}
+            strategyId={strategy.id}
+            title="Account Value Over Time"
+            showLegend={false}
+            showBreakdown={true}
+            height={320}
+          />
+        </div>
+
         {/* Predictions and Workflow Runs Tables - Side by Side */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Predictions Section */}
@@ -534,7 +559,7 @@ function StrategyDetailPage() {
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {predictions.slice(0, 10).map((prediction) => (
+                  {pagedPredictions.map((prediction) => (
                     <PredictionCard
                       key={prediction.id}
                       prediction={prediction}
@@ -554,15 +579,33 @@ function StrategyDetailPage() {
                       isStrategyOwned={true}
                     />
                   ))}
-                  {predictions.length > 10 && (
-                    <div className="text-center pt-4">
-                      <Link
-                        to="/predictions"
-                        search={{ strategy: strategy.id, status: undefined, action: undefined }}
-                        className="text-sm text-blue-600 hover:text-blue-700 font-medium"
-                      >
-                        View {predictions.length - 10} more predictions ?
-                      </Link>
+                  {predTotal > PRED_PAGE_SIZE && (
+                    <div className="pt-4 flex items-center justify-between text-sm">
+                      <div className="text-gray-600">
+                        Showing {(predPage - 1) * PRED_PAGE_SIZE + 1}-
+                        {Math.min(predPage * PRED_PAGE_SIZE, predTotal)} of {predTotal}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setPredPage((p) => Math.max(1, p - 1))}
+                          disabled={predPage <= 1}
+                          className="px-3 py-1.5 rounded border border-gray-300 bg-white hover:bg-gray-50 disabled:opacity-50"
+                        >
+                          Prev
+                        </button>
+                        <span className="text-gray-600">
+                          Page {predPage} / {predTotalPages}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setPredPage((p) => Math.min(predTotalPages, p + 1))}
+                          disabled={predPage >= predTotalPages}
+                          className="px-3 py-1.5 rounded border border-gray-300 bg-white hover:bg-gray-50 disabled:opacity-50"
+                        >
+                          Next
+                        </button>
+                      </div>
                     </div>
                   )}
                 </div>

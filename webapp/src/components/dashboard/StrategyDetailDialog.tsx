@@ -106,11 +106,15 @@ export function StrategyDetailDialog({
 
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm font-medium text-gray-500 mb-1">Trades Per Month</label>
+            <label className="block text-sm font-medium text-gray-500 mb-1">
+              Predictions Per Month
+            </label>
             <div className="text-sm">{strategy.tradesPerMonth}</div>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-500 mb-1">Per Trade Budget</label>
+            <label className="block text-sm font-medium text-gray-500 mb-1">
+              Per Prediction Budget
+            </label>
             <div className="text-sm">${Number(strategy.perTradeBudget).toFixed(2)}</div>
           </div>
         </div>
