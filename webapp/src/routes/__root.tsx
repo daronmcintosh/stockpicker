@@ -40,7 +40,7 @@ function ContentWrapper({ children }: { children: React.ReactNode }) {
   const { shouldPushContent } = useSidebar();
   return (
     <div
-      className={`${
+      className={`overflow-x-hidden ${
         shouldPushContent
           ? "lg:ml-64 transition-[margin-left] duration-300"
           : "transition-[margin-left] duration-300"

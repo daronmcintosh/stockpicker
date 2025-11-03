@@ -349,7 +349,7 @@ function StrategiesPage() {
   }
 
   return (
-    <div className="container mx-auto px-4 py-8">
+    <div className="container mx-auto px-4 py-8 max-w-full overflow-x-hidden">
       <div className="flex justify-between items-center mb-8">
         <h1 className="text-3xl font-bold">Trading Strategies</h1>
         <a
@@ -374,7 +374,7 @@ function StrategiesPage() {
           </a>
         </div>
       ) : (
-        <div className="grid gap-6">
+        <div className="grid gap-6 w-full max-w-full">
           {strategies.map((strategy) => (
             <StrategyCard
               key={strategy.id}

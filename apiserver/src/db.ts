@@ -254,6 +254,7 @@ export interface PredictionRow {
   stop_loss_dollar_impact: number;
   risk_level: string;
   technical_analysis: string;
+  analysis: string | null;
   sentiment_score: number;
   overall_score: number;
   action: string;
@@ -263,6 +264,7 @@ export interface PredictionRow {
   closed_at: string | null;
   closed_reason: string | null;
   created_at: string;
+  updated_at: string;
   privacy: string;
   source: string | null;
   user_id: string;

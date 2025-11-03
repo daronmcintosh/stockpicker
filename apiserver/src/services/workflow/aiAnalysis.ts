@@ -198,18 +198,12 @@ function buildUserPrompt(
   prompt = prompt.replace(/\{\{RISK_LEVEL\}\}/g, riskLevelStr);
   prompt = prompt.replace(/\{\{CUSTOM_PROMPT\}\}/g, strategy.customPrompt || "None");
 
-  prompt = prompt.replace(
-    /\{\{MONTHLY_BUDGET\}\}/g,
-    (budget.monthlyBudget || 0).toFixed(2)
-  );
+  prompt = prompt.replace(/\{\{MONTHLY_BUDGET\}\}/g, (budget.monthlyBudget || 0).toFixed(2));
   prompt = prompt.replace(
     /\{\{CURRENT_MONTH_SPENT\}\}/g,
     (budget.currentMonthSpent || 0).toFixed(2)
   );
-  prompt = prompt.replace(
-    /\{\{REMAINING_BUDGET\}\}/g,
-    (budget.remainingBudget || 0).toFixed(2)
-  );
+  prompt = prompt.replace(/\{\{REMAINING_BUDGET\}\}/g, (budget.remainingBudget || 0).toFixed(2));
   prompt = prompt.replace(
     /\{\{PER_STOCK_ALLOCATION\}\}/g,
     (budget.perStockAllocation || 0).toFixed(2)
@@ -232,14 +226,6 @@ function buildUserPrompt(
   prompt = prompt.replace(/\{\{JSON_FORMAT_EXAMPLE\}\}/g, jsonExample);
 
   return prompt;
-}
-
-/**
- * Build JSON format example (loaded from markdown template)
- * @deprecated This function is kept for backward compatibility but now uses loadJSONFormatExample internally
- */
-function buildJSONFormatExample(): string {
-  return loadJSONFormatExample();
 }
 
 /**

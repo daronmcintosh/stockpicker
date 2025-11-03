@@ -252,14 +252,15 @@ export function PredictionCard({
   return (
     <>
       <div
-        className="bg-white border border-gray-200 rounded-lg px-5 py-3.5 hover:shadow-md hover:border-gray-300 transition-all cursor-pointer group"
+        className="bg-white border border-gray-200 rounded-lg px-5 py-4 hover:shadow-md hover:border-gray-300 transition-all cursor-pointer group"
         onClick={() => !detailDialogOpen && setDetailDialogOpen(true)}
       >
-        <div className="flex items-center gap-6">
-          {/* Symbol and Status */}
-          <div className="flex items-center gap-3 min-w-[140px]">
-            <div className="flex flex-col gap-1">
-              <div className="flex items-center gap-2">
+        {/* Top Row: Symbol, Status, and Actions */}
+        <div className="flex items-start justify-between gap-4 mb-3">
+          {/* Left: Symbol and Status */}
+          <div className="flex items-start gap-3 flex-1 min-w-0">
+            <div className="flex flex-col gap-1.5 flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
                 <h2 className="text-xl font-bold text-gray-900">{prediction.symbol}</h2>
                 <span
                   className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium ${
@@ -268,6 +269,11 @@ export function PredictionCard({
                   title={source === "AI" ? "AI Generated" : "Manual Prediction"}
                 >
                   {source === "AI" ? <Bot className="w-3 h-3" /> : <Pencil className="w-3 h-3" />}
+                </span>
+                <span
+                  className={`px-2 py-0.5 rounded-full text-xs font-semibold ${getStatusColor(prediction.status)}`}
+                >
+                  {getStatusLabel(prediction.status)}
                 </span>
               </div>
               {strategyName &&
@@ -293,71 +299,11 @@ export function PredictionCard({
                   </span>
                 )}
             </div>
-            <span
-              className={`px-2.5 py-1 rounded-full text-xs font-semibold ${getStatusColor(prediction.status)}`}
-            >
-              {getStatusLabel(prediction.status)}
-            </span>
           </div>
 
-          {/* Vertical Divider */}
-          <div className="h-10 w-px bg-gray-200" />
-
-          {/* Key Price Metrics */}
-          <div className="flex items-center gap-8 flex-1">
-            <div className="min-w-[85px]">
-              <div className="text-xs text-gray-500 mb-0.5">Entry</div>
-              <div className="text-sm font-semibold text-gray-900">
-                $
-                {entryPrice.toLocaleString("en-US", {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2,
-                })}
-              </div>
-            </div>
-            <div className="min-w-[85px]">
-              <div className="text-xs text-gray-500 mb-0.5">Current</div>
-              <div className="text-sm font-semibold text-blue-600">
-                {isLoadingPrice ? (
-                  <span className="text-gray-400">Loading...</span>
-                ) : (
-                  `$${displayCurrentPrice.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                )}
-              </div>
-            </div>
-            <div className="min-w-[85px]">
-              <div className="text-xs text-gray-500 mb-0.5">Target</div>
-              <div className="text-sm font-semibold text-green-600">
-                $
-                {targetPrice.toLocaleString("en-US", {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2,
-                })}
-              </div>
-            </div>
-            <div className="min-w-[100px]">
-              <div className="text-xs text-gray-500 mb-0.5">Return</div>
-              <div
-                className={`text-sm font-bold flex items-center gap-1 ${
-                  currentReturn >= 0 ? "text-green-600" : "text-red-600"
-                }`}
-              >
-                {currentReturn >= 0 ? (
-                  <TrendingUp className="w-4 h-4" />
-                ) : (
-                  <TrendingDown className="w-4 h-4" />
-                )}
-                {currentReturn.toFixed(2)}%
-              </div>
-            </div>
-          </div>
-
-          {/* Vertical Divider */}
-          <div className="h-10 w-px bg-gray-200" />
-
-          {/* Action Buttons */}
+          {/* Right: Action Buttons */}
           <div
-            className="flex items-center gap-1.5 bg-gray-50 rounded-lg p-1"
+            className="flex items-center gap-2 flex-wrap flex-shrink-0"
             onClick={(e) => e.stopPropagation()}
           >
             <button
@@ -402,68 +348,122 @@ export function PredictionCard({
               Dismissed
             </button>
           </div>
+        </div>
 
-          {/* Privacy Toggle */}
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              handlePrivacyToggle();
-            }}
-            disabled={isUpdatingPrivacy}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg transition-colors border text-xs font-medium ${
-              prediction.privacy === PredictionPrivacy.PUBLIC
-                ? "bg-green-50 text-green-700 border-green-200 hover:bg-green-100"
-                : "bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100"
-            } disabled:opacity-50 disabled:cursor-not-allowed`}
-            title={
-              prediction.privacy === PredictionPrivacy.PUBLIC
-                ? "Public - Click to make private"
-                : "Private - Click to make public"
-            }
-          >
-            {prediction.privacy === PredictionPrivacy.PUBLIC ? (
+        {/* Middle Row: Price Metrics in Grid */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 py-3 border-t border-gray-100">
+          <div>
+            <div className="text-xs text-gray-500 mb-1">Entry Price</div>
+            <div className="text-base font-semibold text-gray-900">
+              $
+              {entryPrice.toLocaleString("en-US", {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}
+            </div>
+          </div>
+          <div>
+            <div className="text-xs text-gray-500 mb-1">Current Price</div>
+            <div className="text-base font-semibold text-blue-600">
+              {isLoadingPrice ? (
+                <span className="text-gray-400 text-sm">Loading...</span>
+              ) : (
+                `$${displayCurrentPrice.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+              )}
+            </div>
+          </div>
+          <div>
+            <div className="text-xs text-gray-500 mb-1">Target Price</div>
+            <div className="text-base font-semibold text-green-600">
+              $
+              {targetPrice.toLocaleString("en-US", {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}
+            </div>
+          </div>
+          <div>
+            <div className="text-xs text-gray-500 mb-1">Return</div>
+            <div
+              className={`text-base font-bold flex items-center gap-1 ${
+                currentReturn >= 0 ? "text-green-600" : "text-red-600"
+              }`}
+            >
+              {currentReturn >= 0 ? (
+                <TrendingUp className="w-4 h-4" />
+              ) : (
+                <TrendingDown className="w-4 h-4" />
+              )}
+              {currentReturn.toFixed(2)}%
+            </div>
+          </div>
+        </div>
+
+        {/* Bottom Row: Privacy and Actions */}
+        <div className="flex items-center justify-between gap-2 pt-3 border-t border-gray-100">
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                handlePrivacyToggle();
+              }}
+              disabled={isUpdatingPrivacy}
+              className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium transition-colors border ${
+                prediction.privacy === PredictionPrivacy.PUBLIC
+                  ? "bg-green-50 text-green-700 border-green-200 hover:bg-green-100"
+                  : "bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100"
+              } disabled:opacity-50 disabled:cursor-not-allowed`}
+              title={
+                prediction.privacy === PredictionPrivacy.PUBLIC
+                  ? "Public - Click to make private"
+                  : "Private - Click to make public"
+              }
+            >
+              {prediction.privacy === PredictionPrivacy.PUBLIC ? (
+                <>
+                  <Globe className="w-3 h-3" />
+                  Public
+                </>
+              ) : (
+                <>
+                  <Lock className="w-3 h-3" />
+                  Private
+                </>
+              )}
+            </button>
+
+            {/* Copy & Share Buttons - Only for public predictions */}
+            {prediction.privacy === PredictionPrivacy.PUBLIC && (
               <>
-                <Globe className="w-3.5 h-3.5" />
-                Public
-              </>
-            ) : (
-              <>
-                <Lock className="w-3.5 h-3.5" />
-                Private
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setCopyDialogOpen(true);
+                  }}
+                  className="flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium transition-colors border bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100"
+                  title="Copy prediction to another strategy"
+                >
+                  <Copy className="w-3 h-3" />
+                  Copy
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleSharePrediction();
+                  }}
+                  className="flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium transition-colors border bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100"
+                  title="Share prediction link"
+                >
+                  <Share2 className="w-3 h-3" />
+                  Share
+                </button>
               </>
             )}
-          </button>
+          </div>
 
-          {/* Copy & Share Buttons - Only for public predictions */}
-          {prediction.privacy === PredictionPrivacy.PUBLIC && (
-            <>
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setCopyDialogOpen(true);
-                }}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg transition-colors border bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100 text-xs font-medium"
-                title="Copy prediction to another strategy"
-              >
-                <Copy className="w-3.5 h-3.5" />
-                Copy
-              </button>
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleSharePrediction();
-                }}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg transition-colors border bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100 text-xs font-medium"
-                title="Share prediction link"
-              >
-                <Share2 className="w-3.5 h-3.5" />
-                Share
-              </button>
-            </>
-          )}
           {/* Delete Button */}
           <button
             type="button"
@@ -471,10 +471,10 @@ export function PredictionCard({
               e.stopPropagation();
               setDeleteDialogOpen(true);
             }}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg transition-colors border bg-red-50 text-red-700 border-red-200 hover:bg-red-100 text-xs font-medium"
+            className="flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium transition-colors border bg-red-50 text-red-700 border-red-200 hover:bg-red-100"
             title="Delete prediction"
           >
-            <Trash2 className="w-3.5 h-3.5" />
+            <Trash2 className="w-3 h-3" />
             Delete
           </button>
         </div>
