@@ -11,7 +11,6 @@ import { CreateStrategyResponseSchema } from "../../../gen/stockpicker/v1/strate
 import { getCurrentUserId } from "../../authHelpers.js";
 import { schedulerService } from "../../scheduler/schedulerService.js";
 import { executeStrategyWorkflow } from "../../workflow/workflowExecutor.js";
-import { generateBasePromptForModel } from "../promptGenerator.js";
 import {
   dbRowToProtoStrategy,
   frequencyToProtoName,
@@ -164,49 +163,6 @@ export async function createStrategy(
         JSON.stringify(aiAgents),
         id,
       ]);
-
-      // Generate and store prompts for each AI model
-      console.log(`📝 Generating prompts for ${aiAgents.length} AI models:`, {
-        strategyId: id,
-        models: aiAgents,
-      });
-
-      // First get the strategy row to generate prompts
-      const strategyRowForPrompts = (await db.get("SELECT * FROM strategies WHERE id = ?", [id])) as
-        | StrategyRow
-        | undefined;
-
-      if (strategyRowForPrompts) {
-        for (const model of aiAgents) {
-          const basePrompt = generateBasePromptForModel(model, strategyRowForPrompts);
-
-          // Check if prompt already exists for this strategy/model
-          const existing = (await db.get(
-            "SELECT id FROM strategy_model_prompts WHERE strategy_id = ? AND model_name = ?",
-            [id, model]
-          )) as { id: string } | undefined;
-
-          if (existing) {
-            // Update existing prompt
-            await db.run(
-              `UPDATE strategy_model_prompts
-               SET prompt = ?, updated_at = datetime('now')
-               WHERE strategy_id = ? AND model_name = ?`,
-              [basePrompt, id, model]
-            );
-            console.log(`✅ Updated prompt for model:`, { model, promptId: existing.id });
-          } else {
-            // Insert new prompt
-            const promptId = randomUUID();
-            await db.run(
-              `INSERT INTO strategy_model_prompts (id, strategy_id, model_name, prompt, created_at, updated_at)
-               VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))`,
-              [promptId, id, model, basePrompt]
-            );
-            console.log(`✅ Generated prompt for model:`, { model, promptId });
-          }
-        }
-      }
 
       // Commit transaction
       await db.run("COMMIT");

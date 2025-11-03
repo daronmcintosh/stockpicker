@@ -45,9 +45,6 @@ service StrategyService {
   // Get a specific workflow run
   rpc GetWorkflowRun(GetWorkflowRunRequest) returns (GetWorkflowRunResponse);
 
-  // List model prompts for a strategy
-  rpc ListModelPrompts(ListModelPromptsRequest) returns (ListModelPromptsResponse);
-
   // Update strategy privacy (public/private)
   rpc UpdateStrategyPrivacy(UpdateStrategyPrivacyRequest) returns (UpdateStrategyPrivacyResponse);
 
@@ -375,24 +372,6 @@ message GetWorkflowRunRequest {
 
 message GetWorkflowRunResponse {
   WorkflowRun workflow_run = 1;
-}
-
-// List Model Prompts
-message ListModelPromptsRequest {
-  string strategy_id = 1;
-}
-
-message ModelPrompt {
-  string id = 1;
-  string strategy_id = 2;
-  string model_name = 3;
-  string prompt = 4;
-  google.protobuf.Timestamp created_at = 5;
-  google.protobuf.Timestamp updated_at = 6;
-}
-
-message ListModelPromptsResponse {
-  repeated ModelPrompt prompts = 1;
 }
 
 message WorkflowRun {

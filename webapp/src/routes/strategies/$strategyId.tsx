@@ -1,14 +1,9 @@
 import { PredictionCard } from "@/components/prediction";
-import { EditStrategyDialog, ModelPromptsDisplay, StatusBadge } from "@/components/strategy";
+import { EditStrategyDialog, StatusBadge } from "@/components/strategy";
 import type { EditFormData } from "@/components/strategy/EditStrategyDialog";
 import { getFrequencyLabel, getRiskLevelLabel } from "@/components/strategy/strategyHelpers";
 import { WorkflowRunsList } from "@/components/workflow/WorkflowRunsList";
-import type {
-  ModelPrompt,
-  Prediction,
-  Strategy,
-  WorkflowRun,
-} from "@/gen/stockpicker/v1/strategy_pb";
+import type { Prediction, Strategy, WorkflowRun } from "@/gen/stockpicker/v1/strategy_pb";
 import { PredictionStatus, StrategyStatus } from "@/gen/stockpicker/v1/strategy_pb";
 import { useAuth } from "@/lib/auth";
 import { createClient } from "@/lib/connect";
@@ -58,8 +53,6 @@ function StrategyDetailPage() {
   const [loading, setLoading] = useState(true);
   const [loadingWorkflowRuns, setLoadingWorkflowRuns] = useState(false);
   const [loadingPredictions, setLoadingPredictions] = useState(false);
-  const [loadingPrompts, setLoadingPrompts] = useState(false);
-  const [modelPrompts, setModelPrompts] = useState<ModelPrompt[]>([]);
   const [currentPrices, setCurrentPrices] = useState<Record<string, number>>({});
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [editingStrategy, setEditingStrategy] = useState<Strategy | null>(null);
@@ -72,7 +65,6 @@ function StrategyDetailPage() {
   useEffect(() => {
     if (strategyId && token) {
       loadStrategy();
-      loadModelPrompts();
     }
   }, [strategyId, token]);
 
@@ -100,22 +92,6 @@ function StrategyDetailPage() {
     }
   }
 
-  async function loadModelPrompts() {
-    if (!strategyId || !token) return;
-    setLoadingPrompts(true);
-    try {
-      const client = createClient(token);
-      const response = await client.strategy.listModelPrompts({ strategyId });
-      if (response.prompts) {
-        setModelPrompts(response.prompts);
-      }
-    } catch (error) {
-      console.error("Failed to load model prompts:", error);
-      // Don't show error toast - prompts might not exist for older strategies
-    } finally {
-      setLoadingPrompts(false);
-    }
-  }
 
   async function loadPredictions(id: string) {
     if (!id || !token) return;
@@ -411,18 +387,6 @@ function StrategyDetailPage() {
               </div>
             </div>
 
-            {/* Model Prompts Section */}
-            <div className="bg-white border border-gray-200 rounded-lg">
-              <div className="px-6 py-4 border-b border-gray-200">
-                <h2 className="text-lg font-semibold text-gray-900">AI Model Prompts</h2>
-                <p className="text-sm text-gray-500 mt-1">
-                  Generated prompts for each AI model used in this strategy
-                </p>
-              </div>
-              <div className="p-6">
-                <ModelPromptsDisplay prompts={modelPrompts} loading={loadingPrompts} />
-              </div>
-            </div>
           </div>
 
           {/* Sidebar - Strategy Details */}

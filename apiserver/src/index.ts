@@ -14,7 +14,6 @@ import {
   deleteStrategy,
   getStrategy,
   getWorkflowRun,
-  listModelPrompts,
   listStrategies,
   listWorkflowRuns,
   pauseStrategy,
@@ -54,9 +53,6 @@ const strategyServiceImpl = {
   listWorkflowRuns,
   getWorkflowRun,
   updateWorkflowRunStatus,
-
-  // Model prompts
-  listModelPrompts,
 
   // Remaining RPCs from original file (to be migrated)
   sendOTP: remainingStrategyService.sendOTP,

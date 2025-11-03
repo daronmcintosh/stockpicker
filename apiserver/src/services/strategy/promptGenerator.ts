@@ -1,8 +1,9 @@
 import type { StrategyRow } from "../../db.js";
 
 /**
- * Generate base prompt for an AI model based on strategy configuration
+ * Generate base prompt for AI models based on strategy configuration
  * This prompt serves as the foundation that gets runtime data injected during workflow execution
+ * All AI models use the same base prompt to ensure consistency
  *
  * NOTE: When these prompts are used during workflow execution, they are sent to AI models
  * with the following SYSTEM PROMPT:
@@ -13,10 +14,10 @@ import type { StrategyRow } from "../../db.js";
  * analysis should be based on available data sources (price data, volume, sentiment, etc.)
  * and include actionable chart points."
  *
- * This function generates the USER PROMPT, which includes strategy-specific parameters
+ * This function generates the BASE PROMPT, which includes strategy-specific parameters
  * and requirements. The system prompt is defined in aiAnalysis.ts.
  */
-export function generateBasePromptForModel(_model: string, strategy: StrategyRow): string {
+export function generateBasePrompt(strategy: StrategyRow): string {
   const riskLevelDisplay = strategy.risk_level.replace("RISK_LEVEL_", "").toLowerCase();
 
   // Base prompt template with static strategy inputs

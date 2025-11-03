@@ -1,6 +1,45 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { PrepareDataForWorkflowResponse } from "../../gen/stockpicker/v1/strategy_pb.js";
 import { generateFakeAIAgentResponse } from "./fakeAIAgents.js";
 import type { AIAgentResponse, MergedAIResults, StockRecommendation } from "./workflowTypes.js";
+
+// Get template directory path
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const templatesDir = join(__dirname, "../../templates");
+
+// Cache templates in memory (they're loaded once at module initialization)
+let promptTemplateCache: string | null = null;
+let jsonExampleCache: string | null = null;
+
+/**
+ * Load and cache the user prompt template from markdown file
+ */
+function loadPromptTemplate(): string {
+  if (promptTemplateCache === null) {
+    const templatePath = join(templatesDir, "ai-user-prompt.md");
+    promptTemplateCache = readFileSync(templatePath, "utf-8");
+  }
+  return promptTemplateCache;
+}
+
+/**
+ * Load and cache the JSON format example from markdown file
+ */
+function loadJSONFormatExample(): string {
+  if (jsonExampleCache === null) {
+    const templatePath = join(templatesDir, "json-format-example.md");
+    const content = readFileSync(templatePath, "utf-8");
+    // Extract JSON from markdown code block (remove ```json and ``` markers)
+    jsonExampleCache = content
+      .replace(/^```json\s*\n/, "")
+      .replace(/\n```\s*$/, "")
+      .trim();
+  }
+  return jsonExampleCache;
+}
 
 const USE_FAKE_AI_AGENTS = process.env.USE_FAKE_AI_AGENTS === "true";
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
@@ -129,7 +168,8 @@ async function callOpenAIAgent(
 }
 
 /**
- * Build the user prompt for OpenAI (replicates n8n workflow prompt)
+ * Build the user prompt for OpenAI by loading from markdown template
+ * Replaces template variables with actual values
  */
 function buildUserPrompt(
   strategy: PrepareDataForWorkflowResponse["strategy"],
@@ -144,88 +184,62 @@ function buildUserPrompt(
     throw new Error("Budget is required to build user prompt");
   }
 
-  return `Analyze the following multi-source stock data and provide your top 10 stock recommendations with comprehensive technical analysis:\n\nStrategy Parameters:\n- Strategy: ${strategy.name}\n- Time Horizon: ${strategy.timeHorizon}\n- Target Return: ${strategy.targetReturnPct}%\n- Risk Level: ${strategy.riskLevel}\n- Custom Instructions: ${strategy.customPrompt || "None"}\n\nBudget Information:\n- Monthly Budget: $${(budget.monthlyBudget || 0).toFixed(2)}\n- Current Month Spent: $${(budget.currentMonthSpent || 0).toFixed(2)}\n- Remaining Budget: $${(budget.remainingBudget || 0).toFixed(2)}\n- Per Stock Allocation: $${(budget.perStockAllocation || 0).toFixed(2)}\n- Available Investment Slots: ${budget.availableSlots || 0} stocks\n- Budget Utilization: ${(budget.budgetUtilizationPct || 0).toFixed(1)}%\n- Has Budget: ${budget.hasBudget ? "Yes" : "No"}\n\nIMPORTANT: Only recommend stocks if remaining budget >= per stock allocation. Consider available_slots when selecting how many stocks to recommend. If available_slots is limited, prioritize highest confidence/reward opportunities.\n\nMulti-Source Data:\n${JSON.stringify(sources, null, 2)}\n\nActive Predictions: ${JSON.stringify(activePredictions, null, 2)}\n\nProvide EXACTLY 10 stock recommendations in this JSON format:\n${buildJSONFormatExample()}\n\nIMPORTANT TECHNICAL ANALYSIS REQUIREMENTS:\n1. Base technical analysis on actual data from sources (price, volume, change percentages)\n2. Calculate support/resistance levels from price data where available\n3. Include chart_points array with specific price levels for chart generation\n4. Extract volume analysis from source data (if available)\n5. Calculate or estimate RSI, moving averages, momentum based on price movements\n6. Identify chart patterns (uptrend, downtrend, consolidation, breakout, etc.)\n7. Trace technical indicators back to source data in source_tracing\n8. Ensure all price values are numbers, not strings\n9. Technical analysis should be actionable for chart generation\n\nCONFIDENCE & RISK ASSESSMENT REQUIREMENTS:\n1. confidence_level: decimal 0.0-1.0 representing confidence in recommendation (based on data quality, signal strength, source agreement)\n2. confidence_pct: percentage 0-100 (same as confidence_level * 100)\n3. risk_level: string - one of 'low', 'medium', 'high' based on volatility, stop loss distance, price stability\n4. risk_score: number 1-10 where 1=very low risk, 10=very high risk\n5. success_probability: decimal 0.0-1.0 representing probability of hitting target price based on technical analysis and signals\n6. hit_probability_pct: percentage 0-100 (same as success_probability * 100)\n7. Consider: data source agreement, signal strength, volume confirmation, price stability, stop loss distance\n\nReturn ONLY valid JSON, no markdown formatting. Ensure all prices are numbers, not strings.`;
+  // Load template from markdown file
+  let prompt = loadPromptTemplate();
+
+  // Replace all template variables
+  prompt = prompt.replace(/\{\{STRATEGY_NAME\}\}/g, strategy.name || "");
+  prompt = prompt.replace(/\{\{TIME_HORIZON\}\}/g, strategy.timeHorizon || "");
+  prompt = prompt.replace(/\{\{TARGET_RETURN_PCT\}\}/g, String(strategy.targetReturnPct || 0));
+  // Convert risk level enum to readable string
+  const riskLevelStr = String(strategy.riskLevel || "")
+    .replace(/^RISK_LEVEL_/, "")
+    .toLowerCase();
+  prompt = prompt.replace(/\{\{RISK_LEVEL\}\}/g, riskLevelStr);
+  prompt = prompt.replace(/\{\{CUSTOM_PROMPT\}\}/g, strategy.customPrompt || "None");
+
+  prompt = prompt.replace(
+    /\{\{MONTHLY_BUDGET\}\}/g,
+    (budget.monthlyBudget || 0).toFixed(2)
+  );
+  prompt = prompt.replace(
+    /\{\{CURRENT_MONTH_SPENT\}\}/g,
+    (budget.currentMonthSpent || 0).toFixed(2)
+  );
+  prompt = prompt.replace(
+    /\{\{REMAINING_BUDGET\}\}/g,
+    (budget.remainingBudget || 0).toFixed(2)
+  );
+  prompt = prompt.replace(
+    /\{\{PER_STOCK_ALLOCATION\}\}/g,
+    (budget.perStockAllocation || 0).toFixed(2)
+  );
+  prompt = prompt.replace(/\{\{AVAILABLE_SLOTS\}\}/g, String(budget.availableSlots || 0));
+  prompt = prompt.replace(
+    /\{\{BUDGET_UTILIZATION_PCT\}\}/g,
+    (budget.budgetUtilizationPct || 0).toFixed(1)
+  );
+  prompt = prompt.replace(/\{\{HAS_BUDGET\}\}/g, budget.hasBudget ? "Yes" : "No");
+
+  prompt = prompt.replace(/\{\{SOURCES_JSON\}\}/g, JSON.stringify(sources, null, 2));
+  prompt = prompt.replace(
+    /\{\{ACTIVE_PREDICTIONS_JSON\}\}/g,
+    JSON.stringify(activePredictions, null, 2)
+  );
+
+  // Replace JSON format example
+  const jsonExample = loadJSONFormatExample();
+  prompt = prompt.replace(/\{\{JSON_FORMAT_EXAMPLE\}\}/g, jsonExample);
+
+  return prompt;
 }
 
 /**
- * Build JSON format example (same as n8n workflow)
+ * Build JSON format example (loaded from markdown template)
+ * @deprecated This function is kept for backward compatibility but now uses loadJSONFormatExample internally
  */
 function buildJSONFormatExample(): string {
-  return `{
-  "top_stocks": [
-    {
-      "symbol": "AAPL",
-      "entry_price": 150.00,
-      "target_price": 165.00,
-      "stop_loss_price": 142.50,
-      "reasoning": "Detailed explanation...",
-      "source_tracing": [
-        {
-          "source": "alpha_vantage",
-          "contribution": "Top gainer with 5% increase",
-          "data": {...}
-        }
-      ],
-      "technical_analysis": {
-        "trend": "bullish",
-        "trend_strength": "strong",
-        "support_level": 148.00,
-        "resistance_level": 168.00,
-        "current_price": 150.25,
-        "price_change_pct": 2.5,
-        "volume_analysis": "increasing",
-        "volume_data": {
-          "recent_volume": 1000000,
-          "average_volume": 800000,
-          "volume_trend": "above_average"
-        },
-        "price_levels": [
-          {"level": 148.00, "type": "support", "strength": "strong"},
-          {"level": 152.00, "type": "minor_resistance", "strength": "weak"},
-          {"level": 168.00, "type": "resistance", "strength": "strong"}
-        ],
-        "indicators": {
-          "rsi": 65.5,
-          "rsi_signal": "neutral_to_bullish",
-          "moving_average": {
-            "sma_20": 148.50,
-            "sma_50": 145.00,
-            "position_vs_ma": "above_both"
-          },
-          "momentum": "positive"
-        },
-        "chart_pattern": "uptrend_continuation",
-        "chart_points": [
-          {"price": 148.00, "label": "Support", "type": "horizontal_line"},
-          {"price": 152.00, "label": "Entry Zone", "type": "area"},
-          {"price": 168.00, "label": "Target", "type": "horizontal_line"}
-        ],
-        "timeframe_analysis": {
-          "short_term": "bullish",
-          "medium_term": "bullish",
-          "long_term": "neutral"
-        },
-        "data_sources_used": ["alpha_vantage", "reddit"],
-        "analysis_notes": "Technical analysis based on price data from Alpha Vantage and sentiment from Reddit discussions"
-      },
-      "sentiment_score": 7.5,
-      "overall_score": 8.2,
-      "confidence_level": 0.75,
-      "confidence_pct": 75,
-      "risk_level": "medium",
-      "risk_score": 5.5,
-      "success_probability": 0.72,
-      "hit_probability_pct": 72,
-      "analysis": "Comprehensive analysis text...",
-      "risk_assessment": "Medium risk with moderate confidence..."
-    }
-  ],
-  "metadata": {
-    "sources_used": ["alpha_vantage", "reddit", ...],
-    "analysis_date": "${new Date().toISOString()}",
-    "stocks_considered": 50
-  }
-}`;
+  return loadJSONFormatExample();
 }
 
 /**

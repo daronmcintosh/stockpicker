@@ -6,7 +6,6 @@ export {
   listStrategies,
   updateStrategy,
 } from "./strategyCRUD.js";
-export { listModelPrompts } from "./crud/listModelPrompts.js";
 export {
   pauseStrategy,
   startStrategy,

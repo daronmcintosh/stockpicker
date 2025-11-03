@@ -269,15 +269,6 @@ export interface PredictionRow {
   ai_models: string | null;
 }
 
-export interface StrategyModelPromptRow {
-  id: string;
-  strategy_id: string;
-  model_name: string;
-  prompt: string;
-  created_at: string;
-  updated_at: string;
-}
-
 // Graceful shutdown
 process.on("SIGTERM", async () => {
   await db.close();
