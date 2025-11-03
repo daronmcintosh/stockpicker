@@ -92,7 +92,15 @@ export function createStrategyWorkflowTemplate(
           // Use jsonBody with n8n expression - matching format from n8n MCP examples
           // The expression creates a JavaScript object that n8n will stringify
           jsonBody: `={{ { id: "${strategyId}" } }}`,
-          options: {},
+          options: {
+            response: {
+              response: {
+                neverError: true, // Don't throw errors, return response even on failure
+                fullResponse: true, // Include status code and headers
+                responseFormat: "json",
+              },
+            },
+          },
           authentication: "genericCredentialType",
           genericAuthType: "httpHeaderAuth",
         },
@@ -107,29 +115,34 @@ export function createStrategyWorkflowTemplate(
         parameters: {
           mode: "runOnceForAllItems",
           jsCode: `// Extract input data from ConnectRPC response
-const inputData = $json;
-const response = inputData.json || inputData.body || {};
-
-const strategy = response.strategy || {};
-const activePredictions = response.activePredictions || response.active_predictions || [];
-const budget = response.budget || {};
-let sources = {};
 try {
-  sources = typeof response.sources === 'string' ? JSON.parse(response.sources) : (response.sources || {});
-} catch (e) {
-  console.error('Failed to parse sources:', e);
-  sources = {};
-}
+  const inputData = $json;
+  const response = inputData.json || inputData.body || {};
 
-return [{
-  json: {
-    strategy: strategy,
-    activePredictions: activePredictions,
-    budget: budget,
-    sources: sources,
-    strategyId: "${strategyId}"
+  const strategy = response.strategy || {};
+  const activePredictions = response.activePredictions || response.active_predictions || [];
+  const budget = response.budget || {};
+  let sources = {};
+  try {
+    sources = typeof response.sources === 'string' ? JSON.parse(response.sources) : (response.sources || {});
+  } catch (e) {
+    console.error('Failed to parse sources:', e);
+    sources = {};
   }
-}];`,
+
+  return [{
+    json: {
+      strategy: strategy,
+      activePredictions: activePredictions,
+      budget: budget,
+      sources: sources,
+      strategyId: "${strategyId}"
+    }
+  }];
+} catch (error) {
+  // Throw error so it triggers error output
+  throw new Error('Failed to extract input data: ' + (error instanceof Error ? error.message : String(error)));
+}`,
         },
         id: "extract-input-data",
         name: "Extract Input Data",
@@ -137,7 +150,7 @@ return [{
         typeVersion: 2,
         position: [650, 300],
       },
-      // AI Agent - Primary Analysis (produces top 10 stocks with analysis)
+      // AI Agent 1 - using gpt-4o-mini
       {
         parameters: {
           url: "https://api.openai.com/v1/chat/completions",
@@ -151,7 +164,7 @@ return [{
               },
               {
                 name: "Authorization",
-                value: "=Bearer {{ $env.OPENAI_API_KEY }}",
+                value: "={{ 'Bearer ' + $env.OPENAI_API_KEY }}",
               },
             ],
           },
@@ -290,46 +303,386 @@ return [{
           }) }}`,
           options: {},
         },
-        id: "ai-agent-analysis",
-        name: "AI Agent - Stock Analysis",
+        id: "ai-agent-1",
+        name: "AI Agent 1 - gpt-4o-mini",
+        type: "n8n-nodes-base.httpRequest",
+        typeVersion: 4.2,
+        position: [850, 200],
+      },
+      // AI Agent 2 - using gpt-4o
+      {
+        parameters: {
+          url: "https://api.openai.com/v1/chat/completions",
+          method: "POST",
+          sendHeaders: true,
+          headerParameters: {
+            parameters: [
+              {
+                name: "Content-Type",
+                value: "application/json",
+              },
+              {
+                name: "Authorization",
+                value: "={{ 'Bearer ' + $env.OPENAI_API_KEY }}",
+              },
+            ],
+          },
+          sendBody: true,
+          bodyContentType: "json",
+          jsonBody: `={{ JSON.stringify({
+            "model": "gpt-4o",
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are a professional financial AI analyst specializing in technical analysis. Analyze stock data from multiple sources and provide your top 10 stock recommendations with detailed technical analysis, source tracing, and risk assessment. Your technical analysis should be based on available data sources (price data, volume, sentiment, etc.) and include actionable chart points."
+              },
+              {
+                "role": "user",
+                "content": "Analyze the following multi-source stock data and provide your top 10 stock recommendations with comprehensive technical analysis:\\n\\n" +
+            "Strategy Parameters:\\n" +
+            "- Strategy: " + $json.strategy.name + "\\n" +
+            "- Time Horizon: " + $json.strategy.timeHorizon + "\\n" +
+            "- Target Return: " + $json.strategy.targetReturnPct + "%\\n" +
+            "- Risk Level: " + $json.strategy.riskLevel + "\\n" +
+            "- Custom Instructions: " + ($json.strategy.customPrompt || "None") + "\\n\\n" +
+            "Budget Information:\\n" +
+            "- Monthly Budget: $" + ($json.budget.monthlyBudget || 0).toFixed(2) + "\\n" +
+            "- Current Month Spent: $" + ($json.budget.currentMonthSpent || 0).toFixed(2) + "\\n" +
+            "- Remaining Budget: $" + ($json.budget.remainingBudget || 0).toFixed(2) + "\\n" +
+            "- Per Stock Allocation: $" + ($json.budget.perStockAllocation || 0).toFixed(2) + "\\n" +
+            "- Available Investment Slots: " + ($json.budget.availableSlots || 0) + " stocks\\n" +
+            "- Budget Utilization: " + ($json.budget.budgetUtilizationPct || 0).toFixed(1) + "%\\n" +
+            "- Has Budget: " + ($json.budget.hasBudget ? "Yes" : "No") + "\\n" +
+            "\\nIMPORTANT: Only recommend stocks if remaining budget >= per stock allocation. " +
+            "Consider available_slots when selecting how many stocks to recommend. " +
+            "If available_slots is limited, prioritize highest confidence/reward opportunities.\\n\\n" +
+                  "Multi-Source Data:\\n" +
+                  JSON.stringify($json.sources, null, 2) + "\\n\\n" +
+                  "Active Predictions: " +
+                  JSON.stringify($json.activePredictions, null, 2) + "\\n\\n" +
+                  "Provide EXACTLY 10 stock recommendations in this JSON format:\\n" +
+                  "{\\n" +
+                  '  "top_stocks": [\\n' +
+                  "    {\\n" +
+                  '      "symbol": "AAPL",\\n' +
+                  '      "entry_price": 150.00,\\n' +
+                  '      "target_price": 165.00,\\n' +
+                  '      "stop_loss_price": 142.50,\\n' +
+                  '      "reasoning": "Detailed explanation...",\\n' +
+                  '      "source_tracing": [\\n' +
+                  "        {\\n" +
+                  '          "source": "alpha_vantage",\\n' +
+                  '          "contribution": "Top gainer with 5% increase",\\n' +
+                  '          "data": {...}\\n' +
+                  "        }\\n" +
+                  "      ],\\n" +
+                  '      "technical_analysis": {\\n' +
+                  '        "trend": "bullish",\\n' +
+                  '        "trend_strength": "strong",\\n' +
+                  '        "support_level": 148.00,\\n' +
+                  '        "resistance_level": 168.00,\\n' +
+                  '        "current_price": 150.25,\\n' +
+                  '        "price_change_pct": 2.5,\\n' +
+                  '        "volume_analysis": "increasing",\\n' +
+                  '        "volume_data": {\\n' +
+                  '          "recent_volume": 1000000,\\n' +
+                  '          "average_volume": 800000,\\n' +
+                  '          "volume_trend": "above_average"\\n' +
+                  '        },\\n' +
+                  '        "price_levels": [\\n' +
+                  '          {"level": 148.00, "type": "support", "strength": "strong"},\\n' +
+                  '          {"level": 152.00, "type": "minor_resistance", "strength": "weak"},\\n' +
+                  '          {"level": 168.00, "type": "resistance", "strength": "strong"}\\n' +
+                  '        ],\\n' +
+                  '        "indicators": {\\n' +
+                  '          "rsi": 65.5,\\n' +
+                  '          "rsi_signal": "neutral_to_bullish",\\n' +
+                  '          "moving_average": {\\n' +
+                  '            "sma_20": 148.50,\\n' +
+                  '            "sma_50": 145.00,\\n' +
+                  '            "position_vs_ma": "above_both"\\n' +
+                  '          },\\n' +
+                  '          "momentum": "positive"\\n' +
+                  '        },\\n' +
+                  '        "chart_pattern": "uptrend_continuation",\\n' +
+                  '        "chart_points": [\\n' +
+                  '          {"price": 148.00, "label": "Support", "type": "horizontal_line"},\\n' +
+                  '          {"price": 152.00, "label": "Entry Zone", "type": "area"},\\n' +
+                  '          {"price": 168.00, "label": "Target", "type": "horizontal_line"}\\n' +
+                  '        ],\\n' +
+                  '        "timeframe_analysis": {\\n' +
+                  '          "short_term": "bullish",\\n' +
+                  '          "medium_term": "bullish",\\n' +
+                  '          "long_term": "neutral"\\n' +
+                  '        },\\n' +
+                  '        "data_sources_used": ["alpha_vantage", "reddit"],\\n' +
+                  '        "analysis_notes": "Technical analysis based on price data from Alpha Vantage and sentiment from Reddit discussions"\\n' +
+                  "      },\\n" +
+                  '      "sentiment_score": 7.5,\\n' +
+                  '      "overall_score": 8.2,\\n' +
+                  '      "confidence_level": 0.75,\\n' +
+                  '      "confidence_pct": 75,\\n' +
+                  '      "risk_level": "medium",\\n' +
+                  '      "risk_score": 5.5,\\n' +
+                  '      "success_probability": 0.72,\\n' +
+                  '      "hit_probability_pct": 72,\\n' +
+                  '      "analysis": "Comprehensive analysis text...",\\n' +
+                  '      "risk_assessment": "Medium risk with moderate confidence..."\\n' +
+                  "    }\\n" +
+                  "  ],\\n" +
+                  '  "metadata": {\\n' +
+                  '    "sources_used": ["alpha_vantage", "reddit", ...],\\n' +
+                  '    "analysis_date": "' + new Date().toISOString() + '",\\n' +
+                  '    "stocks_considered": 50\\n' +
+                  "  }\\n" +
+                  "}\\n\\n" +
+                  "IMPORTANT TECHNICAL ANALYSIS REQUIREMENTS:\\n" +
+                  "1. Base technical analysis on actual data from sources (price, volume, change percentages)\\n" +
+                  "2. Calculate support/resistance levels from price data where available\\n" +
+                  "3. Include chart_points array with specific price levels for chart generation\\n" +
+                  "4. Extract volume analysis from source data (if available)\\n" +
+                  "5. Calculate or estimate RSI, moving averages, momentum based on price movements\\n" +
+                  "6. Identify chart patterns (uptrend, downtrend, consolidation, breakout, etc.)\\n" +
+                  "7. Trace technical indicators back to source data in source_tracing\\n" +
+                  "8. Ensure all price values are numbers, not strings\\n" +
+                  "9. Technical analysis should be actionable for chart generation\\n\\n" +
+                  "CONFIDENCE & RISK ASSESSMENT REQUIREMENTS:\\n" +
+                  "1. confidence_level: decimal 0.0-1.0 representing confidence in recommendation (based on data quality, signal strength, source agreement)\\n" +
+                  "2. confidence_pct: percentage 0-100 (same as confidence_level * 100)\\n" +
+                  "3. risk_level: string - one of 'low', 'medium', 'high' based on volatility, stop loss distance, price stability\\n" +
+                  "4. risk_score: number 1-10 where 1=very low risk, 10=very high risk\\n" +
+                  "5. success_probability: decimal 0.0-1.0 representing probability of hitting target price based on technical analysis and signals\\n" +
+                  "6. hit_probability_pct: percentage 0-100 (same as success_probability * 100)\\n" +
+                  "7. Consider: data source agreement, signal strength, volume confirmation, price stability, stop loss distance\\n\\n" +
+                  "Return ONLY valid JSON, no markdown formatting. Ensure all prices are numbers, not strings."
+              }
+            ],
+            "temperature": 0.7,
+            "response_format": {"type": "json_object"}
+          }) }}`,
+          options: {},
+        },
+        id: "ai-agent-2",
+        name: "AI Agent 2 - gpt-4o",
         type: "n8n-nodes-base.httpRequest",
         typeVersion: 4.2,
         position: [850, 300],
+      },
+      // AI Agent 3 - using gpt-4o-mini (different instance for variety)
+      {
+        parameters: {
+          url: "https://api.openai.com/v1/chat/completions",
+          method: "POST",
+          sendHeaders: true,
+          headerParameters: {
+            parameters: [
+              {
+                name: "Content-Type",
+                value: "application/json",
+              },
+              {
+                name: "Authorization",
+                value: "={{ 'Bearer ' + $env.OPENAI_API_KEY }}",
+              },
+            ],
+          },
+          sendBody: true,
+          bodyContentType: "json",
+          jsonBody: `={{ JSON.stringify({
+            "model": "gpt-4o-mini",
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are a professional financial AI analyst specializing in technical analysis. Analyze stock data from multiple sources and provide your top 10 stock recommendations with detailed technical analysis, source tracing, and risk assessment. Your technical analysis should be based on available data sources (price data, volume, sentiment, etc.) and include actionable chart points."
+              },
+              {
+                "role": "user",
+                "content": "Analyze the following multi-source stock data and provide your top 10 stock recommendations with comprehensive technical analysis:\\n\\n" +
+            "Strategy Parameters:\\n" +
+            "- Strategy: " + $json.strategy.name + "\\n" +
+            "- Time Horizon: " + $json.strategy.timeHorizon + "\\n" +
+            "- Target Return: " + $json.strategy.targetReturnPct + "%\\n" +
+            "- Risk Level: " + $json.strategy.riskLevel + "\\n" +
+            "- Custom Instructions: " + ($json.strategy.customPrompt || "None") + "\\n\\n" +
+            "Budget Information:\\n" +
+            "- Monthly Budget: $" + ($json.budget.monthlyBudget || 0).toFixed(2) + "\\n" +
+            "- Current Month Spent: $" + ($json.budget.currentMonthSpent || 0).toFixed(2) + "\\n" +
+            "- Remaining Budget: $" + ($json.budget.remainingBudget || 0).toFixed(2) + "\\n" +
+            "- Per Stock Allocation: $" + ($json.budget.perStockAllocation || 0).toFixed(2) + "\\n" +
+            "- Available Investment Slots: " + ($json.budget.availableSlots || 0) + " stocks\\n" +
+            "- Budget Utilization: " + ($json.budget.budgetUtilizationPct || 0).toFixed(1) + "%\\n" +
+            "- Has Budget: " + ($json.budget.hasBudget ? "Yes" : "No") + "\\n" +
+            "\\nIMPORTANT: Only recommend stocks if remaining budget >= per stock allocation. " +
+            "Consider available_slots when selecting how many stocks to recommend. " +
+            "If available_slots is limited, prioritize highest confidence/reward opportunities.\\n\\n" +
+                  "Multi-Source Data:\\n" +
+                  JSON.stringify($json.sources, null, 2) + "\\n\\n" +
+                  "Active Predictions: " +
+                  JSON.stringify($json.activePredictions, null, 2) + "\\n\\n" +
+                  "Provide EXACTLY 10 stock recommendations in this JSON format:\\n" +
+                  "{\\n" +
+                  '  "top_stocks": [\\n' +
+                  "    {\\n" +
+                  '      "symbol": "AAPL",\\n' +
+                  '      "entry_price": 150.00,\\n' +
+                  '      "target_price": 165.00,\\n' +
+                  '      "stop_loss_price": 142.50,\\n' +
+                  '      "reasoning": "Detailed explanation...",\\n' +
+                  '      "source_tracing": [\\n' +
+                  "        {\\n" +
+                  '          "source": "alpha_vantage",\\n' +
+                  '          "contribution": "Top gainer with 5% increase",\\n' +
+                  '          "data": {...}\\n' +
+                  "        }\\n" +
+                  "      ],\\n" +
+                  '      "technical_analysis": {\\n' +
+                  '        "trend": "bullish",\\n' +
+                  '        "trend_strength": "strong",\\n' +
+                  '        "support_level": 148.00,\\n' +
+                  '        "resistance_level": 168.00,\\n' +
+                  '        "current_price": 150.25,\\n' +
+                  '        "price_change_pct": 2.5,\\n' +
+                  '        "volume_analysis": "increasing",\\n' +
+                  '        "volume_data": {\\n' +
+                  '          "recent_volume": 1000000,\\n' +
+                  '          "average_volume": 800000,\\n' +
+                  '          "volume_trend": "above_average"\\n' +
+                  '        },\\n' +
+                  '        "price_levels": [\\n' +
+                  '          {"level": 148.00, "type": "support", "strength": "strong"},\\n' +
+                  '          {"level": 152.00, "type": "minor_resistance", "strength": "weak"},\\n' +
+                  '          {"level": 168.00, "type": "resistance", "strength": "strong"}\\n' +
+                  '        ],\\n' +
+                  '        "indicators": {\\n' +
+                  '          "rsi": 65.5,\\n' +
+                  '          "rsi_signal": "neutral_to_bullish",\\n' +
+                  '          "moving_average": {\\n' +
+                  '            "sma_20": 148.50,\\n' +
+                  '            "sma_50": 145.00,\\n' +
+                  '            "position_vs_ma": "above_both"\\n' +
+                  '          },\\n' +
+                  '          "momentum": "positive"\\n' +
+                  '        },\\n' +
+                  '        "chart_pattern": "uptrend_continuation",\\n' +
+                  '        "chart_points": [\\n' +
+                  '          {"price": 148.00, "label": "Support", "type": "horizontal_line"},\\n' +
+                  '          {"price": 152.00, "label": "Entry Zone", "type": "area"},\\n' +
+                  '          {"price": 168.00, "label": "Target", "type": "horizontal_line"}\\n' +
+                  '        ],\\n' +
+                  '        "timeframe_analysis": {\\n' +
+                  '          "short_term": "bullish",\\n' +
+                  '          "medium_term": "bullish",\\n' +
+                  '          "long_term": "neutral"\\n' +
+                  '        },\\n' +
+                  '        "data_sources_used": ["alpha_vantage", "reddit"],\\n' +
+                  '        "analysis_notes": "Technical analysis based on price data from Alpha Vantage and sentiment from Reddit discussions"\\n' +
+                  "      },\\n" +
+                  '      "sentiment_score": 7.5,\\n' +
+                  '      "overall_score": 8.2,\\n' +
+                  '      "confidence_level": 0.75,\\n' +
+                  '      "confidence_pct": 75,\\n' +
+                  '      "risk_level": "medium",\\n' +
+                  '      "risk_score": 5.5,\\n' +
+                  '      "success_probability": 0.72,\\n' +
+                  '      "hit_probability_pct": 72,\\n' +
+                  '      "analysis": "Comprehensive analysis text...",\\n' +
+                  '      "risk_assessment": "Medium risk with moderate confidence..."\\n' +
+                  "    }\\n" +
+                  "  ],\\n" +
+                  '  "metadata": {\\n' +
+                  '    "sources_used": ["alpha_vantage", "reddit", ...],\\n' +
+                  '    "analysis_date": "' + new Date().toISOString() + '",\\n' +
+                  '    "stocks_considered": 50\\n' +
+                  "  }\\n" +
+                  "}\\n\\n" +
+                  "IMPORTANT TECHNICAL ANALYSIS REQUIREMENTS:\\n" +
+                  "1. Base technical analysis on actual data from sources (price, volume, change percentages)\\n" +
+                  "2. Calculate support/resistance levels from price data where available\\n" +
+                  "3. Include chart_points array with specific price levels for chart generation\\n" +
+                  "4. Extract volume analysis from source data (if available)\\n" +
+                  "5. Calculate or estimate RSI, moving averages, momentum based on price movements\\n" +
+                  "6. Identify chart patterns (uptrend, downtrend, consolidation, breakout, etc.)\\n" +
+                  "7. Trace technical indicators back to source data in source_tracing\\n" +
+                  "8. Ensure all price values are numbers, not strings\\n" +
+                  "9. Technical analysis should be actionable for chart generation\\n\\n" +
+                  "CONFIDENCE & RISK ASSESSMENT REQUIREMENTS:\\n" +
+                  "1. confidence_level: decimal 0.0-1.0 representing confidence in recommendation (based on data quality, signal strength, source agreement)\\n" +
+                  "2. confidence_pct: percentage 0-100 (same as confidence_level * 100)\\n" +
+                  "3. risk_level: string - one of 'low', 'medium', 'high' based on volatility, stop loss distance, price stability\\n" +
+                  "4. risk_score: number 1-10 where 1=very low risk, 10=very high risk\\n" +
+                  "5. success_probability: decimal 0.0-1.0 representing probability of hitting target price based on technical analysis and signals\\n" +
+                  "6. hit_probability_pct: percentage 0-100 (same as success_probability * 100)\\n" +
+                  "7. Consider: data source agreement, signal strength, volume confirmation, price stability, stop loss distance\\n\\n" +
+                  "Return ONLY valid JSON, no markdown formatting. Ensure all prices are numbers, not strings."
+              }
+            ],
+            "temperature": 0.8,
+            "response_format": {"type": "json_object"}
+          }) }}`,
+          options: {},
+        },
+        id: "ai-agent-3",
+        name: "AI Agent 3 - Risk Management",
+        type: "n8n-nodes-base.httpRequest",
+        typeVersion: 4.2,
+        position: [850, 400],
+      },
+      // Merge AI Agent Results - combines successful responses from all 3 agents
+      {
+        parameters: {
+          mode: "combine",
+          combineBy: "combineAll",
+          options: {},
+        },
+        id: "merge-ai-agent-results",
+        name: "Merge AI Agent Results",
+        type: "n8n-nodes-base.merge",
+        typeVersion: 2.1,
+        position: [1250, 300],
       },
       // Parse AI Analysis - extract top 10 stocks
       {
         parameters: {
           mode: "runOnceForAllItems",
           jsCode: `// Parse AI agent response and extract top 10 stocks
-const response = $input.item.json;
-const content = response.choices?.[0]?.message?.content || response.message?.content || '';
-
-let aiAnalysis = null;
 try {
-  aiAnalysis = JSON.parse(content);
-} catch (e) {
-  console.error('Error parsing AI analysis:', e);
-  aiAnalysis = { top_stocks: [], metadata: {} };
-}
+  const response = $input.item.json;
+  const body = response.body || response;
+  const content = body.choices?.[0]?.message?.content || body.message?.content || '';
 
-const top10Stocks = (aiAnalysis.top_stocks || []).slice(0, 10);
-
-return [{
-  json: {
-    top10Stocks: top10Stocks,
-    aiAnalysis: aiAnalysis,
-    metadata: aiAnalysis.metadata || {},
-    strategy: $node['Extract Input Data'].json.strategy,
-    sources: $node['Extract Input Data'].json.sources,
-    strategyId: "${strategyId}"
+  if (!content) {
+    throw new Error('AI agent returned empty response');
   }
-}];`,
+
+  let aiAnalysis = null;
+  try {
+    aiAnalysis = JSON.parse(content);
+  } catch (e) {
+    throw new Error('Failed to parse AI analysis JSON: ' + (e instanceof Error ? e.message : String(e)));
+  }
+
+  const top10Stocks = (aiAnalysis.top_stocks || []).slice(0, 10);
+
+  return [{
+    json: {
+      top10Stocks: top10Stocks,
+      aiAnalysis: aiAnalysis,
+      metadata: aiAnalysis.metadata || {},
+      strategy: $node['Extract Input Data'].json.strategy,
+      sources: $node['Extract Input Data'].json.sources,
+      strategyId: "${strategyId}"
+    }
+  }];
+} catch (error) {
+  // Throw error so it triggers error output
+  throw new Error('Failed to parse AI analysis: ' + (error instanceof Error ? error.message : String(error)));
+}`,
         },
         id: "parse-ai-analysis",
         name: "Parse AI Analysis",
         type: "n8n-nodes-base.code",
         typeVersion: 2,
-        position: [1050, 300],
+        position: [1250, 300],
       },
       // Generate JSON Output - standardized format
       {
@@ -724,67 +1077,6 @@ return [{
         type: "n8n-nodes-base.httpRequest",
         typeVersion: 4.2,
         position: [1650, 300],
-        continueOnFail: false,
-      },
-      // Handle Workflow Error - called when any step fails
-      // This node captures error information and updates the workflow run status
-      {
-        parameters: {
-          mode: "runOnceForAllItems",
-          jsCode: `// Extract error information from n8n error output
-const errorData = $input.all()[0] || {};
-const errorMessage = errorData.json?.error?.message ||
-                     errorData.json?.message ||
-                     errorData.error?.message ||
-                     JSON.stringify(errorData.json) ||
-                     "Workflow execution failed";
-
-return [{
-  json: {
-    strategy_id: "${strategyId}",
-    execution_id: $execution.id,
-    status: "failed",
-    error_message: errorMessage
-  }
-}];`,
-        },
-        id: "extract-error-info",
-        name: "Extract Error Info",
-        type: "n8n-nodes-base.code",
-        typeVersion: 2,
-        position: [1650, 500],
-      },
-      {
-        parameters: {
-          url: `${apiUrl}/stockpicker.v1.StrategyService/UpdateWorkflowRunStatus`,
-          method: "POST",
-          sendHeaders: true,
-          headerParameters: {
-            parameters: [
-              {
-                name: "Content-Type",
-                value: "application/json",
-              },
-              {
-                name: "Connect-Protocol-Version",
-                value: "1",
-              },
-            ],
-          },
-          sendBody: true,
-          bodyContentType: "json",
-          jsonBody:
-            "={{ JSON.stringify({ strategyId: $json.strategy_id, executionId: $json.execution_id, status: $json.status, errorMessage: $json.error_message }) }}",
-          options: {},
-          authentication: "genericCredentialType",
-          genericAuthType: "httpHeaderAuth",
-        },
-        id: "handle-workflow-error",
-        name: "Handle Workflow Error",
-        type: "n8n-nodes-base.httpRequest",
-        typeVersion: 4.2,
-        position: [1850, 500],
-        continueOnFail: true, // Don't fail if error reporting itself fails
       },
     ],
     connections: {
@@ -799,15 +1091,27 @@ return [{
       },
       "Get Prepared Data": {
         main: [[{ node: "Extract Input Data", type: "main", index: 0 }]],
-        error: [[{ node: "Extract Error Info", type: "main", index: 0 }]],
       },
       "Extract Input Data": {
-        main: [[{ node: "AI Agent - Stock Analysis", type: "main", index: 0 }]],
-        error: [[{ node: "Extract Error Info", type: "main", index: 0 }]],
+        main: [
+          [
+            { node: "AI Agent 1 - gpt-4o-mini", type: "main", index: 0 },
+            { node: "AI Agent 2 - gpt-4o", type: "main", index: 0 },
+            { node: "AI Agent 3 - gpt-4o-mini", type: "main", index: 0 },
+          ],
+        ],
       },
-      "AI Agent - Stock Analysis": {
+      "AI Agent 1 - gpt-4o-mini": {
+        main: [[{ node: "Merge AI Agent Results", type: "main", index: 0 }]],
+      },
+      "AI Agent 2 - gpt-4o": {
+        main: [[{ node: "Merge AI Agent Results", type: "main", index: 0 }]],
+      },
+      "AI Agent 3 - gpt-4o-mini": {
+        main: [[{ node: "Merge AI Agent Results", type: "main", index: 0 }]],
+      },
+      "Merge AI Agent Results": {
         main: [[{ node: "Parse AI Analysis", type: "main", index: 0 }]],
-        error: [[{ node: "Extract Error Info", type: "main", index: 0 }]],
       },
       "Parse AI Analysis": {
         main: [
@@ -816,29 +1120,23 @@ return [{
             { node: "Generate Markdown Output", type: "main", index: 0 },
           ],
         ],
-        error: [[{ node: "Extract Error Info", type: "main", index: 0 }]],
       },
       "Generate JSON Output": {
         main: [[{ node: "Combine & Validate Outputs", type: "main", index: 0 }]],
-        error: [[{ node: "Extract Error Info", type: "main", index: 0 }]],
       },
       "Generate Markdown Output": {
         main: [[{ node: "Combine & Validate Outputs", type: "main", index: 0 }]],
-        error: [[{ node: "Extract Error Info", type: "main", index: 0 }]],
       },
       "Combine & Validate Outputs": {
         main: [[{ node: "Complete Workflow Run", type: "main", index: 0 }]],
-        error: [[{ node: "Extract Error Info", type: "main", index: 0 }]],
-      },
-      "Complete Workflow Run": {
-        error: [[{ node: "Extract Error Info", type: "main", index: 0 }]],
-      },
-      "Extract Error Info": {
-        main: [[{ node: "Handle Workflow Error", type: "main", index: 0 }]],
       },
     },
     settings: {
       executionOrder: "v1",
+      saveDataErrorExecution: "all",
+      saveDataSuccessExecution: "none",
+      saveManualExecutions: true,
+      saveExecutionProgress: false,
     },
   };
 

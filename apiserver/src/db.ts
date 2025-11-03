@@ -138,6 +138,7 @@ try {
         target_return_pct = COALESCE(:target_return_pct, target_return_pct),
         risk_level = COALESCE(:risk_level, risk_level),
         max_unique_stocks = COALESCE(:max_unique_stocks, max_unique_stocks),
+        ai_agents = COALESCE(:ai_agents, ai_agents),
         updated_at = :updated_at
     WHERE id = :id
   `),
@@ -244,6 +245,7 @@ export interface StrategyRow {
   privacy: string;
   user_id: string;
   source_config: string | null;
+  ai_agents: string | null;
 }
 
 export interface PredictionRow {

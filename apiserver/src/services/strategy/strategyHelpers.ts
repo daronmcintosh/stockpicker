@@ -223,6 +223,11 @@ export async function dbRowToProtoStrategy(row: StrategyRow): Promise<Strategy> 
       updatedAt: timestampFromDate(new Date(row.updated_at)),
     });
 
+    // Add ai_agents if present
+    if (row.ai_agents) {
+      strategy.aiAgents = row.ai_agents;
+    }
+
     if (row.next_trade_scheduled) {
       strategy.nextTradeScheduled = timestampFromDate(new Date(row.next_trade_scheduled));
     }

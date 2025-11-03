@@ -76,6 +76,12 @@ export async function updateStrategy(
       params.push(sourceConfig || "");
     }
 
+    // Handle ai_agents if provided
+    if (req.aiAgents !== undefined) {
+      updates.push("ai_agents = ?");
+      params.push(req.aiAgents || "");
+    }
+
     // Track if name changed for workflow update
     const nameChanged = req.name && req.name !== existingRow.name;
     const oldName = existingRow.name;

@@ -173,6 +173,9 @@ message Strategy {
   // User (gamification)
   string user_id = 23;
   optional User user = 24; // Populated in list/get responses
+
+  // AI Agent configuration (JSON string: array of model names, e.g., ["gpt-4o-mini", "gpt-4o", "gpt-4o-mini"])
+  optional string ai_agents = 25;
 }
 
 // Create Strategy
@@ -221,6 +224,7 @@ message UpdateStrategyRequest {
   optional double target_return_pct = 6;
   optional RiskLevel risk_level = 7;
   optional int32 max_unique_stocks = 8;
+  optional string ai_agents = 9; // JSON string: array of model names
 }
 
 message UpdateStrategyResponse {

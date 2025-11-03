@@ -30,7 +30,7 @@ export const appConfig = {
     apiServerUrl: process.env.N8N_API_SERVER_URL || "http://apiserver:3000",
     webhookUrl:
       process.env.N8N_WEBHOOK_URL ||
-      "http://localhost:5678/webhook/7d06391c-20b9-43fd-a024-4a37ade79f68",
+      "http://localhost:5678/webhook/8264775e-e2c0-4ae1-a176-4866dbf09d58",
   },
 
   // Node environment
