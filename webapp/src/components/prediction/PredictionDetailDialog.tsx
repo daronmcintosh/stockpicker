@@ -7,7 +7,7 @@ import {
   StrategyPrivacy,
 } from "@/gen/stockpicker/v1/strategy_pb";
 import { Link } from "@tanstack/react-router";
-import { Bot, CheckCircle2, Edit, Lock, Pencil, Trash2, TrendingUp, XCircle } from "lucide-react";
+import { Bot, CheckCircle2, Edit, Lock, Pencil, TrendingUp, XCircle } from "lucide-react";
 import { getPredictionSource, toNumber } from "./predictionHelpers";
 
 interface PredictionDetailDialogProps {

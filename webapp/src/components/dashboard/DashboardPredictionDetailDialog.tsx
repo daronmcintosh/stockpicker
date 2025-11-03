@@ -3,7 +3,6 @@ import type { Prediction, Strategy } from "@/gen/stockpicker/v1/strategy_pb";
 import {
   PredictionAction,
   PredictionPrivacy,
-  PredictionStatus,
   StrategyPrivacy,
 } from "@/gen/stockpicker/v1/strategy_pb";
 import { Link, useNavigate } from "@tanstack/react-router";

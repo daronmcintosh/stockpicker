@@ -125,8 +125,66 @@ return [{
           },
           sendBody: true,
           bodyContentType: "json",
-          jsonBody:
-            '={{ {"model": "gpt-4o-mini", "messages": [{"role": "system", "content": "You are a professional financial AI analyst. Analyze stock data from multiple sources and provide your top 10 stock recommendations with detailed analysis, source tracing, and risk assessment. Always ensure your analysis is thorough and well-reasoned."}, {"role": "user", "content": "Analyze the following multi-source stock data and provide your top 10 stock recommendations:\\n\\nStrategy Parameters:\\n- Strategy: " + $json.strategy.name + "\\n- Time Horizon: " + $json.strategy.timeHorizon + "\\n- Target Return: " + $json.strategy.targetReturnPct + "%\\n- Risk Level: " + $json.strategy.riskLevel + "\\n- Per Stock Budget: $" + $json.strategy.perStockAllocation + "\\n- Custom Instructions: " + ($json.strategy.customPrompt || "None") + "\\n\\nMulti-Source Data:\\n" + JSON.stringify($json.sources, null, 2) + "\\n\\nActive Predictions: " + JSON.stringify($json.activePredictions, null, 2) + "\\n\\nProvide EXACTLY 10 stock recommendations in this JSON format:\\n{\\n  \\"top_stocks\\": [\\n    {\\n      \\"symbol\\": \\"AAPL\\",\\n      \\"entry_price\\": 150.00,\\n      \\"target_price\\": 165.00,\\n      \\"stop_loss_price\\": 142.50,\\n      \\"reasoning\\": \\"Detailed explanation...\\",\\n      \\"source_tracing\\": [\\n        {\\n          \\"source\\": \\"alpha_vantage\\",\\n          \\"contribution\\": \\"Top gainer with 5% increase\\",\\n          \\"data\\": {...}\\n        }\\n      ],\\n      \\"technical_analysis\\": {\\n        \\"trend\\": \\"bullish\\",\\n        \\"support_level\\": 148.00,\\n        \\"resistance_level\\": 168.00\\n      },\\n      \\"sentiment_score\\": 7.5,\\n      \\"overall_score\\": 8.2,\\n      \\"analysis\\": \\"Comprehensive analysis text...\\",\\n      \\"risk_assessment\\": \\"Medium risk...\\"\\n    }\\n  ],\\n  \\"metadata\\": {\\n    \\"sources_used\\": [\\"alpha_vantage\\", \\"reddit\\", ...],\\n    \\"analysis_date\\": \\"" + new Date().toISOString() + "\\",\\n    \\"stocks_considered\\": 50\\n  }\\n}\\n\\nIMPORTANT: Return ONLY valid JSON, no markdown formatting. Ensure all prices are numbers, not strings."}], "temperature": 0.7, "response_format": {"type": "json_object"}} }}',
+          jsonBody: `={{ JSON.stringify({
+            "model": "gpt-4o-mini",
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are a professional financial AI analyst. Analyze stock data from multiple sources and provide your top 10 stock recommendations with detailed analysis, source tracing, and risk assessment. Always ensure your analysis is thorough and well-reasoned."
+              },
+              {
+                "role": "user",
+                "content": "Analyze the following multi-source stock data and provide your top 10 stock recommendations:\\n\\n" +
+                  "Strategy Parameters:\\n" +
+                  "- Strategy: " + $json.strategy.name + "\\n" +
+                  "- Time Horizon: " + $json.strategy.timeHorizon + "\\n" +
+                  "- Target Return: " + $json.strategy.targetReturnPct + "%\\n" +
+                  "- Risk Level: " + $json.strategy.riskLevel + "\\n" +
+                  "- Per Stock Budget: $" + $json.strategy.perStockAllocation + "\\n" +
+                  "- Custom Instructions: " + ($json.strategy.customPrompt || "None") + "\\n\\n" +
+                  "Multi-Source Data:\\n" +
+                  JSON.stringify($json.sources, null, 2) + "\\n\\n" +
+                  "Active Predictions: " +
+                  JSON.stringify($json.activePredictions, null, 2) + "\\n\\n" +
+                  "Provide EXACTLY 10 stock recommendations in this JSON format:\\n" +
+                  "{\\n" +
+                  '  "top_stocks": [\\n' +
+                  "    {\\n" +
+                  '      "symbol": "AAPL",\\n' +
+                  '      "entry_price": 150.00,\\n' +
+                  '      "target_price": 165.00,\\n' +
+                  '      "stop_loss_price": 142.50,\\n' +
+                  '      "reasoning": "Detailed explanation...",\\n' +
+                  '      "source_tracing": [\\n' +
+                  "        {\\n" +
+                  '          "source": "alpha_vantage",\\n' +
+                  '          "contribution": "Top gainer with 5% increase",\\n' +
+                  '          "data": {...}\\n' +
+                  "        }\\n" +
+                  "      ],\\n" +
+                  '      "technical_analysis": {\\n' +
+                  '        "trend": "bullish",\\n' +
+                  '        "support_level": 148.00,\\n' +
+                  '        "resistance_level": 168.00\\n' +
+                  "      },\\n" +
+                  '      "sentiment_score": 7.5,\\n' +
+                  '      "overall_score": 8.2,\\n' +
+                  '      "analysis": "Comprehensive analysis text...",\\n' +
+                  '      "risk_assessment": "Medium risk..."\\n' +
+                  "    }\\n" +
+                  "  ],\\n" +
+                  '  "metadata": {\\n' +
+                  '    "sources_used": ["alpha_vantage", "reddit", ...],\\n' +
+                  '    "analysis_date": "' + new Date().toISOString() + '",\\n' +
+                  '    "stocks_considered": 50\\n' +
+                  "  }\\n" +
+                  "}\\n\\n" +
+                  "IMPORTANT: Return ONLY valid JSON, no markdown formatting. Ensure all prices are numbers, not strings."
+              }
+            ],
+            "temperature": 0.7,
+            "response_format": {"type": "json_object"}
+          }) }}`,
           options: {},
         },
         id: "ai-agent-analysis",
@@ -251,21 +309,23 @@ top10.forEach((stock, index) => {
   const targetPrice = Number(stock.target_price) || 0;
   const stopLossPrice = Number(stock.stop_loss_price) || 0;
   const overallScore = Number(stock.overall_score) || 0;
-  
+
   markdown += \`### \${index + 1}. \${symbol}\\n\\n\`;
   markdown += \`**Entry Price:** $\${entryPrice.toFixed(2)}\\n\`;
-  markdown += \`**Target Price:** $\${targetPrice.toFixed(2)} (+${(((targetPrice - entryPrice) / entryPrice) * 100).toFixed(2)}%)\\n\`;
-  markdown += \`**Stop Loss:** $\${stopLossPrice.toFixed(2)} (-${(((entryPrice - stopLossPrice) / entryPrice) * 100).toFixed(2)}%)\\n\`;
+  const targetReturnPct = ((targetPrice - entryPrice) / entryPrice) * 100;
+  const stopLossPct = ((entryPrice - stopLossPrice) / entryPrice) * 100;
+  markdown += \`**Target Price:** $\${targetPrice.toFixed(2)} (+\${targetReturnPct.toFixed(2)}%)\\n\`;
+  markdown += \`**Stop Loss:** $\${stopLossPrice.toFixed(2)} (-\${stopLossPct.toFixed(2)}%)\\n\`;
   markdown += \`**Overall Score:** \${overallScore.toFixed(1)}/10\\n\\n\`;
-  
+
   if (stock.reasoning) {
     markdown += \`**Reasoning:** \${stock.reasoning}\\n\\n\`;
   }
-  
+
   if (stock.analysis) {
     markdown += \`**Analysis:** \${stock.analysis}\\n\\n\`;
   }
-  
+
   // Source tracing
   if (stock.source_tracing && stock.source_tracing.length > 0) {
     markdown += '**Sources:**\\n';
@@ -274,7 +334,7 @@ top10.forEach((stock, index) => {
     });
     markdown += '\\n';
   }
-  
+
   // Technical analysis
   if (stock.technical_analysis) {
     markdown += '**Technical Analysis:**\\n';
@@ -289,11 +349,11 @@ top10.forEach((stock, index) => {
     }
     markdown += '\\n';
   }
-  
+
   if (stock.risk_assessment) {
     markdown += \`**Risk Assessment:** \${stock.risk_assessment}\\n\\n\`;
   }
-  
+
   markdown += '---\\n\\n';
 });
 

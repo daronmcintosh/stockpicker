@@ -1,8 +1,8 @@
 import type { Prediction, Strategy } from "@/gen/stockpicker/v1/strategy_pb";
-import { PredictionSource, PredictionStatus } from "@/gen/stockpicker/v1/strategy_pb";
+import { PredictionSource } from "@/gen/stockpicker/v1/strategy_pb";
 import { Link } from "@tanstack/react-router";
 import { ArrowRight, Bot, Pencil, TrendingDown, TrendingUp } from "lucide-react";
-import { getPredictionSource, getStatusColor, getStatusLabel, toNumber } from "./dashboardHelpers";
+import { getStatusColor, getStatusLabel, toNumber } from "./dashboardHelpers";
 
 interface RecentPredictionsProps {
   loading: boolean;

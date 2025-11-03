@@ -4,23 +4,25 @@ import type { RiskLevel } from "@/gen/stockpicker/v1/strategy_pb";
 import { Pencil } from "lucide-react";
 import { getPredictionSource } from "./predictionHelpers";
 
+interface EditPredictionFormData {
+  symbol: string;
+  entryPrice: string;
+  targetPrice: string;
+  stopLossPrice: string;
+  allocatedAmount: string;
+  sentimentScore: string;
+  overallScore: string;
+  technicalAnalysis: string;
+  timeHorizonDays: string;
+  riskLevel: RiskLevel;
+}
+
 interface EditPredictionDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   editingPrediction: Prediction | null;
-  editFormData: {
-    symbol: string;
-    entryPrice: string;
-    targetPrice: string;
-    stopLossPrice: string;
-    allocatedAmount: string;
-    sentimentScore: string;
-    overallScore: string;
-    technicalAnalysis: string;
-    timeHorizonDays: string;
-    riskLevel: RiskLevel;
-  };
-  onEditFormDataChange: (data: Partial<typeof editFormData>) => void;
+  editFormData: EditPredictionFormData;
+  onEditFormDataChange: (data: Partial<EditPredictionFormData>) => void;
   editCurrentStockPrice: number | null;
   loadingEditStockPrice: boolean;
   updatingPrediction: boolean;

@@ -17,7 +17,7 @@ import {
 import { useAuth } from "@/lib/auth";
 import { createClient } from "@/lib/connect";
 import { fetchStockPrices } from "@/lib/stockPrice";
-import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
+import { Link, createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
 import toast from "react-hot-toast";
 
@@ -25,7 +25,6 @@ export const Route = createFileRoute("/dashboard")({ component: App });
 
 function App() {
   const { token } = useAuth();
-  const _navigate = useNavigate();
   const [activeStrategiesCount, setActiveStrategiesCount] = useState(0);
   const [totalStrategiesCount, setTotalStrategiesCount] = useState(0);
   const [totalBudget, setTotalBudget] = useState(0);

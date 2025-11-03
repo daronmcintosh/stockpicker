@@ -1,6 +1,17 @@
 import { Dialog, DialogButton, DialogFooter } from "@/components/ui/Dialog";
-import { PredictionSource, type StrategyPrivacy } from "@/gen/stockpicker/v1/strategy_pb";
+import type { StrategyPrivacy } from "@/gen/stockpicker/v1/strategy_pb";
 import { Pencil } from "lucide-react";
+
+interface CreatePredictionFormData {
+  symbol: string;
+  entryPrice: string;
+  targetPrice: string;
+  stopLossPrice: string;
+  allocatedAmount: string;
+  sentimentScore: string;
+  overallScore: string;
+  technicalAnalysis: string;
+}
 
 interface CreatePredictionDialogProps {
   open: boolean;
@@ -9,17 +20,8 @@ interface CreatePredictionDialogProps {
   strategies: Array<{ id: string; name: string; privacy?: StrategyPrivacy }>;
   dialogStrategy: string;
   onDialogStrategyChange: (strategy: string) => void;
-  formData: {
-    symbol: string;
-    entryPrice: string;
-    targetPrice: string;
-    stopLossPrice: string;
-    allocatedAmount: string;
-    sentimentScore: string;
-    overallScore: string;
-    technicalAnalysis: string;
-  };
-  onFormDataChange: (data: Partial<typeof formData>) => void;
+  formData: CreatePredictionFormData;
+  onFormDataChange: (data: Partial<CreatePredictionFormData>) => void;
   currentStockPrice: number | null;
   loadingStockPrice: boolean;
   creating: boolean;

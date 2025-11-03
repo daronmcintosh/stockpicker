@@ -73,7 +73,7 @@ export async function updateStrategy(
     const sourceConfig = (req as unknown as { sourceConfig?: string }).sourceConfig;
     if (sourceConfig !== undefined) {
       updates.push("source_config = ?");
-      params.push(sourceConfig || null);
+      params.push(sourceConfig || "");
     }
 
     // Track if name changed for workflow update

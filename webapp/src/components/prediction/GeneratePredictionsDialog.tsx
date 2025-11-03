@@ -1,5 +1,4 @@
 import { Dialog, DialogButton, DialogFooter } from "@/components/ui/Dialog";
-import type { Strategy } from "@/gen/stockpicker/v1/strategy_pb";
 
 interface GeneratePredictionsDialogProps {
   open: boolean;

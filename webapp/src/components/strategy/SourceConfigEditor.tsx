@@ -1,4 +1,4 @@
-import { CheckCircle2, ChevronDown, ChevronRight, Info } from "lucide-react";
+import { ChevronDown, ChevronRight, Info } from "lucide-react";
 import { useState } from "react";
 
 export interface SourceConfig {

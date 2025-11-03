@@ -17,8 +17,8 @@ import { RiskLevel } from "@/gen/stockpicker/v1/strategy_pb";
 import { useAuth } from "@/lib/auth";
 import { createClient } from "@/lib/connect";
 import { fetchStockPrices } from "@/lib/stockPrice";
-import { createFileRoute, useNavigate, useSearch } from "@tanstack/react-router";
-import { Pencil, Plus, Sparkles } from "lucide-react";
+import { createFileRoute, useSearch } from "@tanstack/react-router";
+import { Plus, Sparkles } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import toast from "react-hot-toast";
 
@@ -35,7 +35,6 @@ export const Route = createFileRoute("/predictions")({
 
 function PredictionsPage() {
   const { token, isLoading: authLoading } = useAuth();
-  const _navigate = useNavigate({ from: "/predictions" });
   const {
     strategy: strategyFromUrl,
     status: statusFromUrl,

@@ -83,7 +83,7 @@ function NewStrategyPage() {
         riskLevel: Number(formData.get("riskLevel")) as RiskLevel,
         maxUniqueStocks: Number(formData.get("maxUniqueStocks")),
         sourceConfig: JSON.stringify(sourceConfig),
-      });
+      } as never);
 
       toast.success("Strategy created successfully!");
       navigate({ to: "/strategies", search: { id: undefined } });
