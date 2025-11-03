@@ -33,6 +33,12 @@ service StrategyService {
   // Manually trigger prediction generation for a strategy
   rpc TriggerPredictions(TriggerPredictionsRequest) returns (TriggerPredictionsResponse);
 
+  // Internal: Prepare data for n8n workflow execution (called by n8n workflows)
+  rpc PrepareDataForWorkflow(PrepareDataForWorkflowRequest) returns (PrepareDataForWorkflowResponse);
+
+  // Internal: Create predictions from workflow output (called by n8n workflows)
+  rpc CreatePredictionsFromWorkflow(CreatePredictionsFromWorkflowRequest) returns (CreatePredictionsFromWorkflowResponse);
+
   // Update strategy privacy (public/private)
   rpc UpdateStrategyPrivacy(UpdateStrategyPrivacyRequest) returns (UpdateStrategyPrivacyResponse);
 
@@ -259,6 +265,57 @@ message TriggerPredictionsRequest {
 message TriggerPredictionsResponse {
   bool success = 1;
   string message = 2; // Status message (e.g., "Predictions generation triggered successfully")
+}
+
+// Prepare Data For Workflow (Internal - called by n8n workflows)
+message PrepareDataForWorkflowRequest {
+  string id = 1; // Strategy ID
+}
+
+message PrepareDataForWorkflowResponse {
+  StrategyData strategy = 1;
+  repeated ActivePredictionData active_predictions = 2;
+  bool has_budget = 3;
+  string sources = 4; // JSON-encoded source data structure
+}
+
+message StrategyData {
+  string id = 1;
+  string name = 2;
+  string time_horizon = 3;
+  double target_return_pct = 4;
+  RiskLevel risk_level = 5;
+  double per_stock_allocation = 6;
+  string custom_prompt = 7;
+}
+
+message ActivePredictionData {
+  string id = 1;
+  string symbol = 2;
+  double allocated_amount = 3;
+}
+
+// Create Predictions From Workflow (Internal - called by n8n workflows)
+message CreatePredictionsFromWorkflowRequest {
+  string strategy_id = 1;
+  string json_output = 2; // JSON string containing recommendations
+  string markdown_output = 3; // Markdown report
+  optional string execution_id = 4; // n8n execution ID
+}
+
+message CreatePredictionsFromWorkflowResponse {
+  bool success = 1;
+  string workflow_run_id = 2;
+  int32 predictions_created = 3;
+  repeated CreatedPredictionData predictions = 4;
+}
+
+message CreatedPredictionData {
+  string id = 1;
+  string symbol = 2;
+  double entry_price = 3;
+  double target_price = 4;
+  double stop_loss_price = 5;
 }
 
 // ============================================================================

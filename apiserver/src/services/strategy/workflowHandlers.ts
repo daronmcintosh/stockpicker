@@ -1,53 +1,33 @@
 import { randomUUID } from "node:crypto";
-import type { IncomingMessage, ServerResponse } from "node:http";
-import { type PredictionRow, type StrategyRow, db } from "../db.js";
-import { dbRowToProtoStrategy } from "../services/strategy/strategyHelpers.js";
-
-interface InternalRequest extends IncomingMessage {
-  body?: string;
-}
-
-/**
- * Parse request body as JSON
- */
-async function parseBody(req: InternalRequest): Promise<Record<string, unknown>> {
-  return new Promise((resolve, reject) => {
-    let body = "";
-    req.on("data", (chunk) => {
-      body += chunk.toString();
-    });
-    req.on("end", () => {
-      try {
-        resolve(body ? JSON.parse(body) : {});
-      } catch (_error) {
-        reject(new Error("Invalid JSON in request body"));
-      }
-    });
-    req.on("error", reject);
-  });
-}
+import { create } from "@bufbuild/protobuf";
+import type { HandlerContext } from "@connectrpc/connect";
+import { Code, ConnectError } from "@connectrpc/connect";
+import { type PredictionRow, type StrategyRow, db } from "../../db.js";
+import type {
+  CreatePredictionsFromWorkflowRequest,
+  CreatePredictionsFromWorkflowResponse,
+  PrepareDataForWorkflowRequest,
+  PrepareDataForWorkflowResponse,
+} from "../../gen/stockpicker/v1/strategy_pb.js";
+import {
+  ActivePredictionDataSchema,
+  CreatePredictionsFromWorkflowResponseSchema,
+  CreatedPredictionDataSchema,
+  PrepareDataForWorkflowResponseSchema,
+  StrategyDataSchema,
+} from "../../gen/stockpicker/v1/strategy_pb.js";
+import { dbRowToProtoStrategy } from "./strategyHelpers.js";
 
 /**
- * Send JSON response
+ * Prepare data for n8n workflow execution
+ * Internal endpoint called by n8n workflows to get strategy data and sources
  */
-function sendJson(res: ServerResponse, status: number, data: unknown): void {
-  res.writeHead(status, { "Content-Type": "application/json" });
-  res.end(JSON.stringify(data));
-}
-
-/**
- * GET /internal/strategies/:id/prepare-data
- * Prepares all input data for n8n workflow including multi-source stock data
- */
-export async function handlePrepareData(req: InternalRequest, res: ServerResponse): Promise<void> {
+export async function prepareDataForWorkflow(
+  req: PrepareDataForWorkflowRequest,
+  _context: HandlerContext
+): Promise<PrepareDataForWorkflowResponse> {
   try {
-    // Extract strategy ID from URL
-    const urlMatch = req.url?.match(/\/internal\/strategies\/([^/]+)\/prepare-data/);
-    if (!urlMatch || !urlMatch[1]) {
-      sendJson(res, 400, { error: "Invalid strategy ID" });
-      return;
-    }
-    const strategyId = urlMatch[1];
+    const strategyId = req.id;
 
     // Get strategy from database
     const row = (await db.get("SELECT * FROM strategies WHERE id = ?", [strategyId])) as
@@ -55,19 +35,18 @@ export async function handlePrepareData(req: InternalRequest, res: ServerRespons
       | undefined;
 
     if (!row) {
-      sendJson(res, 404, { error: `Strategy not found: ${strategyId}` });
-      return;
+      throw new ConnectError(`Strategy not found: ${strategyId}`, Code.NotFound);
     }
 
     // Validate strategy is active
     if (row.status !== "STRATEGY_STATUS_ACTIVE") {
-      sendJson(res, 400, {
-        error: `Strategy is not active. Current status: ${row.status}`,
-      });
-      return;
+      throw new ConnectError(
+        `Strategy is not active. Current status: ${row.status}`,
+        Code.FailedPrecondition
+      );
     }
 
-    // Convert strategy to proto format
+    // Convert strategy to proto format for data extraction
     const strategy = await dbRowToProtoStrategy(row);
 
     // Get active predictions for budget calculation
@@ -79,7 +58,7 @@ export async function handlePrepareData(req: InternalRequest, res: ServerRespons
       [strategyId]
     )) as PredictionRow[];
 
-    const { dbRowToProtoPrediction } = await import("../services/prediction/predictionHelpers.js");
+    const { dbRowToProtoPrediction } = await import("../prediction/predictionHelpers.js");
     const activePredictions = await Promise.all(
       activePredictionsRows.map((pRow) => dbRowToProtoPrediction(pRow))
     );
@@ -159,68 +138,71 @@ export async function handlePrepareData(req: InternalRequest, res: ServerRespons
       };
     }
 
-    // Return prepared data
-    sendJson(res, 200, {
-      strategy: {
-        id: strategy.id,
-        name: strategy.name,
-        timeHorizon: strategy.timeHorizon,
-        targetReturnPct: Number(strategy.targetReturnPct),
-        riskLevel: strategy.riskLevel,
-        perStockAllocation: Number(strategy.perStockAllocation),
-        customPrompt: strategy.customPrompt || "",
-      },
-      activePredictions: activePredictions.map((p) => ({
+    // Build response
+    const strategyData = create(StrategyDataSchema, {
+      id: strategy.id,
+      name: strategy.name,
+      timeHorizon: strategy.timeHorizon,
+      targetReturnPct: strategy.targetReturnPct,
+      riskLevel: strategy.riskLevel,
+      perStockAllocation: strategy.perStockAllocation,
+      customPrompt: strategy.customPrompt || "",
+    });
+
+    const activePredictionsData = activePredictions.map((p) =>
+      create(ActivePredictionDataSchema, {
         id: p.id,
         symbol: p.symbol,
-        allocatedAmount: Number(p.allocatedAmount),
-      })),
-      hasBudget: hasBudget,
-      sources: sources,
+        allocatedAmount: p.allocatedAmount,
+      })
+    );
+
+    return create(PrepareDataForWorkflowResponseSchema, {
+      strategy: strategyData,
+      activePredictions: activePredictionsData,
+      hasBudget,
+      sources: JSON.stringify(sources),
     });
   } catch (error) {
-    console.error("❌ Error in prepare-data endpoint:", error);
-    sendJson(res, 500, {
-      error: error instanceof Error ? error.message : "Internal server error",
-    });
+    console.error("❌ Error in prepareDataForWorkflow:", error);
+    if (error instanceof ConnectError) {
+      throw error;
+    }
+    throw new ConnectError(
+      error instanceof Error ? error.message : "Internal server error",
+      Code.Internal
+    );
   }
 }
 
 /**
- * POST /internal/strategies/:id/create-predictions
- * Creates predictions from workflow output and saves workflow run
+ * Create predictions from workflow output
+ * Internal endpoint called by n8n workflows to create predictions after AI analysis
  */
-export async function handleCreatePredictions(
-  req: InternalRequest,
-  res: ServerResponse
-): Promise<void> {
+export async function createPredictionsFromWorkflow(
+  req: CreatePredictionsFromWorkflowRequest,
+  context: HandlerContext
+): Promise<CreatePredictionsFromWorkflowResponse> {
   try {
-    // Extract strategy ID from URL
-    const urlMatch = req.url?.match(/\/internal\/strategies\/([^/]+)\/create-predictions/);
-    if (!urlMatch || !urlMatch[1]) {
-      sendJson(res, 400, { error: "Invalid strategy ID" });
-      return;
-    }
-    const strategyId = urlMatch[1];
+    const strategyId = req.strategyId;
+    const jsonOutput = req.jsonOutput;
+    const markdownOutput = req.markdownOutput;
+    const executionId = req.executionId;
 
-    // Parse request body
-    const body = await parseBody(req);
-    const { json_output, markdown_output, strategyId: bodyStrategyId } = body;
-
-    // Validate strategy ID matches
-    if (bodyStrategyId !== strategyId) {
-      sendJson(res, 400, { error: "Strategy ID mismatch" });
-      return;
+    // Parse JSON output
+    let jsonOutputObj: { recommendations?: Array<Record<string, unknown>> };
+    try {
+      jsonOutputObj = JSON.parse(jsonOutput);
+    } catch (_error) {
+      throw new ConnectError("Invalid JSON in json_output", Code.InvalidArgument);
     }
 
     // Validate outputs
-    if (!json_output || typeof json_output !== "object") {
-      sendJson(res, 400, { error: "Missing or invalid json_output" });
-      return;
+    if (!jsonOutputObj || typeof jsonOutputObj !== "object") {
+      throw new ConnectError("Missing or invalid json_output", Code.InvalidArgument);
     }
-    if (!markdown_output || typeof markdown_output !== "string") {
-      sendJson(res, 400, { error: "Missing or invalid markdown_output" });
-      return;
+    if (!markdownOutput || typeof markdownOutput !== "string") {
+      throw new ConnectError("Missing or invalid markdown_output", Code.InvalidArgument);
     }
 
     // Get strategy to validate it exists
@@ -229,33 +211,30 @@ export async function handleCreatePredictions(
       | undefined;
 
     if (!row) {
-      sendJson(res, 404, { error: `Strategy not found: ${strategyId}` });
-      return;
+      throw new ConnectError(`Strategy not found: ${strategyId}`, Code.NotFound);
     }
 
     // Extract recommendations from JSON output
-    const jsonOutputObj = json_output as { recommendations?: Array<Record<string, unknown>> };
     const recommendations = jsonOutputObj.recommendations || [];
 
     if (recommendations.length === 0) {
-      sendJson(res, 400, { error: "No recommendations found in json_output" });
-      return;
+      throw new ConnectError("No recommendations found in json_output", Code.InvalidArgument);
     }
 
     // Create workflow run record
     const workflowRunId = randomUUID();
-    const executionId = req.headers["x-n8n-execution-id"] as string | undefined;
+    const executionIdFromHeader = context.requestHeader.get("x-n8n-execution-id") || executionId;
 
     await db.run(
       `INSERT INTO workflow_runs (id, strategy_id, execution_id, json_output, markdown_output, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
-      [workflowRunId, strategyId, executionId || null, JSON.stringify(json_output), markdown_output]
+      [workflowRunId, strategyId, executionIdFromHeader || null, jsonOutput, markdownOutput]
     );
 
     console.log(`✅ Created workflow run:`, {
       workflowRunId,
       strategyId,
-      executionId,
+      executionId: executionIdFromHeader,
       recommendationsCount: recommendations.length,
     });
 
@@ -335,13 +314,15 @@ export async function handleCreatePredictions(
         ]
       );
 
-      createdPredictions.push({
-        id: predictionId,
-        symbol,
-        entryPrice,
-        targetPrice,
-        stopLossPrice,
-      });
+      createdPredictions.push(
+        create(CreatedPredictionDataSchema, {
+          id: predictionId,
+          symbol,
+          entryPrice,
+          targetPrice,
+          stopLossPrice,
+        })
+      );
 
       console.log(`✅ Created prediction:`, {
         predictionId,
@@ -362,44 +343,20 @@ export async function handleCreatePredictions(
       [newSpent, strategyId]
     );
 
-    sendJson(res, 200, {
+    return create(CreatePredictionsFromWorkflowResponseSchema, {
       success: true,
       workflowRunId,
       predictionsCreated: createdPredictions.length,
       predictions: createdPredictions,
     });
   } catch (error) {
-    console.error("❌ Error in create-predictions endpoint:", error);
-    sendJson(res, 500, {
-      error: error instanceof Error ? error.message : "Internal server error",
-    });
+    console.error("❌ Error in createPredictionsFromWorkflow:", error);
+    if (error instanceof ConnectError) {
+      throw error;
+    }
+    throw new ConnectError(
+      error instanceof Error ? error.message : "Internal server error",
+      Code.Internal
+    );
   }
-}
-
-/**
- * Route handler for internal endpoints
- */
-export async function handleInternalRoute(
-  req: InternalRequest,
-  res: ServerResponse
-): Promise<boolean> {
-  // Only handle /internal/* routes
-  if (!req.url?.startsWith("/internal/")) {
-    return false;
-  }
-
-  // Handle specific routes
-  if (req.url.match(/\/internal\/strategies\/[^/]+\/prepare-data/) && req.method === "GET") {
-    await handlePrepareData(req, res);
-    return true;
-  }
-
-  if (req.url.match(/\/internal\/strategies\/[^/]+\/create-predictions/) && req.method === "POST") {
-    await handleCreatePredictions(req, res);
-    return true;
-  }
-
-  // Unknown internal route
-  sendJson(res, 404, { error: "Internal endpoint not found" });
-  return true;
 }

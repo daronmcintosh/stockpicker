@@ -4,9 +4,8 @@ import type { N8nWorkflow } from "../n8nTypes.js";
 import { frequencyToCron, frequencyToName, getCurrentApiUrl } from "./n8nHelpers.js";
 
 /**
- * Create a workflow template for a strategy that focuses on stock analysis with multi-source data
- * The apiserver provides raw source data, workflow refines stocks with source tracing,
- * AI produces both JSON and Markdown outputs, and apiserver creates predictions + workflow run record
+ * Create a workflow template for a strategy that focuses on AI-powered stock analysis
+ * Flow: Get Prepared Data -> AI Agent(s) Analysis -> Top 10 Stocks -> Standardized .md/.json -> Workflow Run
  */
 export function createStrategyWorkflowTemplate(
   strategyId: string,
@@ -43,8 +42,8 @@ export function createStrategyWorkflowTemplate(
       // Get Prepared Data from Apiserver - fetches sources, strategy, predictions, budget info
       {
         parameters: {
-          url: `${apiUrl}/internal/strategies/${strategyId}/prepare-data`,
-          method: "GET",
+          url: `${apiUrl}/stockpicker.v1.StrategyService/PrepareDataForWorkflow`,
+          method: "POST",
           sendHeaders: true,
           headerParameters: {
             parameters: [
@@ -52,8 +51,15 @@ export function createStrategyWorkflowTemplate(
                 name: "Content-Type",
                 value: "application/json",
               },
+              {
+                name: "Connect-Protocol-Version",
+                value: "1",
+              },
             ],
           },
+          sendBody: true,
+          bodyContentType: "json",
+          jsonBody: `={"id": "${strategyId}"}`,
           options: {},
           authentication: "genericCredentialType",
           genericAuthType: "httpHeaderAuth",
@@ -64,43 +70,32 @@ export function createStrategyWorkflowTemplate(
         typeVersion: 4.2,
         position: [450, 300],
       },
-      // Extract Input Data - parses apiserver response with sources
+      // Extract Input Data - parses apiserver response
       {
         parameters: {
           mode: "runOnceForAllItems",
-          jsCode: `// Extract input data from apiserver response
-// Expected structure:
-// {
-//   strategy: { ... },
-//   activePredictions: [...],
-//   hasBudget: boolean,
-//   sources: {
-//     alpha_vantage: { ... },
-//     polymarket: { ... },
-//     reddit: { ... },
-//     news: { ... },
-//     earnings: { ... },
-//     politics: { ... }
-//   }
-// }
-
+          jsCode: `// Extract input data from ConnectRPC response
 const inputData = $json;
 const response = inputData.json || inputData.body || {};
 
 const strategy = response.strategy || {};
-const activePredictions = response.activePredictions || [];
+const activePredictions = response.activePredictions || response.active_predictions || [];
 const hasBudget = response.hasBudget !== false;
-const sources = response.sources || {};
+let sources = {};
+try {
+  sources = typeof response.sources === 'string' ? JSON.parse(response.sources) : (response.sources || {});
+} catch (e) {
+  console.error('Failed to parse sources:', e);
+  sources = {};
+}
 
-// Return structured data for workflow
 return [{
   json: {
     strategy: strategy,
     activePredictions: activePredictions,
     hasBudget: hasBudget,
     sources: sources,
-    // Store original response for reference
-    _raw_response: response
+    strategyId: "${strategyId}"
   }
 }];`,
         },
@@ -110,402 +105,268 @@ return [{
         typeVersion: 2,
         position: [650, 300],
       },
-      // Refine Top Stocks - analyzes sources and creates stocks with source tracing
+      // AI Agent - Primary Analysis (produces top 10 stocks with analysis)
       {
         parameters: {
-          mode: "runOnceForAllItems",
-          jsCode: `// Refine top stocks from sources with source tracing
-const inputData = $json;
-const sources = inputData.sources || {};
-const strategy = inputData.strategy || {};
-
-// Collect stocks from all sources with tracing
-const stockMap = new Map();
-
-// Alpha Vantage - top gainers/losers
-if (sources.alpha_vantage) {
-  const av = sources.alpha_vantage;
-  if (av.top_gainers && Array.isArray(av.top_gainers)) {
-    av.top_gainers.forEach(stock => {
-      const symbol = stock.ticker || stock.symbol;
-      if (!symbol) return;
-      
-      if (!stockMap.has(symbol)) {
-        stockMap.set(symbol, {
-          symbol: symbol,
-          ticker: symbol,
-          currentPrice: parseFloat(stock.price) || 0,
-          change_percentage: stock.change_percentage || '0%',
-          change_amount: parseFloat(stock.change_amount) || 0,
-          volume: parseInt(stock.volume) || 0,
-          source_contributions: []
-        });
-      }
-      
-      stockMap.get(symbol).source_contributions.push({
-        source: 'alpha_vantage',
-        reason: 'top_gainer',
-        data: stock,
-        signal_strength: parseFloat(stock.change_percentage?.replace('%', '')) || 0
-      });
-    });
-  }
-}
-
-// Reddit - sentiment data
-if (sources.reddit) {
-  const reddit = sources.reddit;
-  if (reddit.stocks && Array.isArray(reddit.stocks)) {
-    reddit.stocks.forEach(stock => {
-      const symbol = stock.symbol || stock.ticker;
-      if (!symbol) return;
-      
-      if (!stockMap.has(symbol)) {
-        stockMap.set(symbol, {
-          symbol: symbol,
-          ticker: symbol,
-          currentPrice: stock.currentPrice || 0,
-          source_contributions: []
-        });
-      }
-      
-      const stockData = stockMap.get(symbol);
-      stockData.source_contributions.push({
-        source: 'reddit',
-        reason: 'sentiment',
-        mentions: stock.mentions || 0,
-        sentiment_score: stock.sentiment_score || 0,
-        data: stock
-      });
-    });
-  }
-}
-
-// Earnings - upcoming earnings
-if (sources.earnings) {
-  const earnings = sources.earnings;
-  if (earnings.upcoming && Array.isArray(earnings.upcoming)) {
-    earnings.upcoming.forEach(item => {
-      const symbol = item.symbol || item.ticker;
-      if (!symbol) return;
-      
-      if (!stockMap.has(symbol)) {
-        stockMap.set(symbol, {
-          symbol: symbol,
-          ticker: symbol,
-          currentPrice: item.currentPrice || 0,
-          source_contributions: []
-        });
-      }
-      
-      stockMap.get(symbol).source_contributions.push({
-        source: 'earnings',
-        reason: 'upcoming_earnings',
-        earnings_date: item.earnings_date,
-        expected_move: item.expected_move,
-        data: item
-      });
-    });
-  }
-}
-
-// Polymarket - prediction markets
-if (sources.polymarket) {
-  const polymarket = sources.polymarket;
-  if (polymarket.stocks && Array.isArray(polymarket.stocks)) {
-    polymarket.stocks.forEach(stock => {
-      const symbol = stock.symbol || stock.ticker;
-      if (!symbol) return;
-      
-      if (!stockMap.has(symbol)) {
-        stockMap.set(symbol, {
-          symbol: symbol,
-          ticker: symbol,
-          currentPrice: stock.price || 0,
-          source_contributions: []
-        });
-      }
-      
-      stockMap.get(symbol).source_contributions.push({
-        source: 'polymarket',
-        reason: 'prediction_market',
-        market_odds: stock.odds,
-        data: stock
-      });
-    });
-  }
-}
-
-// News - news mentions
-if (sources.news) {
-  const news = sources.news;
-  if (news.articles && Array.isArray(news.articles)) {
-    news.articles.forEach(article => {
-      const symbols = article.mentioned_symbols || [];
-      symbols.forEach(symbol => {
-        if (!symbol) return;
-        
-        if (!stockMap.has(symbol)) {
-          stockMap.set(symbol, {
-            symbol: symbol,
-            ticker: symbol,
-            source_contributions: []
-          });
-        }
-        
-        stockMap.get(symbol).source_contributions.push({
-          source: 'news',
-          reason: 'news_mention',
-          article_title: article.title,
-          sentiment: article.sentiment,
-          data: article
-        });
-      });
-    });
-  }
-}
-
-// Filter and rank stocks based on strategy parameters
-const riskLevel = strategy.riskLevel || 'RISK_LEVEL_MEDIUM';
-const timeHorizon = strategy.timeHorizon || 'TIME_HORIZON_MEDIUM';
-
-let refinedStocks = Array.from(stockMap.values())
-  .filter(stock => {
-    // Apply risk filters
-    if (riskLevel === 'RISK_LEVEL_LOW') {
-      // Filter out high volatility stocks
-      const volatility = Math.abs(parseFloat(stock.change_percentage?.replace('%', '') || '0'));
-      return volatility < 5; // Less than 5% change for low risk
-    }
-    return true;
-  })
-  .map(stock => {
-    // Calculate composite score based on source contributions
-    let score = 0;
-    stock.source_contributions.forEach(contrib => {
-      if (contrib.source === 'alpha_vantage' && contrib.signal_strength) {
-        score += contrib.signal_strength * 0.3; // Weight price movement
-      }
-      if (contrib.source === 'reddit' && contrib.sentiment_score) {
-        score += contrib.sentiment_score * 0.2; // Weight sentiment
-      }
-      if (contrib.source === 'earnings') {
-        score += 2; // Earnings are significant
-      }
-      if (contrib.source === 'polymarket' && contrib.market_odds) {
-        score += contrib.market_odds * 0.1; // Weight market predictions
-      }
-      if (contrib.source === 'news') {
-        score += 0.5; // News mentions add weight
-      }
-    });
-    
-    return {
-      ...stock,
-      composite_score: score,
-      source_count: stock.source_contributions.length
-    };
-  })
-  .sort((a, b) => b.composite_score - a.composite_score)
-  .slice(0, 50); // Take top 50 for AI analysis
-
-return [{
-  json: {
-    ...inputData,
-    refined_stocks: refinedStocks,
-    source_tracing_enabled: true
-  }
-}];`,
+          url: "https://api.openai.com/v1/chat/completions",
+          method: "POST",
+          sendHeaders: true,
+          headerParameters: {
+            parameters: [
+              {
+                name: "Content-Type",
+                value: "application/json",
+              },
+              {
+                name: "Authorization",
+                value: "=Bearer {{ $env.OPENAI_API_KEY }}",
+              },
+            ],
+          },
+          sendBody: true,
+          bodyContentType: "json",
+          jsonBody:
+            '={{ {"model": "gpt-4o-mini", "messages": [{"role": "system", "content": "You are a professional financial AI analyst. Analyze stock data from multiple sources and provide your top 10 stock recommendations with detailed analysis, source tracing, and risk assessment. Always ensure your analysis is thorough and well-reasoned."}, {"role": "user", "content": "Analyze the following multi-source stock data and provide your top 10 stock recommendations:\\n\\nStrategy Parameters:\\n- Strategy: " + $json.strategy.name + "\\n- Time Horizon: " + $json.strategy.timeHorizon + "\\n- Target Return: " + $json.strategy.targetReturnPct + "%\\n- Risk Level: " + $json.strategy.riskLevel + "\\n- Per Stock Budget: $" + $json.strategy.perStockAllocation + "\\n- Custom Instructions: " + ($json.strategy.customPrompt || "None") + "\\n\\nMulti-Source Data:\\n" + JSON.stringify($json.sources, null, 2) + "\\n\\nActive Predictions: " + JSON.stringify($json.activePredictions, null, 2) + "\\n\\nProvide EXACTLY 10 stock recommendations in this JSON format:\\n{\\n  \\"top_stocks\\": [\\n    {\\n      \\"symbol\\": \\"AAPL\\",\\n      \\"entry_price\\": 150.00,\\n      \\"target_price\\": 165.00,\\n      \\"stop_loss_price\\": 142.50,\\n      \\"reasoning\\": \\"Detailed explanation...\\",\\n      \\"source_tracing\\": [\\n        {\\n          \\"source\\": \\"alpha_vantage\\",\\n          \\"contribution\\": \\"Top gainer with 5% increase\\",\\n          \\"data\\": {...}\\n        }\\n      ],\\n      \\"technical_analysis\\": {\\n        \\"trend\\": \\"bullish\\",\\n        \\"support_level\\": 148.00,\\n        \\"resistance_level\\": 168.00\\n      },\\n      \\"sentiment_score\\": 7.5,\\n      \\"overall_score\\": 8.2,\\n      \\"analysis\\": \\"Comprehensive analysis text...\\",\\n      \\"risk_assessment\\": \\"Medium risk...\\"\\n    }\\n  ],\\n  \\"metadata\\": {\\n    \\"sources_used\\": [\\"alpha_vantage\\", \\"reddit\\", ...],\\n    \\"analysis_date\\": \\"" + new Date().toISOString() + "\\",\\n    \\"stocks_considered\\": 50\\n  }\\n}\\n\\nIMPORTANT: Return ONLY valid JSON, no markdown formatting. Ensure all prices are numbers, not strings."}], "temperature": 0.7, "response_format": {"type": "json_object"}} }}',
+          options: {},
         },
-        id: "refine-top-stocks",
-        name: "Refine Top Stocks",
-        type: "n8n-nodes-base.code",
-        typeVersion: 2,
+        id: "ai-agent-analysis",
+        name: "AI Agent - Stock Analysis",
+        type: "n8n-nodes-base.httpRequest",
+        typeVersion: 4.2,
         position: [850, 300],
       },
-      // Generate Charts - create chart URLs for each stock using chart-img.com
+      // Parse AI Analysis - extract top 10 stocks
       {
         parameters: {
           mode: "runOnceForAllItems",
-          jsCode: `// Generate chart URLs for stocks using chart-img.com
-const inputData = $json;
-const stocks = inputData.refined_stocks || [];
+          jsCode: `// Parse AI agent response and extract top 10 stocks
+const response = $input.item.json;
+const content = response.choices?.[0]?.message?.content || response.message?.content || '';
 
-// Generate chart URLs for each stock
-const stocksWithCharts = stocks.map(stock => {
-  const symbol = stock.symbol || stock.ticker;
-  if (!symbol) return stock;
-  
-  // Generate chart-img.com URL
-  // Format: https://chart-img.com/[SYMBOL]?type=line&period=1d
-  const chartUrl = \`https://chart-img.com/\${symbol}?type=line&period=1d&theme=light\`;
-  
-  return {
-    ...stock,
-    chart: {
-      url: chartUrl,
-      type: 'chart-img',
-      symbol: symbol
-    }
-  };
-});
+let aiAnalysis = null;
+try {
+  aiAnalysis = JSON.parse(content);
+} catch (e) {
+  console.error('Error parsing AI analysis:', e);
+  aiAnalysis = { top_stocks: [], metadata: {} };
+}
+
+const top10Stocks = (aiAnalysis.top_stocks || []).slice(0, 10);
 
 return [{
   json: {
-    ...inputData,
-    refined_stocks: stocksWithCharts
+    top10Stocks: top10Stocks,
+    aiAnalysis: aiAnalysis,
+    metadata: aiAnalysis.metadata || {},
+    strategy: $node['Extract Input Data'].json.strategy,
+    sources: $node['Extract Input Data'].json.sources,
+    strategyId: "${strategyId}"
   }
 }];`,
         },
-        id: "generate-charts",
-        name: "Generate Charts",
+        id: "parse-ai-analysis",
+        name: "Parse AI Analysis",
         type: "n8n-nodes-base.code",
         typeVersion: 2,
         position: [1050, 300],
       },
-      // AI Stock Analysis - JSON Output (structured for apiserver)
-      {
-        parameters: {
-          url: "https://api.openai.com/v1/chat/completions",
-          method: "POST",
-          sendHeaders: true,
-          headerParameters: {
-            parameters: [
-              {
-                name: "Content-Type",
-                value: "application/json",
-              },
-              {
-                name: "Authorization",
-                value: "=Bearer {{ $env.OPENAI_API_KEY }}",
-              },
-            ],
-          },
-          sendBody: true,
-          bodyContentType: "json",
-          jsonBody:
-            '={{ {"model": "gpt-4o-mini", "messages": [{"role": "system", "content": "You are a financial analyst AI assistant. Analyze stocks with source tracing and provide structured JSON output. Always respond with valid JSON only, no markdown formatting."}, {"role": "user", "content": "Analyze the following refined stocks and provide recommendations based on:\\n\\nStrategy Parameters:\\n- Time Horizon: " + $json.strategy.timeHorizon + "\\n- Target Return: " + $json.strategy.targetReturnPct + "%\\n- Risk Level: " + $json.strategy.riskLevel + "\\n- Per Stock Budget: $" + $json.strategy.perStockAllocation + "\\n- Custom Instructions: " + ($json.strategy.customPrompt || "None") + "\\n\\nRefined Stocks (with source tracing):\\n" + JSON.stringify($json.refined_stocks.slice(0, 50), null, 2) + "\\n\\nFor each recommended stock, provide:\\n1. symbol (string)\\n2. entry_price (number)\\n3. target_price (number)\\n4. stop_loss_price (number)\\n5. source_tracing (array) - link back to source_contributions, include source name, contribution reason, and relevant data\\n6. reasoning (string) - explain why this stock was selected based on sources\\n7. technical_analysis (JSON object)\\n8. sentiment_score (number 1-10)\\n9. overall_score (number 1-10)\\n10. analysis (string) - detailed analysis\\n\\nReturn JSON: {\\"recommendations\\": [...], \\"metadata\\": {\\"sources_used\\": [...], \\"stocks_considered\\": number, \\"refined_to\\": number}}"}], "temperature": 0.7, "response_format": {"type": "json_object"}} }}',
-          options: {},
-        },
-        id: "ai-analysis-json",
-        name: "AI Analysis (JSON)",
-        type: "n8n-nodes-base.httpRequest",
-        typeVersion: 4.2,
-        position: [1250, 200],
-      },
-      // AI Stock Analysis - Markdown Output (human-readable for UI)
-      {
-        parameters: {
-          url: "https://api.openai.com/v1/chat/completions",
-          method: "POST",
-          sendHeaders: true,
-          headerParameters: {
-            parameters: [
-              {
-                name: "Content-Type",
-                value: "application/json",
-              },
-              {
-                name: "Authorization",
-                value: "=Bearer {{ $env.OPENAI_API_KEY }}",
-              },
-            ],
-          },
-          sendBody: true,
-          bodyContentType: "json",
-          jsonBody:
-            '={{ {"model": "gpt-4o-mini", "messages": [{"role": "system", "content": "You are a financial analyst creating a professional markdown report. Include charts using markdown image syntax: ![Chart](URL). Use clear sections and formatting."}, {"role": "user", "content": "Create a comprehensive markdown report for stock recommendations based on:\\n\\nStrategy: " + $json.strategy.name + "\\nTime Horizon: " + $json.strategy.timeHorizon + "\\nTarget Return: " + $json.strategy.targetReturnPct + "%\\n\\nStocks with source tracing:\\n" + JSON.stringify($json.refined_stocks.slice(0, 50), null, 2) + "\\n\\nCreate a markdown report with:\\n1. Executive summary\\n2. Top recommended stocks (top 10)\\n3. For each stock: symbol, entry/target/stop-loss prices, score, reasoning, source attribution, chart image\\n4. Source attribution showing which sources contributed to each recommendation\\n5. Risk assessment\\n\\nUse markdown image syntax for charts: ![Chart Description](chart-url)"}], "temperature": 0.7}} }}',
-          options: {},
-        },
-        id: "ai-analysis-markdown",
-        name: "AI Analysis (Markdown)",
-        type: "n8n-nodes-base.httpRequest",
-        typeVersion: 4.2,
-        position: [1250, 400],
-      },
-      // Parse JSON Output
+      // Generate JSON Output - standardized format
       {
         parameters: {
           mode: "runOnceForAllItems",
-          jsCode: `// Parse JSON output from AI
-const response = $input.item.json;
-const content = response.choices?.[0]?.message?.content || response.message?.content || '';
+          jsCode: `// Generate standardized JSON output
+const inputData = $json;
+const top10 = inputData.top10Stocks || [];
+const metadata = inputData.metadata || {};
+const strategy = inputData.strategy || {};
+const sources = inputData.sources || {};
 
-let jsonOutput = null;
+// Standardized JSON output format
+const jsonOutput = {
+  format_version: "1.0",
+  strategy_id: "${strategyId}",
+  strategy_name: strategy.name || "",
+  generated_at: new Date().toISOString(),
+  recommendations: top10.map(stock => ({
+    symbol: stock.symbol || "",
+    entry_price: Number(stock.entry_price) || 0,
+    target_price: Number(stock.target_price) || 0,
+    stop_loss_price: Number(stock.stop_loss_price) || 0,
+    reasoning: stock.reasoning || "",
+    source_tracing: stock.source_tracing || [],
+    technical_analysis: stock.technical_analysis || {},
+    sentiment_score: Number(stock.sentiment_score) || 0,
+    overall_score: Number(stock.overall_score) || 0,
+    analysis: stock.analysis || "",
+    risk_assessment: stock.risk_assessment || ""
+  })),
+  metadata: {
+    ...metadata,
+    sources_analyzed: Object.keys(sources),
+    recommendations_count: top10.length,
+    has_budget: true // From input data
+  }
+};
+
+return [{
+  json: {
+    json_output: JSON.stringify(jsonOutput),
+    top10Stocks: top10,
+    strategyId: "${strategyId}"
+  }
+}];`,
+        },
+        id: "generate-json-output",
+        name: "Generate JSON Output",
+        type: "n8n-nodes-base.code",
+        typeVersion: 2,
+        position: [1250, 200],
+      },
+      // Generate Markdown Output - standardized format that matches JSON
+      {
+        parameters: {
+          mode: "runOnceForAllItems",
+          jsCode: `// Generate standardized Markdown output that matches JSON recommendations
+const inputData = $json;
+const top10 = inputData.top10Stocks || [];
+const strategy = inputData.strategy || {};
+const sources = inputData.sources || {};
+
+// Build markdown report that corresponds to JSON output
+let markdown = '# Stock Analysis Report\\n\\n';
+markdown += \`**Strategy:** \${strategy.name || 'N/A'}\\n\`;
+markdown += \`**Time Horizon:** \${strategy.timeHorizon || 'N/A'}\\n\`;
+markdown += \`**Target Return:** \${strategy.targetReturnPct || 0}%\\n\`;
+markdown += \`**Risk Level:** \${strategy.riskLevel || 'N/A'}\\n\`;
+markdown += \`**Generated:** \${new Date().toISOString()}\\n\\n\`;
+
+markdown += '## Executive Summary\\n\\n';
+markdown += \`This analysis identified \${top10.length} top stock recommendations based on multi-source data analysis.\\n\\n\`;
+
+markdown += '## Top Stock Recommendations\\n\\n';
+
+top10.forEach((stock, index) => {
+  const symbol = stock.symbol || 'N/A';
+  const entryPrice = Number(stock.entry_price) || 0;
+  const targetPrice = Number(stock.target_price) || 0;
+  const stopLossPrice = Number(stock.stop_loss_price) || 0;
+  const overallScore = Number(stock.overall_score) || 0;
+  
+  markdown += \`### \${index + 1}. \${symbol}\\n\\n\`;
+  markdown += \`**Entry Price:** $\${entryPrice.toFixed(2)}\\n\`;
+  markdown += \`**Target Price:** $\${targetPrice.toFixed(2)} (+${(((targetPrice - entryPrice) / entryPrice) * 100).toFixed(2)}%)\\n\`;
+  markdown += \`**Stop Loss:** $\${stopLossPrice.toFixed(2)} (-${(((entryPrice - stopLossPrice) / entryPrice) * 100).toFixed(2)}%)\\n\`;
+  markdown += \`**Overall Score:** \${overallScore.toFixed(1)}/10\\n\\n\`;
+  
+  if (stock.reasoning) {
+    markdown += \`**Reasoning:** \${stock.reasoning}\\n\\n\`;
+  }
+  
+  if (stock.analysis) {
+    markdown += \`**Analysis:** \${stock.analysis}\\n\\n\`;
+  }
+  
+  // Source tracing
+  if (stock.source_tracing && stock.source_tracing.length > 0) {
+    markdown += '**Sources:**\\n';
+    stock.source_tracing.forEach(source => {
+      markdown += \`- \${source.source}: \${source.contribution || 'See data'}\\n\`;
+    });
+    markdown += '\\n';
+  }
+  
+  // Technical analysis
+  if (stock.technical_analysis) {
+    markdown += '**Technical Analysis:**\\n';
+    if (stock.technical_analysis.trend) {
+      markdown += \`- Trend: \${stock.technical_analysis.trend}\\n\`;
+    }
+    if (stock.technical_analysis.support_level) {
+      markdown += \`- Support Level: $\${stock.technical_analysis.support_level}\\n\`;
+    }
+    if (stock.technical_analysis.resistance_level) {
+      markdown += \`- Resistance Level: $\${stock.technical_analysis.resistance_level}\\n\`;
+    }
+    markdown += '\\n';
+  }
+  
+  if (stock.risk_assessment) {
+    markdown += \`**Risk Assessment:** \${stock.risk_assessment}\\n\\n\`;
+  }
+  
+  markdown += '---\\n\\n';
+});
+
+markdown += '## Source Attribution\\n\\n';
+markdown += \`This analysis used data from: \${Object.keys(sources).join(', ') || 'No sources available'}\\n\\n\`;
+
+markdown += '## Methodology\\n\\n';
+markdown += 'Stocks were analyzed using multi-source data aggregation, AI-powered analysis, and risk assessment based on strategy parameters.\\n';
+
+return [{
+  json: {
+    markdown_output: markdown,
+    strategyId: "${strategyId}"
+  }
+}];`,
+        },
+        id: "generate-markdown-output",
+        name: "Generate Markdown Output",
+        type: "n8n-nodes-base.code",
+        typeVersion: 2,
+        position: [1250, 400],
+      },
+      // Combine Outputs - ensure JSON and Markdown are consistent
+      {
+        parameters: {
+          mode: "runOnceForAllItems",
+          jsCode: `// Combine JSON and Markdown outputs, ensuring consistency
+const jsonItem = $node['Generate JSON Output'].json || {};
+const markdownItem = $node['Generate Markdown Output'].json || {};
+
+const jsonOutput = jsonItem.json_output || '{}';
+const markdownOutput = markdownItem.markdown_output || '# Stock Analysis Report\\n\\nNo data available.';
+
+// Parse JSON to validate it matches markdown
+let jsonObj = {};
 try {
-  jsonOutput = JSON.parse(content);
+  jsonObj = JSON.parse(jsonOutput);
 } catch (e) {
-  console.error('Error parsing JSON output:', e);
-  jsonOutput = { recommendations: [], metadata: {} };
+  console.error('Error parsing JSON output for validation:', e);
+}
+
+// Validate consistency: ensure markdown mentions all symbols from JSON
+const jsonSymbols = (jsonObj.recommendations || []).map(r => r.symbol).filter(Boolean);
+const markdownSymbols = markdownOutput.match(/### \\d+\\. ([A-Z]+)/g) || [];
+const markdownSymbolsExtracted = markdownSymbols.map(m => m.replace(/### \\d+\\. /, ''));
+
+// Check if all JSON symbols appear in markdown
+const missingInMarkdown = jsonSymbols.filter(s => !markdownSymbolsExtracted.includes(s));
+if (missingInMarkdown.length > 0) {
+  console.warn('⚠️ Warning: Some JSON recommendations missing in markdown:', missingInMarkdown);
 }
 
 return [{
   json: {
-    json_output: jsonOutput,
-    type: 'json'
-  }
-}];`,
-        },
-        id: "parse-json-output",
-        name: "Parse JSON Output",
-        type: "n8n-nodes-base.code",
-        typeVersion: 2,
-        position: [1450, 200],
-      },
-      // Parse Markdown Output
-      {
-        parameters: {
-          mode: "runOnceForAllItems",
-          jsCode: `// Extract markdown output from AI
-const response = $input.item.json;
-const markdownOutput = response.choices?.[0]?.message?.content || response.message?.content || '';
-
-return [{
-  json: {
-    markdown_output: markdownOutput,
-    type: 'markdown'
-  }
-}];`,
-        },
-        id: "parse-markdown-output",
-        name: "Parse Markdown Output",
-        type: "n8n-nodes-base.code",
-        typeVersion: 2,
-        position: [1450, 400],
-      },
-      // Combine Outputs - merge JSON and Markdown into final standardized output
-      {
-        parameters: {
-          mode: "runOnceForAllItems",
-          jsCode: `// Combine JSON and Markdown outputs into standardized format
-const jsonItem = $node['Parse JSON Output'].json || {};
-const markdownItem = $node['Parse Markdown Output'].json || {};
-
-const jsonOutput = jsonItem.json_output || { recommendations: [], metadata: {} };
-const markdownOutput = markdownItem.markdown_output || '# Stock Analysis Report\\n\\nNo analysis available.';
-
-const strategyId = $node['Extract Input Data'].json.strategy.id || '';
-
-return [{
-  json: {
+    strategy_id: "${strategyId}",
     json_output: jsonOutput,
     markdown_output: markdownOutput,
-    strategyId: strategyId,
     timestamp: new Date().toISOString(),
-    format_version: '1.0'
+    format_version: "1.0",
+    validated: missingInMarkdown.length === 0
   }
 }];`,
         },
         id: "combine-outputs",
-        name: "Combine Outputs",
+        name: "Combine & Validate Outputs",
         type: "n8n-nodes-base.code",
         typeVersion: 2,
-        position: [1650, 300],
+        position: [1450, 300],
       },
-      // Create Predictions in Apiserver - sends both outputs to create predictions + workflow run
+      // Create Workflow Run - sends both outputs to create workflow run record
       {
         parameters: {
-          url: `${apiUrl}/internal/strategies/${strategyId}/create-predictions`,
+          url: `${apiUrl}/stockpicker.v1.StrategyService/CreatePredictionsFromWorkflow`,
           method: "POST",
           sendHeaders: true,
           headerParameters: {
@@ -514,20 +375,25 @@ return [{
                 name: "Content-Type",
                 value: "application/json",
               },
+              {
+                name: "Connect-Protocol-Version",
+                value: "1",
+              },
             ],
           },
           sendBody: true,
           bodyContentType: "json",
-          jsonBody: "={{ $json }}",
+          jsonBody:
+            "={{ JSON.stringify({ strategyId: $json.strategy_id, jsonOutput: $json.json_output, markdownOutput: $json.markdown_output, executionId: $execution.id }) }}",
           options: {},
           authentication: "genericCredentialType",
           genericAuthType: "httpHeaderAuth",
         },
-        id: "create-predictions",
-        name: "Create Predictions",
+        id: "create-workflow-run",
+        name: "Create Workflow Run",
         type: "n8n-nodes-base.httpRequest",
         typeVersion: 4.2,
-        position: [1850, 300],
+        position: [1650, 300],
       },
     ],
     connections: {
@@ -538,33 +404,27 @@ return [{
         main: [[{ node: "Extract Input Data", type: "main", index: 0 }]],
       },
       "Extract Input Data": {
-        main: [[{ node: "Refine Top Stocks", type: "main", index: 0 }]],
+        main: [[{ node: "AI Agent - Stock Analysis", type: "main", index: 0 }]],
       },
-      "Refine Top Stocks": {
-        main: [[{ node: "Generate Charts", type: "main", index: 0 }]],
+      "AI Agent - Stock Analysis": {
+        main: [[{ node: "Parse AI Analysis", type: "main", index: 0 }]],
       },
-      "Generate Charts": {
+      "Parse AI Analysis": {
         main: [
           [
-            { node: "AI Analysis (JSON)", type: "main", index: 0 },
-            { node: "AI Analysis (Markdown)", type: "main", index: 0 },
+            { node: "Generate JSON Output", type: "main", index: 0 },
+            { node: "Generate Markdown Output", type: "main", index: 0 },
           ],
         ],
       },
-      "AI Analysis (JSON)": {
-        main: [[{ node: "Parse JSON Output", type: "main", index: 0 }]],
+      "Generate JSON Output": {
+        main: [[{ node: "Combine & Validate Outputs", type: "main", index: 0 }]],
       },
-      "AI Analysis (Markdown)": {
-        main: [[{ node: "Parse Markdown Output", type: "main", index: 0 }]],
+      "Generate Markdown Output": {
+        main: [[{ node: "Combine & Validate Outputs", type: "main", index: 0 }]],
       },
-      "Parse JSON Output": {
-        main: [[{ node: "Combine Outputs", type: "main", index: 0 }]],
-      },
-      "Parse Markdown Output": {
-        main: [[{ node: "Combine Outputs", type: "main", index: 0 }]],
-      },
-      "Combine Outputs": {
-        main: [[{ node: "Create Predictions", type: "main", index: 0 }]],
+      "Combine & Validate Outputs": {
+        main: [[{ node: "Create Workflow Run", type: "main", index: 0 }]],
       },
     },
     settings: {

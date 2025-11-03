@@ -7,14 +7,15 @@ import { connectNodeAdapter } from "@connectrpc/connect-node";
 import { registerServerReflectionFromFile } from "@lambdalisue/connectrpc-grpcreflect";
 import { appConfig } from "./config.js";
 import { PredictionService, StrategyService } from "./gen/stockpicker/v1/strategy_pb.js";
-import { handleInternalRoute } from "./routes/internal.js";
 import { predictionServiceImpl } from "./services/prediction/index.js";
 import {
+  createPredictionsFromWorkflow,
   createStrategy,
   deleteStrategy,
   getStrategy,
   listStrategies,
   pauseStrategy,
+  prepareDataForWorkflow,
   startStrategy,
   stopStrategy,
   syncStrategiesWithWorkflows,
@@ -41,6 +42,10 @@ const strategyServiceImpl = {
 
   // Migrated privacy operations
   updateStrategyPrivacy,
+
+  // Workflow handlers (internal - called by n8n workflows)
+  prepareDataForWorkflow,
+  createPredictionsFromWorkflow,
 
   // Remaining RPCs from original file (to be migrated)
   sendOTP: remainingStrategyService.sendOTP,
@@ -119,47 +124,26 @@ const server = createServer((req, res) => {
   // Log incoming requests
   console.log(`[API SERVER] ${new Date().toISOString()} ${req.method} ${req.url}`);
 
-  // Handle internal routes first (before Connect adapter)
-  handleInternalRoute(req as Parameters<typeof handleInternalRoute>[0], res)
-    .then((handled) => {
-      // If internal route was handled, don't pass to Connect adapter
-      if (handled) {
-        return;
-      }
-      // Otherwise, pass to Connect adapter
-      try {
-        adapter(req, res);
-      } catch (err) {
-        console.error(`[API SERVER] ❌ Synchronous adapter error:`, err);
-        console.error(`[API SERVER] Error details:`, {
-          message: err instanceof Error ? err.message : String(err),
-          stack: err instanceof Error ? err.stack : undefined,
-          code:
-            typeof err === "object" && err !== null && "code" in err ? String(err.code) : undefined,
-        });
-        if (!res.headersSent) {
-          res.writeHead(500);
-          res.end(
-            JSON.stringify({
-              error: "Internal server error",
-              details: err instanceof Error ? err.message : String(err),
-            })
-          );
-        }
-      }
-    })
-    .catch((err) => {
-      console.error(`[API SERVER] ❌ Internal route handler error:`, err);
-      if (!res.headersSent) {
-        res.writeHead(500);
-        res.end(
-          JSON.stringify({
-            error: "Internal server error",
-            details: err instanceof Error ? err.message : String(err),
-          })
-        );
-      }
+  // Pass all requests to Connect adapter (all routes are now ConnectRPC)
+  try {
+    adapter(req, res);
+  } catch (err) {
+    console.error(`[API SERVER] ❌ Synchronous adapter error:`, err);
+    console.error(`[API SERVER] Error details:`, {
+      message: err instanceof Error ? err.message : String(err),
+      stack: err instanceof Error ? err.stack : undefined,
+      code: typeof err === "object" && err !== null && "code" in err ? String(err.code) : undefined,
     });
+    if (!res.headersSent) {
+      res.writeHead(500);
+      res.end(
+        JSON.stringify({
+          error: "Internal server error",
+          details: err instanceof Error ? err.message : String(err),
+        })
+      );
+    }
+  }
 });
 
 // Helper function to list all available endpoints

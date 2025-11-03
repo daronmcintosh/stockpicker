@@ -14,6 +14,10 @@ export {
 } from "./strategyLifecycle.js";
 export { updateStrategyPrivacy } from "./strategyPrivacy.js";
 export { syncStrategiesWithWorkflows } from "./workflowSync.js";
+export {
+  prepareDataForWorkflow,
+  createPredictionsFromWorkflow,
+} from "./workflowHandlers.js";
 
 // Re-export auth methods (auth is now in services/auth, not services/strategy/auth)
 export {
